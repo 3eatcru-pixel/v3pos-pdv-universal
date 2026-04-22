@@ -1,0 +1,134 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ======================================================
+    // 0. GLOBAL SAFETY NET
+    // ======================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ======================================================
+    // 1. SECURITY PRIMITIVES
+    // ======================================================
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    // Identity & Role Verification
+    function isOwner(entId) {
+      let entPath = /databases/$(database)/documents/enterprises/$(entId);
+      return isSignedIn() && 
+        exists(entPath) &&
+        get(entPath).data.ownerId == request.auth.uid;
+    }
+    
+    function hasRole(entId, roles) {
+      // Identity lookup: Staff documents are keyed correctly in the db as {uid}_{entId}
+      let staffRef = /databases/$(database)/documents/staff/$(request.auth.uid + "_" + entId);
+      return isSignedIn() && (
+        isOwner(entId) || 
+        (exists(staffRef) && get(staffRef).data.role in roles)
+      );
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "3eatcru@gmail.com" || 
+        request.auth.token.email == "marcelokbite@gmail.com" || 
+        request.auth.token.email_verified == true && request.auth.token.email.matches('.*@google\\.com$')
+      ); 
+    }
+
+    // ======================================================
+    // 2. VALIDATION HELPERS
+    // ======================================================
+    
+    function isValidEnterprise(data) {
+      return data.keys().hasAll(['id', 'name', 'ownerId', 'createdAt']) &&
+             data.id is string &&
+             data.ownerId == request.auth.uid &&
+             data.createdAt == request.time;
+    }
+
+    function isValidStaff(data) {
+      return data.keys().hasAll(['id', 'enterpriseId', 'name', 'role', 'active']) &&
+             data.role in ['owner', 'manager', 'waiter', 'chef', 'regional_manager', 'admin'];
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'enterpriseId', 'shopId', 'name', 'price', 'category', 'active']) &&
+             data.price is number && data.price >= 0;
+    }
+
+    // ======================================================
+    // 3. COLLECTION RULES
+    // ======================================================
+
+    match /enterprises/{entId} {
+      allow get: if isValidId(entId) && (isAdmin() || isSignedIn()); // Allow get for signed in to verify enterprise exists
+      allow list: if true; // Public list to allow selection on landing/holding
+      allow create: if isValidId(entId) && isValidEnterprise(incoming());
+      allow update: if isValidId(entId) && isOwner(entId) && 
+                      incoming().ownerId == existing().ownerId &&
+                      incoming().createdAt == existing().createdAt;
+    }
+
+    match /staff/{staffId} {
+      allow get: if isValidId(staffId) && (
+        isAdmin() || 
+        (isSignedIn() && hasRole(resource.data.enterpriseId, ['owner', 'manager', 'waiter', 'chef', 'regional_manager'])) ||
+        (isSignedIn() && staffId.startsWith(request.auth.uid))
+      );
+      allow list: if isSignedIn(); // Allow list for any signed-in user so they can find themselves in the login list
+      allow create: if isValidId(staffId) && isValidStaff(incoming()) && (isAdmin() || isOwner(incoming().enterpriseId));
+      allow update: if isValidId(staffId) && hasRole(existing().enterpriseId, ['owner', 'manager']) && 
+                      incoming().enterpriseId == existing().enterpriseId;
+    }
+
+    match /shops/{shopId} {
+      allow read: if isSignedIn(); // Basic shop info needed for various UI branches
+      allow create: if isValidId(shopId) && isOwner(incoming().enterpriseId);
+      allow update: if isValidId(shopId) && hasRole(existing().enterpriseId, ['owner', 'manager']);
+    }
+
+    match /products/{productId} {
+      allow read: if isSignedIn() && hasRole(resource.data.enterpriseId, ['owner', 'manager', 'waiter', 'chef']);
+      allow create: if isValidId(productId) && isValidProduct(incoming()) && hasRole(incoming().enterpriseId, ['owner', 'manager']);
+      allow update: if isValidId(productId) && hasRole(existing().enterpriseId, ['owner', 'manager']) && 
+                      incoming().enterpriseId == existing().enterpriseId;
+    }
+
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && hasRole(resource.data.enterpriseId, ['owner', 'manager', 'waiter', 'chef']);
+      allow create: if isValidId(orderId) && hasRole(incoming().enterpriseId, ['owner', 'manager', 'waiter']);
+      allow update: if isValidId(orderId) && hasRole(existing().enterpriseId, ['owner', 'manager', 'waiter', 'chef']);
+    }
+
+    match /businessConfigs/{id} {
+      allow read: if true;
+      allow write: if isSignedIn() && hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager']);
+    }
+
+    match /rolePermissions/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /masterKeys/{keyId} {
+      allow get: if isValidId(keyId);
+      allow create: if isAdmin();
+      allow update: if isValidId(keyId) && 
+                      incoming().diff(existing()).affectedKeys().hasOnly(['used', 'usedBy', 'usedAt', 'enterpriseId', 'companyId', 'usedByDevice', 'updatedAt']) &&
+                      incoming().used == true &&
+                      existing().used == false;
+    }
+    
+    match /tables/{id} { allow read, write: if isSignedIn() && hasRole(resource.data.enterpriseId || incoming().enterpriseId, ['owner', 'manager', 'waiter']); }
+    
+    match /notifications/{id} { allow read, write: if isSignedIn(); }
+    match /staffSchedules/{id} { allow read: if isSignedIn(); allow write: if hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager']); }
+  }
+}

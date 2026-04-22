@@ -1,0 +1,191 @@
+{
+  "entities": {
+    "Shop": {
+      "title": "Shop",
+      "description": "Details of a restaurant unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "regionId": { "type": "string" },
+        "address": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "settings": { "type": "object" }
+      },
+      "required": ["id", "name", "regionId", "settings"]
+    },
+    "Staff": {
+      "title": "Staff",
+      "description": "Information about an employee",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "active": { "type": "boolean" },
+        "pin": { "type": "string" },
+        "assignedShopIds": { "type": "array", "items": { "type": "string" } },
+        "photo": { "type": "string" },
+        "phone": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "active", "pin", "assignedShopIds"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Menu items available for sale",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "image": { "type": "string" },
+        "active": { "type": "boolean" },
+        "ingredients": { "type": "object" }
+      },
+      "required": ["id", "shopId", "name", "price", "category", "active"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A customer order, active or closed",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "tableId": { "type": "string" },
+        "staffId": { "type": "string" },
+        "items": { "type": "array" },
+        "status": { "type": "string" },
+        "startTime": { "type": "number" },
+        "closedAt": { "type": "number" },
+        "discount": { "type": "number" },
+        "subtotal": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string" }
+      },
+      "required": ["id", "shopId", "tableId", "status", "startTime", "subtotal", "total"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "Physical tables in a shop",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "number": { "type": "number" },
+        "status": { "type": "string" },
+        "capacity": { "type": "number" },
+        "position": { "type": "object" }
+      },
+      "required": ["id", "shopId", "number", "status"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Item",
+      "description": "Stock items in BoH or FoH",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "shopId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "currentStock": { "type": "number" },
+        "unit": { "type": "string" },
+        "minStock": { "type": "number" },
+        "costPerUnit": { "type": "number" }
+      },
+      "required": ["id", "shopId", "name", "currentStock", "unit"]
+    },
+    "MasterKey": {
+      "title": "Master Key",
+      "description": "Activation license key for owners",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "key": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "used": { "type": "boolean" },
+        "usedBy": { "type": "string" },
+        "enterpriseId": { "type": "string" }
+      },
+      "required": ["id", "key", "createdAt", "used"]
+    },
+    "Enterprise": {
+      "title": "Enterprise",
+      "description": "Multi-tenant business group",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "owners": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "name"]
+    }
+  },
+  "firestore": {
+    "shops/{shopId}": {
+      "schema": "Shop",
+      "description": "Collection of shops"
+    },
+    "staff/{staffId}": {
+      "schema": "Staff",
+      "description": "Collection of all employees"
+    },
+    "products/{productId}": {
+      "schema": "Product",
+      "description": "Universal product list"
+    },
+    "orders/{orderId}": {
+      "schema": "Order",
+      "description": "Active and past orders"
+    },
+    "tables/{tableId}": {
+      "schema": "Table",
+      "description": "Layout and status of tables"
+    },
+    "inventory/{itemId}": {
+      "schema": "InventoryItem",
+      "description": "Inventory tracking"
+    },
+    "rolePermissions/{role}": {
+      "schema": "object",
+      "description": "RBAC configuration"
+    },
+    "settings/{settingId}": {
+      "schema": "object",
+      "description": "Global settings"
+    },
+    "shifts/{shiftId}": {
+      "schema": "object",
+      "description": "Staff schedules"
+    },
+    "reservations/{resId}": {
+      "schema": "object",
+      "description": "Table bookings"
+    },
+    "printers/{printerId}": {
+      "schema": "object",
+      "description": "Printer configuration"
+    },
+    "incidentReports/{reportId}": {
+      "schema": "object",
+      "description": "Safety incidents"
+    },
+    "notifications/{notifId}": {
+      "schema": "object",
+      "description": "In-app notifications"
+    },
+    "recountRequests/{reqId}": {
+      "schema": "object",
+      "description": "Inventory audit requests"
+    },
+    "masterKeys/{keyId}": {
+      "schema": "MasterKey",
+      "description": "License keys"
+    },
+    "enterprises/{entId}": {
+      "schema": "Enterprise",
+      "description": "Enterprise accounts"
+    }
+  }
+}

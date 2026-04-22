@@ -1,0 +1,219 @@
+import React, { useState } from 'react';
+import { 
+  Users, 
+  Search, 
+  MapPin, 
+  Shield, 
+  MoreHorizontal, 
+  Plus, 
+  UserPlus, 
+  LayoutGrid, 
+  Table,
+  Filter,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  ShoppingBag,
+  CreditCard,
+  MessageSquare,
+  Package,
+  TrendingUp,
+  Tag
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { cn } from '../../../lib/utils';
+
+interface Employee {
+  id: string;
+  name: string;
+  role: 'sales' | 'manager' | 'stock' | 'cashier' | 'support';
+  department: 'floor' | 'warehouse' | 'admin' | 'customer_service';
+  status: 'active' | 'break' | 'offline';
+  shift: string;
+  salesTarget: number;
+  currentSales: number;
+}
+
+export const RetailEmployees: React.FC = () => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  const employees: Employee[] = [
+    { id: '1', name: 'Alvaro Menezes', role: 'sales', department: 'floor', status: 'active', shift: '09:00 - 18:00', salesTarget: 5000, currentSales: 4200 },
+    { id: '2', name: 'Beatriz Silva', role: 'cashier', department: 'floor', status: 'active', shift: '10:00 - 19:00', salesTarget: 0, currentSales: 0 },
+    { id: '3', name: 'Carlos Rocha', role: 'manager', department: 'admin', status: 'active', shift: '08:00 - 17:00', salesTarget: 20000, currentSales: 18500 },
+    { id: '4', name: 'Daniela Lima', role: 'stock', department: 'warehouse', status: 'break', shift: '07:00 - 16:00', salesTarget: 0, currentSales: 0 },
+    { id: '5', name: 'Eduardo Costa', role: 'support', department: 'customer_service', status: 'offline', shift: '13:00 - 22:00', salesTarget: 0, currentSales: 0 },
+    { id: '6', name: 'Fernanda Souza', role: 'sales', department: 'floor', status: 'active', shift: '09:00 - 18:00', salesTarget: 5000, currentSales: 5100 },
+  ];
+
+  const getDeptIcon = (dept: string) => {
+    switch (dept) {
+      case 'floor': return <ShoppingBag className="w-3 h-3" />;
+      case 'warehouse': return <Package className="w-3 h-3" />;
+      case 'admin': return <Shield className="w-3 h-3" />;
+      case 'customer_service': return <MessageSquare className="w-3 h-3" />;
+      default: return <Tag className="w-3 h-3" />;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return 'bg-indigo-500';
+      case 'break': return 'bg-amber-500';
+      default: return 'bg-slate-300';
+    }
+  };
+
+  return (
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+           <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic">Equipe Varejo</h2>
+           <p className="text-slate-500 font-medium">Gestão de vendedores, metas e escalas operacionais</p>
+        </div>
+        <div className="flex gap-4">
+           <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-sm">
+              <button 
+                onClick={() => setViewMode('grid')}
+                className={cn("p-3 rounded-xl transition-all", viewMode === 'grid' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400")}
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => setViewMode('list')}
+                className={cn("p-3 rounded-xl transition-all", viewMode === 'list' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-400")}
+              >
+                <Table className="w-4 h-4" />
+              </button>
+           </div>
+           <button className="px-10 py-5 bg-indigo-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20 flex items-center gap-3">
+              <UserPlus className="w-4 h-4" /> Admitir Staff
+           </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm flex items-center gap-6">
+         <div className="relative flex-1">
+            <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input 
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="Buscar por nome, cargo ou departamento..."
+              className="w-full bg-slate-50 border-none rounded-[1.5rem] py-5 pl-16 pr-8 font-bold text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+            />
+         </div>
+         <button className="p-5 bg-slate-50 text-slate-400 rounded-2xl hover:text-indigo-600 transition-all border border-transparent hover:border-indigo-100">
+            <Filter className="w-5 h-5" />
+         </button>
+      </div>
+
+      <div className={cn(
+        "grid gap-6",
+        viewMode === 'grid' ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
+      )}>
+        {employees.map((emp, i) => (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            key={emp.id}
+            className={cn(
+              "bg-white group transition-all",
+              viewMode === 'grid' 
+                ? "p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:border-indigo-500/30 hover:shadow-2xl" 
+                : "p-6 rounded-3xl border border-slate-100 flex items-center justify-between"
+            )}
+          >
+             <div className="flex items-center gap-6">
+                <div className="relative">
+                   <div className="w-16 h-16 rounded-2xl bg-slate-100 border-4 border-white shadow-xl overflow-hidden">
+                      <img src={`https://i.pravatar.cc/150?u=${emp.id}`} alt={emp.name} referrerPolicy="no-referrer" />
+                   </div>
+                   <div className={cn("absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-4 border-white shadow-lg", getStatusColor(emp.status))} />
+                </div>
+                <div>
+                   <h4 className="text-lg font-black text-slate-900 uppercase tracking-tighter italic">{emp.name}</h4>
+                   <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">{emp.role}</span>
+                      <div className="w-1 h-1 bg-slate-200 rounded-full" />
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-50 rounded-md">
+                         {getDeptIcon(emp.department)}
+                         <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">{emp.department.replace('_', ' ')}</span>
+                      </div>
+                   </div>
+                </div>
+             </div>
+
+             <div className={cn(
+                "flex items-center gap-8",
+                viewMode === 'grid' ? "mt-8 justify-between" : ""
+             )}>
+                <div className="flex flex-col gap-1 items-start">
+                   <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                      <Clock className="w-3 h-3" /> Turno
+                   </span>
+                   <span className="text-xs font-black text-slate-600 tracking-tighter italic">{emp.shift}</span>
+                </div>
+
+                {emp.salesTarget > 0 ? (
+                  <div className="text-right">
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block mb-1">Atingimento Meta</span>
+                    <div className="flex items-center gap-2">
+                        <span className="text-lg font-black text-slate-900 italic tracking-tighter">
+                          {Math.round((emp.currentSales / emp.salesTarget) * 100)}%
+                        </span>
+                        {(emp.currentSales / emp.salesTarget) >= 1 && <TrendingUp className="w-4 h-4 text-emerald-500" />}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-right">
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block mb-1">Status</span>
+                    <span className="text-xs font-black text-emerald-500 tracking-tighter italic uppercase">Em Operação</span>
+                  </div>
+                )}
+
+                {viewMode === 'grid' && (
+                  <button className="w-12 h-12 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center hover:bg-slate-900 hover:text-white transition-all">
+                     <MoreHorizontal className="w-5 h-5" />
+                  </button>
+                )}
+             </div>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+         <div className="bg-indigo-600 p-8 rounded-[3.5rem] text-white shadow-2xl relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700" />
+            <h5 className="text-[10px] font-black uppercase text-indigo-200 tracking-widest mb-6 pulse relative z-10">Equipe em Loja</h5>
+            <div className="space-y-4 relative z-10">
+                <div className="flex justify-between items-end">
+                   <span className="text-3xl font-black italic tracking-tighter">24/28</span>
+                   <span className="text-[10px] font-bold text-indigo-200 mb-2">COLABORADORES</span>
+                </div>
+                <div className="h-2 bg-indigo-900/50 rounded-full overflow-hidden">
+                   <div className="h-full bg-white w-[85%]" />
+                </div>
+            </div>
+         </div>
+
+         {[
+           { label: 'Meta Global Loja', val: '92%', color: 'text-indigo-600', icon: <TrendingUp /> },
+           { label: 'Vendedores em Pausa', val: '04', color: 'text-amber-500', icon: <Clock /> },
+           { label: 'Ocorrências RH', val: '01', color: 'text-rose-500', icon: <XCircle /> },
+         ].map((card, i) => (
+           <div key={i} className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-sm flex items-center justify-between hover:translate-y-[-4px] transition-all cursor-pointer">
+              <div>
+                 <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block mb-1">{card.label}</span>
+                 <span className={cn("text-3xl font-black italic tracking-tighter", card.color)}>{card.val}</span>
+              </div>
+              <div className={cn("w-14 h-14 rounded-3xl flex items-center justify-center opacity-20", card.color.replace('text', 'bg'))}>
+                 {React.cloneElement(card.icon as React.ReactElement, { className: "w-6 h-6" })}
+              </div>
+           </div>
+         ))}
+      </div>
+    </div>
+  );
+};
