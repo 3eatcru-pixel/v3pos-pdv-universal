@@ -1,6 +1,7 @@
 import { coreSalesService, coreProductService } from '../core/services/coreServices';
 import { logger } from '../core/services/logger';
 import { CoreSale, CoreProduct } from '../core/types';
+import { authService } from '../auth/authService';
 
 /**
  * Integration Layer
@@ -11,13 +12,15 @@ import { CoreSale, CoreProduct } from '../core/types';
 class IntegrationLayer {
   
   private getCurrentUser() {
-    try {
-      const raw = localStorage.getItem('pos_current_user');
-      if (!raw || raw === 'null') return null;
-      return JSON.parse(raw);
-    } catch {
+    const current = authService.getCurrentUser();
+    if (!current) {
       return null;
     }
+    return {
+      id: current.id,
+      role: current.role,
+      companyId: current.tenantId || null,
+    };
   }
 
   // Generic Sales Integration

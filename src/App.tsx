@@ -155,7 +155,7 @@ import { dbLocal } from './services/db';
 
 export default function App() {
   const [enterpriseId, setEnterpriseId] = useState<string | null>(() => {
-    return accountService.getCurrentCompanyId() || localStorage.getItem('rm_enterprise_id');
+    return accountService.getCurrentCompanyId();
   });
   const [systemMode, setSystemMode] = useState<SystemMode>(() => {
     return (localStorage.getItem('rm_system_mode') as SystemMode) || 'restaurant';
@@ -202,7 +202,7 @@ export default function App() {
   const [holdingActive, setHoldingActive] = useState<boolean>(() => {
     // If we have a user but no enterprise selected yet, show holding
     const hasUser = !!accountService.getCurrentUser();
-    const hasEnterprise = !!(accountService.getCurrentCompanyId() || localStorage.getItem('rm_enterprise_id'));
+    const hasEnterprise = !!accountService.getCurrentCompanyId();
     return hasUser && !hasEnterprise;
   });
   const [selectedArea, setSelectedArea] = useState<string>('Salão Principal');
@@ -364,7 +364,6 @@ export default function App() {
 
   const handleSelectEnterprise = (id: string) => {
     setEnterpriseId(id);
-    localStorage.setItem('rm_enterprise_id', id);
     setHoldingActive(false);
   };
 
@@ -6423,11 +6422,10 @@ Obrigado pela preferência!
                        <button 
                          onClick={() => {
                            if (confirm('🆘 ATENÇÃO: Isso reiniciará o aplicativo para a tela de seleção inicial. Deseja continuar?')) {
-                             localStorage.removeItem('rm_system_mode');
-                             localStorage.removeItem('rm_selected_shop_id');
-                             localStorage.removeItem('rm_enterprise_id');
-                             window.location.reload();
-                           }
+                            localStorage.removeItem('rm_system_mode');
+                            localStorage.removeItem('rm_selected_shop_id');
+                            window.location.reload();
+                          }
                          }}
                          className="mt-6 px-10 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] hover:bg-rose-600 transition-all shadow-xl shadow-slate-900/10"
                        >

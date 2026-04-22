@@ -1,6 +1,7 @@
 import type { AuthSession, AuthUser } from './authTypes';
 
 const SESSION_KEY = 'pos_auth_session_v1';
+const USER_KEY = 'pos_auth_user_v1';
 const LEGACY_USER_KEY = 'pos_current_user';
 const LEGACY_TENANT_KEY = 'rm_enterprise_id';
 
@@ -25,7 +26,21 @@ class SessionManager {
 
   setSession(session: AuthSession, user: AuthUser | null): void {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    if (user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(USER_KEY);
+    }
     this.syncLegacyMirror(user, session.tenantId);
+  }
+
+  getUser(): AuthUser | null {
+    try {
+      const raw = localStorage.getItem(USER_KEY);
+      return raw ? (JSON.parse(raw) as AuthUser) : null;
+    } catch {
+      return null;
+    }
   }
 
   touchSession(): AuthSession | null {
@@ -41,6 +56,7 @@ class SessionManager {
 
   clearSession(): void {
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(USER_KEY);
     localStorage.removeItem(LEGACY_USER_KEY);
     localStorage.removeItem(LEGACY_TENANT_KEY);
   }

@@ -17,6 +17,7 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import { authService } from '../auth/authService';
 import { 
   Staff, 
   Shop, 
@@ -124,14 +125,11 @@ const TENANT_SCOPED_COLLECTIONS = new Set([
 ]);
 
 function getLocalTenantId(): string | null {
-  try {
-    const user = localStorage.getItem('pos_current_user')
-      ? JSON.parse(localStorage.getItem('pos_current_user')!)
-      : null;
-    return user?.companyId || localStorage.getItem('rm_enterprise_id') || null;
-  } catch {
-    return localStorage.getItem('rm_enterprise_id') || null;
-  }
+  const sessionTenant = authService.getCurrentSession()?.tenantId;
+  if (sessionTenant) return sessionTenant;
+  const userTenant = authService.getCurrentUser()?.tenantId;
+  if (userTenant) return userTenant;
+  return localStorage.getItem('rm_enterprise_id') || null;
 }
 
 function resolveTenantId(data?: any): string | null {

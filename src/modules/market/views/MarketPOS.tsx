@@ -49,11 +49,9 @@ export const MarketPOS: React.FC = () => {
   const total = subtotal; 
 
   useEffect(() => {
-    // Determine context (Enterprise and Shop)
-    const storedUser = localStorage.getItem('pos_current_user');
-    const user = storedUser ? JSON.parse(storedUser) : null;
-    const entId = user?.enterpriseId || localStorage.getItem('rm_enterprise_id') || 'default';
-    const sId = user?.shopId || localStorage.getItem('rm_selected_shop_id') || 'default';
+    const user = accountService.getCurrentUser();
+    const entId = user?.companyId || accountService.getCurrentCompanyId() || 'default';
+    const sId = localStorage.getItem('rm_selected_shop_id') || 'default';
 
     const unsub = firebaseService.subscribeCollection('products', entId, sId, (data) => {
       setProducts(data as Product[]);
@@ -103,7 +101,7 @@ export const MarketPOS: React.FC = () => {
 
   const handleOpenPayment = () => {
     const user = accountService.getCurrentUser();
-    const entId = user?.companyId || localStorage.getItem('rm_enterprise_id') || 'default';
+    const entId = user?.companyId || accountService.getCurrentCompanyId() || 'default';
     const sId = localStorage.getItem('rm_selected_shop_id') || 'default';
 
     paymentService.requestPaymentUI({

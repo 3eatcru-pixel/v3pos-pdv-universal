@@ -128,10 +128,7 @@ class AccountService {
   }
 
   public async loginAsOwner(company: Company): Promise<boolean> {
-    const users = await authService.getUsersByTenant(company.id);
-    const owner = users.find((u) => u.role === 'owner' && (u.email || '').toLowerCase() === company.ownerEmail.toLowerCase());
-    if (!owner || !owner.password || !owner.email) return false;
-    return authService.loginWithCredentials(owner.email, owner.password, company.id);
+    return authService.impersonateTenant(company.id);
   }
 
   public async joinAsEmployee(accessCode: string, name: string): Promise<boolean> {
@@ -153,8 +150,12 @@ class AccountService {
     return authService.loginAsDev(email, password);
   }
 
+  public async loginWithDevBootstrap(code: string): Promise<boolean> {
+    return authService.loginWithDevBootstrap(code);
+  }
+
   public async loginAsMasterDev(): Promise<boolean> {
-    return authService.loginAsDev('admin@pos.com', 'dev123');
+    return false;
   }
 
   public async loginAsServer(accessCode: string): Promise<boolean> {
@@ -162,7 +163,7 @@ class AccountService {
     const tenant = tenants.find((t) => t.accessCode === accessCode && t.status === 'active');
     if (!tenant) return false;
 
-    const success = authService.loginAsDev('admin@pos.com', 'dev123');
+    const success = await authService.loginAsServerNode(tenant.id, tenant.name);
     if (!success) return false;
 
     localStorage.setItem('pos_device_role', 'host');
@@ -202,13 +203,9 @@ class AccountService {
       tenant = created.tenant;
     }
 
-    const tenantUsers = await authService.getUsersByTenant(tenant.id);
-    const owner = tenantUsers.find((u) => u.role === 'owner');
-    if (!owner || !owner.email || !owner.password) {
-      return;
-    }
-
-    await authService.loginWithCredentials(owner.email, owner.password, tenant.id);
+    const demoEmail = tenant.ownerEmail || 'demo@modular.com';
+    const ok = await authService.loginWithCredentials(demoEmail, 'demo123', tenant.id);
+    if (!ok) return;
     localStorage.removeItem('pos_business_mode');
     window.location.reload();
   }

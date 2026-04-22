@@ -18,14 +18,18 @@ export const LoginView: React.FC = () => {
   const [staffMode, setStaffMode] = useState<'credentials' | 'pin'>('credentials');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [devTapCount, setDevTapCount] = useState(0);
+  const [devTapWindowStart, setDevTapWindowStart] = useState<number | null>(null);
+  const [devBootstrapUnlocked, setDevBootstrapUnlocked] = useState(false);
+  const [devBootstrapCode, setDevBootstrapCode] = useState('');
 
   const [tenantId, setTenantId] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
 
-  const [devEmail, setDevEmail] = useState('admin@pos.com');
-  const [devPassword, setDevPassword] = useState('dev123');
+  const [devEmail, setDevEmail] = useState('');
+  const [devPassword, setDevPassword] = useState('');
 
   const [serverAccessCode, setServerAccessCode] = useState('');
 
@@ -58,6 +62,30 @@ export const LoginView: React.FC = () => {
     setError(null);
     const success = await accountService.loginAsDev(devEmail, devPassword);
     if (!success) return fail('Acesso DEV negado.');
+    window.location.reload();
+  };
+
+  const handleUnlockDevBootstrap = () => {
+    const now = Date.now();
+    const inWindow = devTapWindowStart && now - devTapWindowStart <= 10000;
+    const nextCount = inWindow ? devTapCount + 1 : 1;
+
+    setDevTapCount(nextCount);
+    setDevTapWindowStart(inWindow ? devTapWindowStart : now);
+
+    if (nextCount >= 7) {
+      setDevBootstrapUnlocked(true);
+      setDevTapCount(0);
+      setDevTapWindowStart(null);
+    }
+  };
+
+  const handleDevBootstrapLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    const success = await accountService.loginWithDevBootstrap(devBootstrapCode);
+    if (!success) return fail('Bootstrap DEV negado. Verifique o código ou crie um usuário DEV.');
     window.location.reload();
   };
 
@@ -200,9 +228,13 @@ export const LoginView: React.FC = () => {
 
             {tab === 'dev' && (
               <motion.div key="dev" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}>
-                <div className="bg-rose-500 w-16 h-16 rounded-2xl flex items-center justify-center mb-6">
+                <button
+                  type="button"
+                  onClick={handleUnlockDevBootstrap}
+                  className="bg-rose-500 w-16 h-16 rounded-2xl flex items-center justify-center mb-6"
+                >
                   <Terminal className="text-white w-8 h-8" />
-                </div>
+                </button>
                 <h1 className="text-3xl font-black text-slate-800 mb-2">Painel Developer</h1>
                 <p className="text-slate-500 mb-10 font-medium">Provisionamento de tenants e owners.</p>
 
@@ -239,6 +271,27 @@ export const LoginView: React.FC = () => {
                     <ArrowRight className="w-5 h-5" />
                   </button>
                 </form>
+
+                {devBootstrapUnlocked && (
+                  <form onSubmit={handleDevBootstrapLogin} className="space-y-4 mt-8 p-5 rounded-2xl bg-rose-50 border border-rose-100">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-rose-600">
+                      Acesso local de emergência
+                    </p>
+                    <input
+                      required
+                      value={devBootstrapCode}
+                      onChange={(e) => setDevBootstrapCode(e.target.value)}
+                      placeholder="Código bootstrap (ex: code-22)"
+                      className="w-full bg-white border-2 border-transparent focus:border-rose-500 rounded-2xl py-4 px-5 font-bold outline-none transition-all"
+                    />
+                    <button
+                      disabled={loading}
+                      className="w-full bg-rose-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-rose-700 transition-all disabled:opacity-50"
+                    >
+                      Entrar via Bootstrap
+                    </button>
+                  </form>
+                )}
               </motion.div>
             )}
 

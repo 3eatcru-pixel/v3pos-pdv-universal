@@ -164,7 +164,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                           </button>
 
                           <button 
-                            onClick={() => { localStorage.removeItem('pos_current_user'); window.location.reload(); }}
+                            onClick={() => accountService.logout()}
                             className="w-full flex items-center gap-4 p-5 bg-slate-50 rounded-[1.5rem] border border-slate-100 hover:bg-white hover:border-blue-200 transition-all group"
                           >
                               <div className="p-3 bg-white border border-slate-200 rounded-xl text-slate-400 group-hover:text-blue-500 group-hover:border-blue-100 transition-colors">

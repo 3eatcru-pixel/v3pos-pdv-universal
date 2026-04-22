@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import { dbLocal } from './db';
 import { DeviceRole, SyncEvent, SyncMode } from '../core/types';
 import { MeshSyncEngine, PacketDedupCache } from '../engine/mesh';
+import { authService } from '../auth/authService';
 
 /**
  * PeerDiscovery & Mesh Sync Manager
@@ -24,12 +25,13 @@ class MeshNetwork {
   }
 
   private getCurrentUser() {
-    try {
-      const raw = localStorage.getItem('pos_current_user');
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
+    const user = authService.getCurrentUser();
+    if (!user) return null;
+    return {
+      id: user.id,
+      role: user.role,
+      companyId: user.tenantId || '',
+    };
   }
 
   private isValidSyncEvent(data: SyncEvent | null | undefined): data is SyncEvent {

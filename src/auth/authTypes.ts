@@ -40,7 +40,11 @@ export interface AuthUser {
   name: string;
   email?: string;
   password?: string;
+  passwordHash?: string;
+  passwordSalt?: string;
   pin?: string;
+  pinHash?: string;
+  pinSalt?: string;
   active: boolean;
   createdAt: number;
   updatedAt: number;

@@ -25,6 +25,7 @@ import { firebaseService } from '../../../services/firebaseService';
 import { cn, formatCurrency } from '../../../lib/utils';
 import { paymentService } from '../../../services/paymentService';
 import { retailService, RetailSyncStatus } from '../services/retailService';
+import { accountService } from '../../../core/services/accountService';
 
 interface CartItem {
   id: string;
@@ -57,11 +58,9 @@ export const RetailPOS: React.FC = () => {
   const total = subtotal + tax;
 
   useEffect(() => {
-    // Determine context (Enterprise and Shop)
-    const storedUser = localStorage.getItem('pos_current_user');
-    const user = storedUser ? JSON.parse(storedUser) : null;
-    const entId = user?.enterpriseId || localStorage.getItem('rm_enterprise_id') || 'default';
-    const sId = user?.shopId || localStorage.getItem('rm_selected_shop_id') || 'default';
+    const user = accountService.getCurrentUser();
+    const entId = user?.companyId || accountService.getCurrentCompanyId() || 'default';
+    const sId = localStorage.getItem('rm_selected_shop_id') || 'default';
 
     const unsub = firebaseService.subscribeCollection('products', entId, sId, (data) => {
       // Filter for retail relevant categories if needed, or just show all
