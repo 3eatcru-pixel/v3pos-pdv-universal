@@ -25,7 +25,10 @@ class ProductRepository {
 
       const existing = await this.findById(item.productId);
       const currentStock = Number(existing?.stock ?? 0);
-      const nextStock = Math.max(currentStock - quantity, 0);
+      if (quantity > currentStock) {
+        throw new Error(`insufficient_stock:${item.productId}`);
+      }
+      const nextStock = currentStock - quantity;
 
       const productToSave: Product = {
         id: item.productId,

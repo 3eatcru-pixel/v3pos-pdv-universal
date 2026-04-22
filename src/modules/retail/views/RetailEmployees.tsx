@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   Search, 
@@ -37,15 +37,31 @@ interface Employee {
 export const RetailEmployees: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [employees, setEmployees] = useState<Employee[]>([]);
 
-  const employees: Employee[] = [
-    { id: '1', name: 'Alvaro Menezes', role: 'sales', department: 'floor', status: 'active', shift: '09:00 - 18:00', salesTarget: 5000, currentSales: 4200 },
-    { id: '2', name: 'Beatriz Silva', role: 'cashier', department: 'floor', status: 'active', shift: '10:00 - 19:00', salesTarget: 0, currentSales: 0 },
-    { id: '3', name: 'Carlos Rocha', role: 'manager', department: 'admin', status: 'active', shift: '08:00 - 17:00', salesTarget: 20000, currentSales: 18500 },
-    { id: '4', name: 'Daniela Lima', role: 'stock', department: 'warehouse', status: 'break', shift: '07:00 - 16:00', salesTarget: 0, currentSales: 0 },
-    { id: '5', name: 'Eduardo Costa', role: 'support', department: 'customer_service', status: 'offline', shift: '13:00 - 22:00', salesTarget: 0, currentSales: 0 },
-    { id: '6', name: 'Fernanda Souza', role: 'sales', department: 'floor', status: 'active', shift: '09:00 - 18:00', salesTarget: 5000, currentSales: 5100 },
-  ];
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    try {
+      const enterpriseId = require('../../../core/services/accountService').accountService.getCurrentCompanyId();
+      if (enterpriseId) {
+        const fb = require('../../../services/firebaseService').firebaseService;
+        unsub = fb.subscribeStaff(enterpriseId, (docs: any[]) => {
+          const mapped = docs.map((d) => ({
+            id: d.id,
+            name: d.name || d.displayName || 'Sem Nome',
+            role: (String(d.role || 'staff').toLowerCase() === 'manager') ? 'manager' : (String(d.role || 'staff').toLowerCase() === 'supervisor' ? 'supervisor' : 'operator'),
+            sector: (d.sector || 'pos') as any,
+            status: d.active === false ? 'offline' : (d.status || 'active') as any,
+            shift: d.shift || undefined,
+          }));
+          setEmployees(mapped);
+        });
+      }
+    } catch (e) {
+      console.error('Error subscribing retail staff:', e);
+    }
+    return () => { if (unsub) unsub(); };
+  }, []);
 
   const getDeptIcon = (dept: string) => {
     switch (dept) {
@@ -64,6 +80,12 @@ export const RetailEmployees: React.FC = () => {
       default: return 'bg-slate-300';
     }
   };
+
+  const filteredEmployees = employees.filter(emp => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return true;
+    return [emp.name, emp.role, emp.department].some(field => field.toLowerCase().includes(query));
+  });
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans">
@@ -112,7 +134,7 @@ export const RetailEmployees: React.FC = () => {
         "grid gap-6",
         viewMode === 'grid' ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
       )}>
-        {employees.map((emp, i) => (
+        {filteredEmployees.map((emp, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

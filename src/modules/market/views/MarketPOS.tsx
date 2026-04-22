@@ -31,6 +31,7 @@ import { Product, Transaction } from '../../../types';
 import { firebaseService } from '../../../services/firebaseService';
 import { paymentService } from '../../../services/paymentService';
 import { accountService } from '../../../core/services/accountService';
+import { marketService } from '../services/marketService';
 
 interface POSItem extends Product {
   quantity: number;
@@ -69,23 +70,29 @@ export const MarketPOS: React.FC = () => {
     }
   };
 
+  const requestWeightForProduct = (product: Product): number | null => {
+    const input = window.prompt(`Informe o peso em kg para ${product.name}:`, '0.500');
+    if (!input) return null;
+    const parsed = parseFloat(input.replace(',', '.'));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      alert('Peso inválido. Insira um valor válido maior que zero.');
+      return null;
+    }
+    return Number(parsed.toFixed(3));
+  };
+
   const addItemToCart = (product: Product) => {
-    if (product.unit === 'kg') {
-      const weight = (Math.random() * 1.5 + 0.2).toFixed(3);
-      const quantity = parseFloat(weight);
-      const existing = cart.find(i => i.id === product.id);
-      if (existing) {
-        setCart(cart.map(i => i.id === product.id ? { ...i, quantity: i.quantity + quantity } : i));
-      } else {
-        setCart([...cart, { ...product, quantity }]);
-      }
+    const quantity = product.unit === 'kg'
+      ? requestWeightForProduct(product)
+      : 1;
+
+    if (quantity === null) return;
+
+    const existing = cart.find(i => i.id === product.id);
+    if (existing) {
+      setCart(cart.map(i => i.id === product.id ? { ...i, quantity: i.quantity + quantity } : i));
     } else {
-      const existing = cart.find(i => i.id === product.id);
-      if (existing) {
-        setCart(cart.map(i => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
-      } else {
-        setCart([...cart, { ...product, quantity: 1 }]);
-      }
+      setCart([...cart, { ...product, quantity }]);
     }
   };
 
@@ -101,8 +108,8 @@ export const MarketPOS: React.FC = () => {
 
   const handleOpenPayment = () => {
     const user = accountService.getCurrentUser();
-    const entId = user?.companyId || accountService.getCurrentCompanyId() || 'default';
-    const sId = localStorage.getItem('rm_selected_shop_id') || 'default';
+    const entId = user?.companyId || accountService.getCurrentCompanyId() || null;
+    const sId = localStorage.getItem('rm_selected_shop_id') || null;
 
     paymentService.requestPaymentUI({
       total: total,
@@ -118,7 +125,7 @@ export const MarketPOS: React.FC = () => {
               amount: p.amount,
               method: p.method,
               module: 'market',
-              shopId: sId,
+              shopId: sId || undefined,
               change: p.change || 0
             });
           }
@@ -130,6 +137,26 @@ export const MarketPOS: React.FC = () => {
 
           await firebaseService.decrementProductStocksAtomic(stockItems, { enterpriseId: entId });
 
+          const saleData = {
+            id: `market_sale_${Date.now()}`,
+            items: cart.map(item => ({
+              productId: item.id,
+              name: item.name,
+              quantity: item.quantity,
+              unitPrice: item.price,
+              totalPrice: item.price * item.quantity,
+              unit: item.unit,
+            })),
+            subtotal,
+            total,
+            payments,
+            enterpriseId: entId,
+            shopId: sId,
+            createdAt: Date.now(),
+            module: 'market'
+          };
+
+          await marketService.processSale(saleData);
           setCart([]);
         } catch (err) {
           console.error('Error finalizing market sale:', err);
@@ -368,8 +395,16 @@ export const MarketPOS: React.FC = () => {
                     <button
                       key={p.id}
                       onClick={async () => {
-                        await firebaseService.updateItem('products', p.id, { active: !p.active });
-                        setProducts(products.map(prod => prod.id === p.id ? { ...prod, active: !prod.active } : prod));
+                        const user = accountService.getCurrentUser();
+                        const entId = user?.companyId || accountService.getCurrentCompanyId() || null;
+                        const sId = localStorage.getItem('rm_selected_shop_id') || null;
+                        const nextActive = !p.active;
+                        await firebaseService.updateItem('products', p.id, {
+                          active: nextActive,
+                          enterpriseId: entId,
+                          shopId: sId,
+                        });
+                        setProducts(products.map(prod => prod.id === p.id ? { ...prod, active: nextActive } : prod));
                       }}
                       className={cn(
                         "p-6 rounded-3xl border-2 text-left transition-all duration-300 flex flex-col items-start gap-4 ring-offset-2",

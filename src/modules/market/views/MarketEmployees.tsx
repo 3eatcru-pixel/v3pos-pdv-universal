@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   Search, 
@@ -35,15 +35,32 @@ interface Employee {
 export const MarketEmployees: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+   const [employees, setEmployees] = useState<Employee[]>([]);
 
-  const employees: Employee[] = [
-    { id: '1', name: 'Ricardo Santos', role: 'operator', sector: 'butcher', status: 'active', shift: '08:00 - 17:00', performance: 92 },
-    { id: '2', name: 'Ana Oliveira', role: 'operator', sector: 'bakery', status: 'break', shift: '07:00 - 16:00', performance: 88 },
-    { id: '3', name: 'Marcos Lima', role: 'manager', sector: 'admin', status: 'active', shift: '08:00 - 18:00', performance: 95 },
-    { id: '4', name: 'Julia Costa', role: 'operator', sector: 'pos', status: 'active', shift: '10:00 - 19:00', performance: 90 },
-    { id: '5', name: 'Paulo Souza', role: 'operator', sector: 'produce', status: 'offline', shift: '06:00 - 15:00', performance: 85 },
-    { id: '6', name: 'Carla Dias', role: 'supervisor', sector: 'pos', status: 'active', shift: '08:00 - 17:00', performance: 94 },
-  ];
+   useEffect(() => {
+      let unsub: (() => void) | undefined;
+      try {
+         const enterpriseId = require('../../../core/services/accountService').accountService.getCurrentCompanyId();
+         if (enterpriseId) {
+            const fb = require('../../../services/firebaseService').firebaseService;
+            unsub = fb.subscribeStaff(enterpriseId, (docs: any[]) => {
+               const mapped: Employee[] = docs.map((d) => ({
+                  id: d.id,
+                  name: d.name || d.displayName || 'Sem Nome',
+                  role: (String(d.role || 'staff').toLowerCase() === 'manager') ? 'manager' : (String(d.role || 'staff').toLowerCase() === 'supervisor' ? 'supervisor' : 'operator'),
+                  sector: (d.sector || 'pos') as any,
+                  status: d.active === false ? 'offline' : (d.status || 'active') as any,
+                  shift: d.shift || '',
+                  performance: Number(d.performance || 0)
+               }));
+               setEmployees(mapped);
+            });
+         }
+      } catch (e) {
+         console.error('Error subscribing staff:', e);
+      }
+      return () => { if (unsub) unsub(); };
+   }, []);
 
   const getSectorIcon = (sector: string) => {
     switch (sector) {
@@ -63,6 +80,12 @@ export const MarketEmployees: React.FC = () => {
       default: return 'bg-slate-300';
     }
   };
+
+  const filteredEmployees = employees.filter(emp => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return true;
+    return [emp.name, emp.role, emp.sector].some(field => field.toLowerCase().includes(query));
+  });
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -111,7 +134,7 @@ export const MarketEmployees: React.FC = () => {
         "grid gap-6",
         viewMode === 'grid' ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
       )}>
-        {employees.map((emp, i) => (
+        {filteredEmployees.map((emp, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

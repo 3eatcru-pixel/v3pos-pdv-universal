@@ -128,23 +128,21 @@ export const RetailInventory: React.FC = () => {
         return;
       }
 
-      const mergedProducts = MOCK_PRODUCTS.map((mock) => {
-        const persisted = persistedProducts.find(
+      const existingProducts = persistedProducts.map((product) => ({
+        ...product,
+        stock: Number(product.stock || 0),
+        price: Number(product.price || 0),
+      }));
+
+      const seedProducts = MOCK_PRODUCTS.filter((mock) =>
+        !persistedProducts.some(
           (product) =>
             product.id === mock.id ||
             product.name.trim().toLowerCase() === mock.name.trim().toLowerCase()
-        );
+        )
+      );
 
-        if (!persisted) return mock;
-
-        return {
-          ...mock,
-          stock: Number(persisted.stock || 0),
-          price: Number(persisted.price ?? mock.price),
-        };
-      });
-
-      setProducts(mergedProducts);
+      setProducts([...existingProducts, ...seedProducts]);
     };
 
     const onSaleUpdated = () => {

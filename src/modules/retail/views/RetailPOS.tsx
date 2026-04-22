@@ -112,6 +112,13 @@ export const RetailPOS: React.FC = () => {
     setCart(cart.filter(i => i.id !== id));
   };
 
+  const updateCartQuantity = (id: string, delta: number) => {
+    setCart(prev => prev
+      .map(item => item.id === id ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item)
+      .filter(item => item.quantity > 0)
+    );
+  };
+
   const handleOpenPayment = () => {
     if (cart.length === 0) return alert('Carrinho vazio!');
 
@@ -309,11 +316,11 @@ export const RetailPOS: React.FC = () => {
                            <div className="text-right">
                               <p className="font-black text-slate-800 text-xs">{formatCurrency(item.price * item.quantity)}</p>
                               <div className="flex items-center gap-2 mt-1">
-                                 <button className="w-6 h-6 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">
+                                 <button onClick={() => updateCartQuantity(item.id, -1)} className="w-6 h-6 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">
                                     <Minus className="w-3 h-3" />
                                  </button>
                                  <span className="font-black text-xs min-w-[20px] text-center">{item.quantity}</span>
-                                 <button className="w-6 h-6 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">
+                                 <button onClick={() => updateCartQuantity(item.id, 1)} className="w-6 h-6 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">
                                     <Plus className="w-3 h-3" />
                                  </button>
                               </div>
@@ -389,7 +396,18 @@ export const RetailPOS: React.FC = () => {
                   {products.map(p => (
                     <button
                       key={p.id}
-                      onClick={() => setProducts(products.map(prod => prod.id === p.id ? { ...prod, active: !prod.active } : prod))}
+                      onClick={async () => {
+                        const user = accountService.getCurrentUser();
+                        const entId = user?.companyId || accountService.getCurrentCompanyId() || null;
+                        const sId = localStorage.getItem('rm_selected_shop_id') || null;
+                        const nextActive = !p.active;
+                        try {
+                          await firebaseService.updateItem('products', p.id, { active: nextActive, enterpriseId: entId, shopId: sId });
+                          setProducts(products.map(prod => prod.id === p.id ? { ...prod, active: nextActive } : prod));
+                        } catch (err) {
+                          console.error('Error persisting quick stock change:', err);
+                        }
+                      }}
                       className={cn(
                         "p-6 rounded-3xl border-2 text-left transition-all duration-300 flex flex-col items-start gap-4 ring-offset-2",
                         p.active ? "bg-white border-slate-100 hover:border-indigo-200" : "bg-rose-50 border-rose-200 ring-2 ring-rose-500 shadow-lg shadow-rose-500/20"

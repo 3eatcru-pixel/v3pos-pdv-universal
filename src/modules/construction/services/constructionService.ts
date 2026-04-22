@@ -161,13 +161,13 @@ class ConstructionService {
   }
 
   async processSale(saleData: any) {
-    // Sales are critical: validated by the network
-    meshNetwork.emitEvent('CREATE_SALE', saleData);
-    
-    // Update local stock immediately for UI responsiveness
+    // Update local stock immediately for consistency and user feedback
     saleData.items.forEach((item: any) => {
       this.updateStock(item.productId, -item.quantity);
     });
+
+    await integrationLayer.registerSale('construction', saleData, saleData.items);
+    meshNetwork.emitEvent('CREATE_SALE', saleData);
   }
 
   async updateStock(productId: string, delta: number) {

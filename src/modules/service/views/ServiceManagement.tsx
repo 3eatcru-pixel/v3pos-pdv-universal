@@ -23,6 +23,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '../../../lib/utils';
 import { ServiceItem, Staff, ServiceResource } from '../../../types';
 import { firebaseService } from '../../../services/firebaseService';
+import { accountService } from '../../../core/services/accountService';
 
 type ManagementTab = 'services' | 'professionals' | 'resources' | 'clients';
 
@@ -41,13 +42,17 @@ export const ServiceManagement: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
+      const enterpriseId = accountService.getCurrentCompanyId();
       const [servicesData, staffData, resourcesData] = await Promise.all([
-        firebaseService.getAllDocs('services'),
-        firebaseService.getAllDocs('staff'),
-        firebaseService.getAllDocs('resources')
+        firebaseService.getAllDocs('services', enterpriseId || undefined),
+        firebaseService.getAllDocs('staff', enterpriseId || undefined),
+        firebaseService.getAllDocs('resources', enterpriseId || undefined)
       ]);
       setServices(servicesData as ServiceItem[]);
-      setStaff((staffData as Staff[]).filter(s => s.role === 'Professional' || s.role === 'Waiter')); // Simplified
+      setStaff((staffData as Staff[]).filter(s => {
+        const role = String(s.role || '').toLowerCase();
+        return role === 'professional' || role === 'waiter';
+      }));
       setResources(resourcesData as ServiceResource[]);
     } catch (err) {
       console.error('Error loading management data:', err);

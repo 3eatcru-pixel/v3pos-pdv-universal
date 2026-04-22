@@ -26,6 +26,7 @@ import { cn, formatCurrency } from '../../../lib/utils';
 import { BarcodeScanner } from '../components/BarcodeScanner';
 import { Product } from '../../../types';
 import { firebaseService } from '../../../services/firebaseService';
+import { accountService } from '../../../core/services/accountService';
 
 export const MarketInventory: React.FC = () => {
   const [filter, setFilter] = useState('all');
@@ -48,8 +49,6 @@ export const MarketInventory: React.FC = () => {
     unit: 'un',
     barcode: '',
     active: true,
-    enterpriseId: 'default',
-    shopId: 'default'
   });
 
   useEffect(() => {
@@ -58,7 +57,8 @@ export const MarketInventory: React.FC = () => {
 
   const loadProducts = async () => {
     try {
-      const data = await firebaseService.getAllDocs('products');
+      const entId = accountService.getCurrentCompanyId();
+      const data = await firebaseService.getAllDocs('products', entId || undefined);
       setProducts(data as Product[]);
     } catch (err) {
       console.error('Error loading inventory:', err);
@@ -90,7 +90,9 @@ export const MarketInventory: React.FC = () => {
     const newStock = adjustType === 'set' ? qty : (scannedProduct.stock || 0) + qty;
 
     try {
-      await firebaseService.saveItem('products', scannedProduct.id, { ...scannedProduct, stock: newStock });
+      const entId = accountService.getCurrentCompanyId();
+      const sId = localStorage.getItem('rm_selected_shop_id') || null;
+      await firebaseService.saveItem('products', scannedProduct.id, { ...scannedProduct, stock: newStock, enterpriseId: entId, shopId: sId });
       setShowCountModal(false);
       setScannedProduct(null);
       loadProducts();
@@ -106,7 +108,9 @@ export const MarketInventory: React.FC = () => {
     }
 
     try {
-      await firebaseService.addItem('products', newProduct as Product);
+      const entId = accountService.getCurrentCompanyId();
+      const sId = localStorage.getItem('rm_selected_shop_id') || null;
+      await firebaseService.addItem('products', { ...newProduct, enterpriseId: entId, shopId: sId } as Product);
       setShowAddModal(false);
       setNewProduct({
         name: '',
@@ -116,8 +120,6 @@ export const MarketInventory: React.FC = () => {
         unit: 'un',
         barcode: '',
         active: true,
-        enterpriseId: 'default',
-        shopId: 'default'
       });
       loadProducts();
     } catch (err) {
