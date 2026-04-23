@@ -4,6 +4,7 @@ import { CoreProduct, CoreSale, SyncEvent } from '../types';
 export type CoreEvents = {
   'product:updated': CoreProduct;
   'product:stock_decremented': { productId: string; quantity: number };
+  'product:stock_incremented': { productId: string; quantity: number };
   'sale:created': CoreSale;
   'order:created': any;
   'order:updated': any;

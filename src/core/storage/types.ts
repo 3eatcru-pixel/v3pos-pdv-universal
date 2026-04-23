@@ -15,6 +15,9 @@ export interface Sale {
   paymentMethod: string;
   synced: boolean;
   items: SaleItem[];
+  kind?: 'sale' | 'return' | 'exchange';
+  originalSaleId?: string;
+  reason?: string;
 }
 
 export interface Product {

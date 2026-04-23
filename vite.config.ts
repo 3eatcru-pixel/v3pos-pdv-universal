@@ -6,16 +6,19 @@ import checker from 'vite-plugin-checker';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  const isBuild = mode === 'production';
   return {
     plugins: [
       react(), 
       tailwindcss(),
       checker({
         typescript: true,
-        eslint: {
-          lintCommand: 'eslint "./src/**/*.{ts,tsx}"',
-          useFlatConfig: true,
-        },
+        eslint: isBuild
+          ? undefined
+          : {
+              lintCommand: 'eslint "./src/**/*.{ts,tsx}"',
+              useFlatConfig: true,
+            },
         overlay: false,
       }),
     ],

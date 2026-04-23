@@ -26,6 +26,7 @@ import { cn, formatCurrency } from '../../../lib/utils';
 import { paymentService } from '../../../services/paymentService';
 import { retailService, RetailSyncStatus } from '../services/retailService';
 import { accountService } from '../../../core/services/accountService';
+import { BarcodeEngine } from '../../../core/services/BarcodeEngine';
 
 interface CartItem {
   id: string;
@@ -52,6 +53,7 @@ export const RetailPOS: React.FC = () => {
   });
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const tax = subtotal * 0.05;
@@ -175,6 +177,48 @@ export const RetailPOS: React.FC = () => {
     }
   };
 
+  const findProductsByQuery = (query: string) => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return products.filter((p) => p.active);
+    return products.filter((p) => {
+      const matchesText =
+        String(p.name || '').toLowerCase().includes(normalized) ||
+        String(p.category || '').toLowerCase().includes(normalized) ||
+        String(p.sku || '').toLowerCase().includes(normalized);
+      if (matchesText) return true;
+      const parsed = BarcodeEngine.parse(query);
+      return BarcodeEngine.matchesProduct(parsed, p);
+    });
+  };
+
+  const handleBarcodeSubmit = () => {
+    if (!searchQuery.trim()) return;
+    const parsed = BarcodeEngine.parse(searchQuery);
+    const found = products.find((p) => BarcodeEngine.matchesProduct(parsed, p));
+    if (found) {
+      handleAddToCart(found);
+      setSearchQuery('');
+      return;
+    }
+    alert('Codigo nao encontrado no cadastro de produtos.');
+  };
+
+  const handleQuickReturn = async () => {
+    const originalSaleId = prompt('Informe o ID da venda para devolucao:');
+    if (!originalSaleId) return;
+    const reason = prompt('Motivo da devolucao (ex: defeito, arrependimento, troca):') || 'devolucao';
+
+    try {
+      await retailService.processReturn({ originalSaleId, reason });
+      alert('Devolucao registrada com sucesso.');
+      const status = await retailService.getSyncQueueStatus();
+      setSyncStatus(status);
+    } catch (error) {
+      console.error('Erro ao registrar devolucao:', error);
+      alert('Nao foi possivel registrar a devolucao. Verifique o ID da venda.');
+    }
+  };
+
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-24 lg:pb-0">
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm px-6 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -212,9 +256,17 @@ export const RetailPOS: React.FC = () => {
                <input 
                  type="text" 
                  placeholder="Pesquisar produto ou bipar código..."
+                 value={searchQuery}
+                 onChange={(e) => setSearchQuery(e.target.value)}
+                 onKeyDown={(e) => {
+                   if (e.key === 'Enter') {
+                     e.preventDefault();
+                     handleBarcodeSubmit();
+                   }
+                 }}
                  className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 rounded-2xl py-4 pl-14 pr-6 font-bold outline-none transition-all"
                />
-               <button className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+               <button onClick={handleBarcodeSubmit} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-indigo-50 text-indigo-600 rounded-xl">
                   <Scan className="w-5 h-5" />
                </button>
             </div>
@@ -247,7 +299,7 @@ export const RetailPOS: React.FC = () => {
               "grid gap-6",
               viewMode === 'grid' ? "grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1"
             )}>
-               {products.filter(p => p.active).map((p) => (
+               {findProductsByQuery(searchQuery).map((p) => (
                  <motion.button
                    whileTap={{ scale: 0.95 }}
                    key={p.id}
@@ -353,7 +405,10 @@ export const RetailPOS: React.FC = () => {
                   <button className="py-5 bg-white text-slate-800 border-2 border-slate-100 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-slate-100 transition-all shadow-sm">
                      <User className="w-4 h-4" /> Cliente
                   </button>
-                  <button className="py-5 bg-white text-slate-800 border-2 border-slate-100 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-slate-100 transition-all shadow-sm">
+                  <button
+                    onClick={() => void handleQuickReturn()}
+                    className="py-5 bg-white text-slate-800 border-2 border-slate-100 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-slate-100 transition-all shadow-sm"
+                  >
                      <Ticket className="w-4 h-4" /> Cupom
                   </button>
                </div>

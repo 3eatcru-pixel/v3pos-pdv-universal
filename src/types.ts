@@ -111,7 +111,7 @@ export interface RolePermissions {
   };
 }
 
-export type View = 'holding' | 'dashboard' | 'tables' | 'orders' | 'kitchen' | 'bar' | 'inventory' | 'reports' | 'history' | 'staff_mgmt' | 'menu_mgmt' | 'schedule' | 'reservations' | 'printer_mgmt' | 'safety' | 'settings' | 'customization' | 'finance_mgmt' | 'supplier_mgmt' | 'service_mgmt' | 'company_mgmt' | 'pending_orders' | 'staff_pnl';
+export type View = 'holding' | 'dashboard' | 'tables' | 'orders' | 'kitchen' | 'bar' | 'inventory' | 'reports' | 'history' | 'staff_mgmt' | 'menu_mgmt' | 'schedule' | 'reservations' | 'printer_mgmt' | 'safety' | 'settings' | 'customization' | 'finance_mgmt' | 'supplier_mgmt' | 'service_mgmt' | 'company_mgmt' | 'pending_orders' | 'staff_pnl' | 'third_party_orders';
 
 export type PrinterType = 'kitchen' | 'receipt' | 'report' | 'bar';
 
@@ -239,6 +239,133 @@ export interface OrderItem {
 
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
 
+export type ThirdPartyProvider =
+  | 'ifood'
+  | 'uber_eats'
+  | 'google_ordering'
+  | 'rappi'
+  | 'deliveroo'
+  | 'doordash'
+  | 'other';
+
+export type ThirdPartyOrderStatus = 'received' | 'accepted' | 'rejected' | 'failed';
+
+export interface ThirdPartyProviderConfig {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  userId: string;
+  provider: ThirdPartyProvider;
+  enabled: boolean;
+  merchantId?: string;
+  storeId?: string;
+  clientId?: string;
+  clientSecret?: string;
+  accessToken?: string;
+  apiBaseUrl?: string;
+  webhookSecret?: string;
+  pollingEnabled?: boolean;
+  pricingMode?: 'base' | 'markup_percent' | 'fixed_price';
+  markupPercent?: number;
+  fixedPriceMultiplier?: number;
+  minimumExternalPrice?: number;
+  autoCatalogSyncEnabled?: boolean;
+  autoCatalogSyncMinutes?: number;
+  endpointOverrides?: {
+    acceptPath?: string;
+    rejectPath?: string;
+    menuSyncPath?: string;
+    stockSyncPath?: string;
+  };
+  notes?: string;
+  updatedAt: number;
+}
+
+export interface ThirdPartyOrderItem {
+  id: string;
+  externalItemId?: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  notes?: string;
+}
+
+export interface ThirdPartyOrder {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  userId: string;
+  provider: ThirdPartyProvider;
+  externalOrderId: string;
+  status: ThirdPartyOrderStatus;
+  customerName?: string;
+  customerPhone?: string;
+  sourceCreatedAt?: number;
+  receivedAt: number;
+  acceptedAt?: number;
+  rejectedAt?: number;
+  acceptedByStaffId?: string;
+  rejectedByStaffId?: string;
+  rejectReason?: string;
+  items: ThirdPartyOrderItem[];
+  subtotal: number;
+  deliveryFee?: number;
+  total: number;
+  rawPayload: string;
+  internalOrderId?: string;
+}
+
+export interface ThirdPartySyncJob {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  userId: string;
+  provider: ThirdPartyProvider;
+  thirdPartyOrderId: string;
+  externalOrderId: string;
+  action: 'accept' | 'reject';
+  status: 'pending' | 'success' | 'failed';
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: number;
+  lastAttemptAt?: number;
+  lastError?: string;
+  reason?: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+export interface ThirdPartyCatalogSyncJob {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  userId: string;
+  provider: ThirdPartyProvider;
+  type: 'menu' | 'stock';
+  status: 'pending' | 'success' | 'failed';
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: number;
+  lastAttemptAt?: number;
+  lastError?: string;
+  payload: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+export interface ThirdPartyProductMapping {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  userId: string;
+  provider: ThirdPartyProvider;
+  productId: string;
+  externalSku: string;
+  externalName?: string;
+  active: boolean;
+  updatedAt: number;
+}
+
 export interface Staff extends CoreStaff {
   companyId?: string; // Kept for compat
   storeId?: string; // Optional if not assigned to specific store
@@ -295,9 +422,12 @@ export interface Order {
   notes?: string;
   paymentMethod?: 'cash' | 'card' | 'pix' | 'split';
   payments?: { method: 'cash' | 'card' | 'pix', amount: number, change?: number }[];
-  orderType?: 'table' | 'takeaway';
+  orderType?: 'table' | 'takeaway' | 'delivery';
   takeawayNumber?: number;
   deliveryEstimate?: string;
+  sourceProvider?: ThirdPartyProvider;
+  sourceExternalOrderId?: string;
+  acceptedByStaffId?: string;
 }
 
 export interface Transaction {

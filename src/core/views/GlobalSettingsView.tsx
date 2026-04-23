@@ -21,12 +21,18 @@ import {
   CheckCircle2,
   Plus,
   Trash2,
-  Settings
+  Settings,
+  Utensils,
+  ShoppingCart,
+  Briefcase,
+  Hammer,
+  Tag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '../../lib/utils';
 import { firebaseService } from '../../services/firebaseService';
-import { CompanySettings, DeviceLink, RolePermissions, Shop, Product, Table, Staff, Order, InventoryItem, View } from '../../types';
+import { BackupEngine } from '../services/BackupEngine';
+import { CompanySettings, DeviceLink, RolePermissions, Shop, Product, Table, Staff, Order, InventoryItem, View, BusinessConfig } from '../../types';
 import { useCollection } from '../../hooks/useCollection';
 
 interface GlobalSettingsViewProps {
@@ -71,7 +77,7 @@ export const GlobalSettingsView: React.FC<GlobalSettingsViewProps> = ({
   const handleCreateBackup = async () => {
     if (!enterpriseId) return;
     const key = prompt("Defina uma senha mestre para encriptar este backup (mínimo 8 caracteres):");
-    if (!key || key.length < 8) {
+    if (!BackupEngine.validateMasterKey(key)) {
       alert("Senha inválida ou muito curta.");
       return;
     }
@@ -88,13 +94,30 @@ export const GlobalSettingsView: React.FC<GlobalSettingsViewProps> = ({
         createdAt: Date.now()
       };
 
-      const id = await firebaseService.saveSecureBackup(enterpriseId, fullData, key);
+      const id = await BackupEngine.createEncryptedBackup(enterpriseId, fullData, key);
       alert(`Backup criado e encriptado com sucesso! \nProtocolo: ${id}`);
     } catch (error) {
       console.error(error);
       alert("Erro ao processar backup.");
     } finally {
       setIsBackingUp(false);
+    }
+  };
+
+  const handleRestoreBackup = async (backupId: string) => {
+    const key = prompt('Digite a senha mestre usada neste backup:');
+    if (!BackupEngine.validateMasterKey(key)) return;
+
+    try {
+      const restoredData = await BackupEngine.validateAndReadBackup(backupId, key);
+      if (!restoredData) {
+        alert('Nao foi possivel descriptografar o backup.');
+        return;
+      }
+      alert('Backup validado com sucesso. Restauracao completa ainda nao foi implementada nesta tela.');
+    } catch (error) {
+      console.error(error);
+      alert('Falha ao restaurar backup. Verifique a senha e tente novamente.');
     }
   };
 

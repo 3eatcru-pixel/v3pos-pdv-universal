@@ -7,7 +7,8 @@ import {
   Wallet, 
   ClipboardList, 
   Trash2, 
-  UtensilsCrossed 
+  UtensilsCrossed,
+  Truck
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCollection } from '../../../hooks/useCollection';
@@ -15,7 +16,11 @@ import { firebaseService } from '../../../services/firebaseService';
 import { cn, formatCurrency } from '../../../lib/utils';
 import { Order, Table } from '../../../types';
 
-export const PendingOrdersView: React.FC = () => {
+interface PendingOrdersViewProps {
+  onOpenThirdParty?: () => void;
+}
+
+export const PendingOrdersView: React.FC<PendingOrdersViewProps> = ({ onOpenThirdParty }) => {
   const { data: orders } = useCollection<Order>('orders');
   const { data: tables } = useCollection<Table>('tables');
 
@@ -40,9 +45,20 @@ export const PendingOrdersView: React.FC = () => {
            <p className="text-sm text-slate-500 font-medium tracking-tight">Monitoramento em tempo real de comandas em aberto</p>
         </div>
 
-        <div className="flex items-center gap-2 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
-           <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
-           <span className="text-[10px] font-black uppercase text-amber-600">{pendingOrders.length} Resultados</span>
+        <div className="flex items-center gap-2">
+          {onOpenThirdParty && (
+            <button
+              onClick={onOpenThirdParty}
+              className="inline-flex items-center gap-2 bg-slate-800 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-slate-700"
+            >
+              <Truck className="w-3.5 h-3.5" />
+              Terceiros (Opcional)
+            </button>
+          )}
+          <div className="flex items-center gap-2 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
+             <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
+             <span className="text-[10px] font-black uppercase text-amber-600">{pendingOrders.length} Resultados</span>
+          </div>
         </div>
       </div>
 

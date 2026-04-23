@@ -8,8 +8,7 @@ import { RestaurantDashboard } from './modules/restaurant/views/RestaurantDashbo
 import { CompanyManagement } from './core/views/CompanyManagement';
 import { ServiceLayout } from './modules/service/views/ServiceLayout';
 import { DashboardView } from './core/views/DashboardView';
-import { GlobalSettingsView } from './core/views/GlobalSettingsView';
-import { CustomizationView } from './core/views/CustomizationView';
+import { GlobalSettingsView, CustomizationView } from './core/views/GlobalSettingsView';
 import { PrinterManagementView } from './core/views/PrinterManagementView';
 
 /**
@@ -156,6 +155,7 @@ import { db } from './firebase';
 import { ensureFirebaseSession } from './services/authSession';
 import { useCollection } from './hooks/useCollection';
 import { accountService } from './core/services/accountService';
+import { ShiftEngine } from './core/services/ShiftEngine';
 import { LoginView } from './core/views/LoginView';
 
 import { HoldingDashboard } from './core/views/HoldingDashboard';
@@ -247,6 +247,14 @@ export default function App() {
   
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [modalStaffRole, setModalStaffRole] = useState<UserRole>('waiter');
+  const [selectedScheduleDate] = useState<Date>(new Date());
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [editingShift, setEditingShift] = useState<Shift | null>(null);
+
+  const areaColors: Record<'FOH' | 'BOH', string> = {
+    FOH: '#10b981',
+    BOH: '#f97316',
+  };
 
   // --- Data Provider Switch ---
   
@@ -711,21 +719,32 @@ export default function App() {
   const handlePrintReceipt = (order: Order) => {
     const table = tables.find(t => t.id === order.tableId);
     const staffMember = staff.find(s => s.id === order.staffId);
-    const receiptContent = `
-======= RestManager POS =======
-Mesa: 0${table?.number || '??'}
-GarÃƒÂ§om: ${staffMember?.name || 'Sistema'}
-Data: ${format(order.startTime, 'dd/MM/yyyy HH:mm')}
--------------------------------
-${order.items.filter(i => i.status !== 'voided').map(i => `${i.quantity}x ${i.name}\n${formatCurrency((i.price + (i.modifiers || []).reduce((acc, m) => acc + (m.price || 0), 0)) * i.quantity)}`).join('\n')}
--------------------------------
-Subtotal: \t${formatCurrency(order.subtotal)}
-ServiÃƒÂ§o (10%): \t${formatCurrency(order.serviceFee || 0)}
-Desconto: \t-${formatCurrency(order.discount)}
-TOTAL: \t\t${formatCurrency(order.total)}
-===============================
-Obrigado pela preferÃƒÂªncia!
-    `;
+
+    const itemLines = order.items
+      .filter(i => i.status !== 'voided')
+      .map(i => {
+        const modifiersTotal = (i.modifiers || []).reduce((acc, m) => acc + (m.price || 0), 0);
+        const itemTotal = (i.price + modifiersTotal) * i.quantity;
+        return `${i.quantity}x ${i.name}\n${formatCurrency(itemTotal)}`;
+      })
+      .join('\n');
+
+    const receiptContent = [
+      '======= RestManager POS =======',
+      `Mesa: 0${table?.number || '??'}`,
+      `Garcom: ${staffMember?.name || 'Sistema'}`,
+      `Data: ${format(order.startTime, 'dd/MM/yyyy HH:mm')}`,
+      '-------------------------------',
+      itemLines,
+      '-------------------------------',
+      `Subtotal: \t${formatCurrency(order.subtotal)}`,
+      `Servico (10%): \t${formatCurrency(order.serviceFee || 0)}`,
+      `Desconto: \t-${formatCurrency(order.discount)}`,
+      `TOTAL: \t\t${formatCurrency(order.total)}`,
+      '===============================',
+      'Obrigado pela preferencia!',
+    ].join('\n');
+
     handlePrintToPrinter('receipt', receiptContent);
   };
 
@@ -960,7 +979,7 @@ Obrigado pela preferÃƒÂªncia!
     }
 
     // Update Inventory Stock based on ingredients and modifiers
-    await adjustInventory(newItems, -1);
+    await adjustInventory(newItems, 1);
 
     // Notifications
     const barCategories = ['Bebidas', 'Bar', 'FOH'];
@@ -1218,7 +1237,7 @@ Obrigado pela preferÃƒÂªncia!
 
         // Deduct stock for takeaway items once paid/confirmed
         if (isFullyPaid || shouldSendToKitchen) {
-          await adjustInventory(cart, -1);
+          await adjustInventory(cart, 1);
         }
 
         const tableNum = `Takeaway #${nextNumber}`;
@@ -1286,7 +1305,7 @@ Obrigado pela preferÃƒÂªncia!
 
         // Deduct stock if this is a takeaway transitioning from pending
         if (order.orderType === 'takeaway' && order.status === 'pending' && (isFullyPaid || shouldSendToKitchen)) {
-          await adjustInventory(order.items, -1);
+          await adjustInventory(order.items, 1);
         }
 
         if (isFullyPaid && order.tableId && order.tableId !== 'takeaway') {
@@ -1568,6 +1587,24 @@ Obrigado pela preferÃƒÂªncia!
   };
   const handleDeliverOrder = (orderId: string) => {
     handleOrderStatusChange(orderId, 'delivered');
+  };
+
+  const handleSaveShift = async (shift: Pick<Shift, 'staffId' | 'area' | 'startTime' | 'endTime'>) => {
+    await ShiftEngine.saveShift({
+      editingShift,
+      selectedShopId,
+      staffId: shift.staffId,
+      area: shift.area,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+    });
+    setIsShiftModalOpen(false);
+    setEditingShift(null);
+  };
+
+  const handleDeleteShift = async (shiftId: string) => {
+    await ShiftEngine.deleteShift(shiftId);
+    setEditingShift(null);
   };
 
   const markNotificationAsRead = async (id: string) => {
@@ -2300,8 +2337,8 @@ Obrigado pela preferÃƒÂªncia!
       case 'reservations': return <RestaurantLayout defaultView="reservations" />;
       case 'printer_mgmt': return (
         <PrinterManagementView 
-          onNew={() => { setEditingPrinter(null); setIsPrinterModalOpen(true); }}
-          onEdit={(p) => { setEditingPrinter(p); setIsPrinterModalOpen(true); }}
+          onNew={() => { alert('Use a tela de cadastro de impressoras no modulo atual.'); }}
+          onEdit={() => { alert('Use a tela de cadastro de impressoras no modulo atual.'); }}
         />
       );
       case 'schedule': return <StaffScheduleView module={systemMode} />;
@@ -2912,6 +2949,8 @@ function CostBar({ label, value, total, color }: any) {
        </div>
     </div>
   );
+}
+
 }
 
 
