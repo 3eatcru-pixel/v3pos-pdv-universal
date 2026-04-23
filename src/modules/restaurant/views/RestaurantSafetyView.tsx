@@ -405,6 +405,7 @@ export const RestaurantSafetyView: React.FC = () => {
             </div>
           )}
         </motion.div>
+      </AnimatePresence>
       <AnimatePresence>
         {isIncidentModalOpen && (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
