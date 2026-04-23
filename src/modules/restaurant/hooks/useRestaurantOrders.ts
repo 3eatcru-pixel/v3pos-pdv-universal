@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
-import { Product, Order, OrderItem, Table, RecountRequest, InventoryItem } from '../../../types';
-import { generateId } from '../../../lib/idUtils';
+import { Product, Order, OrderItem, Table } from '../../../types';
+import { calculateOrderTotals as calcTotals } from '../../../core/utils/OrderCalculator';
 
 export const useRestaurantOrders = (
   initialOrders: Order[], 
@@ -12,16 +12,10 @@ export const useRestaurantOrders = (
   const [searchQuery, setSearchQuery] = useState('');
 
   const calculateOrderTotals = useCallback((items: OrderItem[], discount: number, isTakeaway: boolean) => {
-    const subtotal = items.reduce((sum, item) => {
-      const modifiersTotal = (item.modifiers || []).reduce((acc, m) => acc + (m.price || 0), 0);
-      return sum + (item.status === 'voided' ? 0 : (item.price + modifiersTotal) * item.quantity);
-    }, 0);
-
-    const serviceFee = isTakeaway ? 0 : Number((subtotal * (serviceChargePercentage / 100)).toFixed(2));
-    const tax = Number((subtotal * (taxPercentage / 100)).toFixed(2));
-    const finalTotal = Number((subtotal + serviceFee + tax - discount).toFixed(2));
-
-    return { subtotal, serviceFee, tax, discount, total: finalTotal };
+    return calcTotals(items, discount, isTakeaway, { 
+      serviceCharge: serviceChargePercentage, 
+      taxRate: taxPercentage 
+    });
   }, [serviceChargePercentage, taxPercentage]);
 
   const activeOrder = useMemo(() => 

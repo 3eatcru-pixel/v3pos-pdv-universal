@@ -29,12 +29,14 @@ import {
   MapPin
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../../lib/utils';
+import { cn, formatCurrency } from '../../lib/utils';
+import { StatCard } from '../components/CommonUI';
 import { Staff, PerformanceEvent, RolePermissions, View } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useCollection } from '../../hooks/useCollection';
 
 interface StaffManagementViewProps {
   module: 'restaurant' | 'market' | 'construction' | 'retail';
@@ -42,9 +44,10 @@ interface StaffManagementViewProps {
 
 export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module }) => {
   const [activeMainTab, setActiveMainTab] = useState<'members' | 'roles'>('members');
-  const [staff, setStaff] = useState<Staff[]>([]);
-  const [performanceEvents, setPerformanceEvents] = useState<PerformanceEvent[]>([]);
-  const [roles, setRoles] = useState<RolePermissions[]>([]);
+  const { data: staff, loading: loadingStaff } = useCollection<Staff>('staff');
+  const { data: performanceEvents, loading: loadingEvents } = useCollection<PerformanceEvent>('performance_events');
+  const { data: roles, loading: loadingRoles } = useCollection<RolePermissions>('rolePermissions');
+
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
@@ -53,39 +56,14 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance'>('Resumo');
-  const [loading, setLoading] = useState(true);
 
-  const currentUser = accountService.getCurrentUser();
-  const companyId = currentUser?.companyId || 'default';
-
-  useEffect(() => {
-    loadData();
-  }, [companyId]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [staffData, eventsData, rolesData] = await Promise.all([
-        firebaseService.getAllDocs('staff', companyId),
-        firebaseService.getAllDocs('performance_events', companyId),
-        firebaseService.getAllDocs('rolePermissions', companyId)
-      ]);
-      setStaff(staffData as Staff[]);
-      setPerformanceEvents(eventsData as PerformanceEvent[]);
-      setRoles(rolesData as unknown as RolePermissions[]);
-    } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading = loadingStaff || loadingEvents || loadingRoles;
 
   const handleDeleteStaff = async (id: string) => {
     if (!confirm('Tem certeza que deseja remover este colaborador permanentemente?')) return;
     try {
       await firebaseService.deleteItem('staff', id);
       setSelectedStaff(null);
-      loadData();
     } catch (err) {
       console.error('Delete failed:', err);
     }
@@ -155,7 +133,6 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       await firebaseService.saveItem('staff', staffId, { ...selectedStaff, ...staffData, id: staffId });
       setIsStaffModalOpen(false);
       setSelectedStaff(null);
-      loadData();
     } catch (err) {
       console.error('Save failed:', err);
     }
@@ -192,7 +169,6 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
     }
   };
 
-  const formatCurrency = (val?: number) => val?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) || 'R$ 0,00';
 
   const staffEvents = performanceEvents.filter(e => e.staffId === selectedStaff?.id).sort((a,b) => b.timestamp - a.timestamp);
   const totalPayroll = staff.reduce((acc, curr) => acc + (curr.salary || 0), 0);
@@ -260,37 +236,38 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-         <div className="bg-slate-900 responsive-padding responsive-rounded text-white shadow-2xl relative overflow-hidden group">
-            <div className="relative z-10">
-               <h5 className="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-6 border-b border-white/5 pb-2">Payroll Mensal</h5>
-               <div className="space-y-4">
-                  <div className="flex justify-between items-end">
-                     <span className="text-4xl font-black italic tracking-tighter">{formatCurrency(totalPayroll)}</span>
-                     <span className="text-[9px] font-bold text-slate-400 mb-2">Empresa Total</span>
-                  </div>
-                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                     <div className="h-full bg-blue-500 w-[65%] shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
-                  </div>
-               </div>
-            </div>
-            <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-blue-500/5 rounded-full blur-[80px]" />
-         </div>
+         <StatCard 
+            title="Payroll Mensal"
+            value={formatCurrency(totalPayroll)}
+            icon={<DollarSign />}
+            variant="dark"
+            accentColor="blue"
+            subtitle="Empresa Total"
+         />
 
-         {[
-           { label: 'Efetivo Total', val: staff.length.toString().padStart(2, '0'), color: 'text-indigo-500', icon: <Users /> },
-           { label: 'Performance Média', val: (staff.reduce((a,b) => a + (b.performanceScore || 100), 0) / (staff.length || 1)).toFixed(1), color: 'text-emerald-500', icon: <TrendingUp /> },
-           { label: 'Alertas HR', val: '04', color: 'text-amber-500', icon: <AlertTriangle /> },
-         ].map((card, i) => (
-           <div key={i} className="bg-white p-6 sm:p-10 rounded-2xl sm:rounded-[3rem] border border-slate-100 shadow-sm flex items-center justify-between group hover:border-slate-300 transition-all active:scale-[0.98]">
-              <div>
-                 <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block mb-2">{card.label}</span>
-                 <span className={cn("text-4xl font-black italic tracking-tighter", card.color)}>{card.val}</span>
-              </div>
-              <div className={cn("w-16 h-16 rounded-[2rem] flex items-center justify-center transition-transform group-hover:scale-110", card.color.replace('text', 'bg').replace('500', '50'))}>
-                 {React.cloneElement(card.icon as React.ReactElement, { className: "w-8 h-8" })}
-              </div>
-           </div>
-         ))}
+         <StatCard 
+            title="Efetivo Total"
+            value={staff.length.toString().padStart(2, '0')}
+            icon={<Users />}
+            accentColor="indigo"
+            subtitle="Membros Ativos"
+         />
+
+         <StatCard 
+            title="Performance Média"
+            value={(staff.reduce((a,b) => a + (b.performanceScore || 100), 0) / (staff.length || 1)).toFixed(1)}
+            icon={<TrendingUp />}
+            accentColor="emerald"
+            subtitle="Média Global"
+         />
+
+         <StatCard 
+            title="Alertas HR"
+            value="04"
+            icon={<AlertTriangle />}
+            accentColor="amber"
+            subtitle="Pendências"
+         />
       </div>
 
       {/* Filter Bar */}

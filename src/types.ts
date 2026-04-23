@@ -12,10 +12,11 @@ import {
   CoreSale,
   BusinessMode,
   UserRole as CoreUserRole,
-  AppNotification as CoreNotification
+  AppNotification as CoreNotification,
+  CustomFieldDefinition
 } from './core/types';
 
-export type { Enterprise, Shop, BusinessMode };
+export type { Enterprise, Shop, BusinessMode, CustomFieldDefinition };
 
 export type SystemMode = 'restaurant' | 'distributor' | 'service';
 export type TableStatus = 'free' | 'occupied' | 'reserved' | 'closed';
@@ -43,19 +44,6 @@ export interface WorkflowRule {
   condition: string;
   action: string;
   active: boolean;
-}
-
-export interface CustomFieldDefinition {
-  id: string;
-  enterpriseId: string;
-  module: string; // e.g., 'restaurant', 'construction'
-  targetEntity: string; // e.g., 'Table', 'Staff', 'Product'
-  name: string;
-  label: string;
-  type: 'string' | 'number' | 'boolean' | 'select' | 'date';
-  options?: string[]; // for 'select' type
-  required: boolean;
-  defaultValue?: any;
 }
 
 export interface BusinessConfig {
@@ -176,6 +164,7 @@ export interface Product extends CoreProduct {
   unit?: 'un' | 'kg' | 'lt' | 'g';
   expiration?: number;
   ingredients?: Record<string, number>;
+  composition?: { productId: string, quantity: number }[]; // For combos/kits
   wastageMargin?: number;
   type?: 'product' | 'service'; // Added to distinguish in POS
 }
@@ -228,6 +217,7 @@ export interface ItemModifier {
   type: ModifierType;
   name: string;
   price?: number;
+  inventoryItemId?: string; // Link to inventory for COGS and deduction
 }
 
 export interface OrderItem {
@@ -298,6 +288,7 @@ export interface Order {
   serviceFee?: number;
   tax?: number;
   total: number;
+  totalCost?: number; // Snapshot of sum(item.cost * quantity)
   pricePerPerson?: number; // Helpful for split tracking
   notes?: string;
   paymentMethod?: 'cash' | 'card' | 'pix' | 'split';
@@ -390,6 +381,7 @@ export interface InventoryItem {
   unit: string;
   minStock: number;
   costPerUnit: number;
+  yieldFactor?: number; // 1g raw -> Xg prepared. Default 1.
   location: InventoryLocation;
   lastRecountDate?: number;
   batch?: string;

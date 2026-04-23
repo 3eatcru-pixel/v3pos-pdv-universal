@@ -152,3 +152,18 @@ export interface SupportMessage {
   timestamp: number;
   status: 'open' | 'resolved';
 }
+
+export interface CustomFieldDefinition {
+  id: string;
+  enterpriseId: string;
+  module: string; // e.g., 'restaurant', 'construction'
+  targetEntity: string; // e.g., 'Table', 'Staff', 'Product'
+  name: string;
+  label: string;
+  type: 'string' | 'number' | 'boolean' | 'select' | 'date';
+  options?: string[]; // for 'select' type
+  required: boolean;
+  isRequired?: boolean; // Legacy compat
+  defaultValue?: any;
+  createdAt?: number;
+}

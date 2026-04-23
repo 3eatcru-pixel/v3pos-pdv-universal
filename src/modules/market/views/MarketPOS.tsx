@@ -32,6 +32,8 @@ import { firebaseService } from '../../../services/firebaseService';
 import { paymentService } from '../../../services/paymentService';
 import { accountService } from '../../../core/services/accountService';
 import { marketService } from '../services/marketService';
+import { InventoryEngine } from '../../../core/services/InventoryEngine';
+import { InventoryItem } from '../../../types';
 
 interface POSItem extends Product {
   quantity: number;
@@ -44,6 +46,7 @@ export const MarketPOS: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [processingSale, setProcessingSale] = useState(false);
   const [isQuickStockOpen, setIsQuickStockOpen] = useState(false);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -59,7 +62,14 @@ export const MarketPOS: React.FC = () => {
       setLoading(false);
     });
 
-    return () => unsub();
+    const unsubInv = firebaseService.subscribeCollection('inventory', entId, sId, (data) => {
+      setInventory(data as InventoryItem[]);
+    });
+
+    return () => {
+      unsub();
+      unsubInv();
+    };
   }, []);
 
   const handleScan = (barcode: string) => {
@@ -131,11 +141,29 @@ export const MarketPOS: React.FC = () => {
           }
 
           const stockItems = cart.map(item => ({
-            productId: item.id,
-            quantity: item.quantity
+            id: item.id,
+            quantity: item.quantity,
+            composition: (item as any).composition
           }));
 
-          await firebaseService.decrementProductStocksAtomic(stockItems, { enterpriseId: entId });
+          await InventoryEngine.adjustStockRecursive(
+            stockItems,
+            1, // 1 for deduction
+            entId || 'default',
+            sId || 'default',
+            inventory
+          );
+
+          // Audit Log
+          await firebaseService.addAuditLog({
+            enterpriseId: entId || 'default',
+            shopId: sId || 'default',
+            staffId: user?.id || 'system',
+            staffName: user?.name || 'Caixa',
+            action: 'SALE_COMPLETED',
+            details: `Venda de ${cart.length} itens finalizada. Total: ${formatCurrency(total)}`,
+            referenceId: `MK-${Date.now()}`
+          });
 
           const saleData = {
             id: `market_sale_${Date.now()}`,

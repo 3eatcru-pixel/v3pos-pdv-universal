@@ -22,7 +22,8 @@ import {
   Briefcase
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../../lib/utils';
+import { cn, formatCurrency } from '../../lib/utils';
+import { StatCard } from '../components/CommonUI';
 import { Transaction } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
@@ -107,8 +108,6 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
     }
   };
 
-  const formatCurrency = (val: number) => 
-    val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
   const totalIncome = transactions
     .filter(t => t.type === 'income')
@@ -150,40 +149,30 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
 
       {/* Financial Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-         <div className="bg-slate-900 p-12 rounded-[3.5rem] text-white shadow-2xl relative overflow-hidden group">
-            <div className="relative z-10">
-               <h5 className="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-10 border-b border-white/5 pb-2 italic">Saldo Disponível</h5>
-               <div className="space-y-2">
-                  <span className="text-5xl font-black italic tracking-tighter block">{formatCurrency(balance)}</span>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Consolidado Empresa</p>
-               </div>
-            </div>
-            <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-blue-500/10 rounded-full blur-[80px]" />
-         </div>
+         <StatCard 
+            title="Saldo Disponível"
+            value={formatCurrency(balance)}
+            icon={<Wallet />}
+            variant="dark"
+            accentColor="blue"
+            subtitle="Consolidado Empresa"
+         />
 
-         <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-sm flex items-center justify-between group">
-            <div>
-               <span className="text-[10px] font-black uppercase text-emerald-500 tracking-widest block mb-4 flex items-center gap-2">
-                  <ArrowUpRight className="w-3 h-3" /> Entradas / Receita
-               </span>
-               <span className="text-4xl font-black italic tracking-tighter text-slate-900">{formatCurrency(totalIncome)}</span>
-            </div>
-            <div className="w-20 h-20 bg-emerald-50 rounded-[2.5rem] flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform shadow-lg shadow-emerald-500/5">
-               <TrendingUp className="w-10 h-10" />
-            </div>
-         </div>
+         <StatCard 
+            title="Entradas / Receita"
+            value={formatCurrency(totalIncome)}
+            icon={<TrendingUp />}
+            accentColor="emerald"
+            subtitle="Fluxo Mensal"
+         />
 
-         <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-sm flex items-center justify-between group">
-            <div>
-               <span className="text-[10px] font-black uppercase text-rose-500 tracking-widest block mb-4 flex items-center gap-2">
-                  <ArrowDownLeft className="w-3 h-3" /> Saídas / Despesas
-               </span>
-               <span className="text-4xl font-black italic tracking-tighter text-slate-900">{formatCurrency(totalExpense)}</span>
-            </div>
-            <div className="w-20 h-20 bg-rose-50 rounded-[2.5rem] flex items-center justify-center text-rose-500 group-hover:scale-110 transition-transform shadow-lg shadow-rose-500/5">
-               <TrendingDown className="w-10 h-10" />
-            </div>
-         </div>
+         <StatCard 
+            title="Saídas / Despesas"
+            value={formatCurrency(totalExpense)}
+            icon={<TrendingDown />}
+            accentColor="rose"
+            subtitle="Fluxo Mensal"
+         />
       </div>
 
       {/* Filter & Inventory View */}

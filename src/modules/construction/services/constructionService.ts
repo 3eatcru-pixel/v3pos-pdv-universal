@@ -1,15 +1,6 @@
 import { integrationLayer } from '../../../integration/integrationLayer';
-import { CoreProduct, SyncEvent } from '../../../core/types';
+import { CoreProduct, SyncEvent, CustomFieldDefinition } from '../../../core/types';
 import { meshNetwork } from '../../../services/p2pSync';
-
-export interface CustomFieldDefinition {
-  id: string;
-  name: string;
-  type: 'text' | 'number' | 'boolean' | 'date' | 'select';
-  options?: string[]; // For select type
-  isRequired: boolean;
-  createdAt: number;
-}
 
 export interface Quote {
   id: string;

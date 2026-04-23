@@ -169,7 +169,7 @@ function normalizeRolePermissionDocId(id: string, data?: any): string {
 
 export const firebaseService = {
   // Generic collection listener scoped by enterprise and optionally shop
-  subscribeCollection: (colName: string, enterpriseId: string | null, shopId: string | null, callback: (data: any[]) => void) => {
+  subscribeCollection: <T = any>(colName: string, enterpriseId: string | null, shopId: string | null, callback: (data: T[]) => void) => {
     if (TENANT_SCOPED_COLLECTIONS.has(colName) && !enterpriseId) {
       callback([]);
       return () => {};
@@ -640,5 +640,13 @@ export const firebaseService = {
     }
 
     await batch.commit();
+  },
+
+  runTransaction: async (updateFunction: (transaction: any) => Promise<any>) => {
+    return runTransaction(db, updateFunction);
+  },
+
+  getDocRef: (collectionName: string, id: string) => {
+    return doc(db, collectionName, id);
   }
 };

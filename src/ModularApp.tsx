@@ -19,6 +19,7 @@ import { BusinessConfig } from './types';
 import { firebaseService } from './services/firebaseService';
 import { motion, AnimatePresence } from 'motion/react';
 import { coreSyncService } from './core/services/CoreSyncService';
+import { useCollection } from './hooks/useCollection';
 
 // We'll import the legacy App (Restaurant) for now to keep functionality
 import { RestaurantLayout } from './modules/restaurant/views/RestaurantLayout';
@@ -30,7 +31,7 @@ export default function ModularApp() {
   const [mode, setMode] = useState<BusinessMode>(() => {
     return localStorage.getItem('pos_business_mode') as BusinessMode || null;
   });
-  const [businessConfigs, setBusinessConfigs] = useState<BusinessConfig[]>([]);
+  const { data: businessConfigs } = useCollection<BusinessConfig>('businessConfigs');
   const [isModuleConfigOpen, setIsModuleConfigOpen] = useState(false);
   const [company, setCompany] = useState<Company | null>(null);
   const [isSystemPaused, setIsSystemPaused] = useState(false);
@@ -43,7 +44,6 @@ export default function ModularApp() {
 
   useEffect(() => {
     if (!currentUser) return;
-    const unsubConfigs = firebaseService.subscribeCollection('businessConfigs', currentUser.companyId, null, setBusinessConfigs);
     
     let mounted = true;
     const loadCompanyAndPause = async () => {
@@ -61,7 +61,6 @@ export default function ModularApp() {
     loadCompanyAndPause();
 
     return () => {
-      unsubConfigs();
       mounted = false;
     };
   }, [currentUser]);
