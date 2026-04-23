@@ -192,7 +192,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
           setView('tables');
         }}
       />;
-      case 'pending_orders': return <PendingOrdersView />;
+      case 'pending_orders': return <PendingOrdersView onOpenThirdParty={() => setView('third_party_orders')} />;
       case 'third_party_orders': return <ThirdPartyOrdersView />;
       case 'history': return <RestaurantHistoryView />;
       case 'kitchen': return <KitchenDisplayView type="kitchen" />;

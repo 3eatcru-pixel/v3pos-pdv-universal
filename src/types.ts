@@ -239,7 +239,14 @@ export interface OrderItem {
 
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
 
-export type ThirdPartyProvider = 'ifood' | 'uber_eats' | 'google_ordering' | 'rappi' | 'other';
+export type ThirdPartyProvider =
+  | 'ifood'
+  | 'uber_eats'
+  | 'google_ordering'
+  | 'rappi'
+  | 'deliveroo'
+  | 'doordash'
+  | 'other';
 
 export type ThirdPartyOrderStatus = 'received' | 'accepted' | 'rejected' | 'failed';
 
@@ -254,8 +261,22 @@ export interface ThirdPartyProviderConfig {
   storeId?: string;
   clientId?: string;
   clientSecret?: string;
+  accessToken?: string;
+  apiBaseUrl?: string;
   webhookSecret?: string;
   pollingEnabled?: boolean;
+  pricingMode?: 'base' | 'markup_percent' | 'fixed_price';
+  markupPercent?: number;
+  fixedPriceMultiplier?: number;
+  minimumExternalPrice?: number;
+  autoCatalogSyncEnabled?: boolean;
+  autoCatalogSyncMinutes?: number;
+  endpointOverrides?: {
+    acceptPath?: string;
+    rejectPath?: string;
+    menuSyncPath?: string;
+    stockSyncPath?: string;
+  };
   notes?: string;
   updatedAt: number;
 }
@@ -292,6 +313,57 @@ export interface ThirdPartyOrder {
   total: number;
   rawPayload: string;
   internalOrderId?: string;
+}
+
+export interface ThirdPartySyncJob {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  userId: string;
+  provider: ThirdPartyProvider;
+  thirdPartyOrderId: string;
+  externalOrderId: string;
+  action: 'accept' | 'reject';
+  status: 'pending' | 'success' | 'failed';
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: number;
+  lastAttemptAt?: number;
+  lastError?: string;
+  reason?: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+export interface ThirdPartyCatalogSyncJob {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  userId: string;
+  provider: ThirdPartyProvider;
+  type: 'menu' | 'stock';
+  status: 'pending' | 'success' | 'failed';
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: number;
+  lastAttemptAt?: number;
+  lastError?: string;
+  payload: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+export interface ThirdPartyProductMapping {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  userId: string;
+  provider: ThirdPartyProvider;
+  productId: string;
+  externalSku: string;
+  externalName?: string;
+  active: boolean;
+  updatedAt: number;
 }
 
 export interface Staff extends CoreStaff {
