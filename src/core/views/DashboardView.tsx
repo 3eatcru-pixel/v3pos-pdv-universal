@@ -61,7 +61,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const accessibleShopIds = useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.role === 'owner') return shops.map(s => s.id);
-    return currentUser.assignedShopIds || [];
+    return (currentUser as any).assignedShopIds || [];
   }, [currentUser, shops]);
 
   const currentShop = shops.find(s => s.id === selectedShopId);

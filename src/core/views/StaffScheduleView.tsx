@@ -28,6 +28,7 @@ import { ptBR } from 'date-fns/locale';
 import { Shift, Staff, UserRole } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
+import { useCollection } from '../../hooks/useCollection';
 import { cn } from '../../lib/utils';
 
 interface StaffScheduleViewProps {
@@ -77,38 +78,15 @@ const moduleConfigs: Record<string, { title: string; areas: { id: string; label:
 };
 
 export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) => {
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const [staff, setStaff] = useState<Staff[]>([]);
+  const { data: shifts } = useCollection<Shift>('shifts');
+  const { data: staff } = useCollection<Staff>('staff');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
-  const [loading, setLoading] = useState(true);
 
   const currentUser = accountService.getCurrentUser();
   const companyId = currentUser?.companyId || 'default';
   const config = moduleConfigs[module] || moduleConfigs.restaurant;
-
-  useEffect(() => {
-    loadData();
-  }, [companyId]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [shiftsData, staffData] = await Promise.all([
-        firebaseService.getAllDocs('shifts', companyId),
-        firebaseService.getAllDocs('staff', companyId)
-      ]);
-      // Filter shifts by module if needed, or by areas belonging to module
-      // For now we assume shifts collection has all shifts and we might filter by area if they overlap
-      setShifts(shiftsData as Shift[]);
-      setStaff(staffData as Staff[]);
-    } catch (error) {
-      console.error('Error loading schedule data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
   const weekDays = eachDayOfInterval({
@@ -135,12 +113,12 @@ export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) 
       area: formData.get('area') as string,
       startTime: start,
       endTime: end,
-      shopId: 'main-shop', // Simplified
+      shopId: localStorage.getItem('rm_selected_shop_id') || 'main-shop',
       enterpriseId: companyId
     };
 
     try {
-      if (editingShift) {
+      if (editingShift?.id) {
         await firebaseService.saveItem('shifts', editingShift.id, { ...editingShift, ...shiftData });
       } else {
         const id = `shift-${Math.random().toString(36).substr(2, 9)}`;
@@ -148,7 +126,6 @@ export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) 
       }
       setIsModalOpen(false);
       setEditingShift(null);
-      loadData();
     } catch (error) {
       console.error('Error saving shift:', error);
     }
@@ -160,7 +137,6 @@ export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) 
         await firebaseService.deleteItem('shifts', id);
         setIsModalOpen(false);
         setEditingShift(null);
-        loadData();
       } catch (error) {
         console.error('Error deleting shift:', error);
       }
@@ -224,7 +200,7 @@ export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) 
 
                {/* Grid Body */}
                <div className="divide-y divide-slate-50">
-                  {staff.length === 0 && !loading && (
+                  {staff.length === 0 && (
                     <div className="py-32 text-center">
                        <User className="w-16 h-16 text-slate-100 mx-auto mb-4" />
                        <p className="text-slate-400 font-black uppercase text-[10px] tracking-widest italic">Nenhum funcionário encontrado</p>

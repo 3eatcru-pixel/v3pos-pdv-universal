@@ -34,7 +34,7 @@ export const MenuManagementView: React.FC = () => {
     Object.entries(product.ingredients).forEach(([itemId, qty]) => {
       const item = inventory.find(i => i.id === itemId);
       if (item) {
-        totalCost += item.costPerUnit * qty;
+        totalCost += item.costPerUnit * (qty as number);
       }
     });
     return totalCost;

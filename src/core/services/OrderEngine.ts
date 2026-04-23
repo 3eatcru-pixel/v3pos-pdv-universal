@@ -1,4 +1,4 @@
-import { OrderItem, Order } from '../types';
+import { OrderItem, Order } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { coreEventBus } from '../events/CoreEventBus';
 import { InventoryEngine } from './InventoryEngine';

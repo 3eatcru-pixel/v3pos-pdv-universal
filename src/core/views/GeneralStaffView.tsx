@@ -57,6 +57,8 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance'>('Resumo');
 
+  const companyId = accountService.getCurrentCompanyId();
+  const currentUser = accountService.getCurrentUser();
   const loading = loadingStaff || loadingEvents || loadingRoles;
 
   const handleDeleteStaff = async (id: string) => {
@@ -100,7 +102,6 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       await firebaseService.saveItem('rolePermissions', roleData.role, roleData);
       setIsRoleModalOpen(false);
       setSelectedRole(null);
-      loadData();
     } catch (err) {
       console.error('Save role failed:', err);
     }
@@ -162,7 +163,6 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       const newScore = currentScore + event.points;
       await firebaseService.saveItem('staff', selectedStaff.id, { ...selectedStaff, performanceScore: newScore });
       setIsEventModalOpen(false);
-      loadData();
       setSelectedStaff(prev => prev ? { ...prev, performanceScore: newScore } : null);
     } catch (err) {
       console.error('Event save failed:', err);
@@ -391,7 +391,6 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                           <button 
                             onClick={async () => {
                               if (confirm('Deletar este cargo?')) await firebaseService.deleteItem('rolePermissions', role.role);
-                              loadData();
                             }}
                             className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
                           >

@@ -10,15 +10,22 @@ import {
   Settings, 
   Database,
   ShoppingCart,
-  Grid
+  Grid,
+  ShieldCheck,
+  Calendar as CalendarIcon,
+  Clock,
+  History
 } from 'lucide-react';
 import { startOfDay } from 'date-fns';
 import { RestaurantDashboard } from './RestaurantDashboard';
 import { TableMapView } from './TableMapView';
 import { KitchenDisplayView } from './KitchenDisplayView';
 import { MenuManagementView } from './MenuManagementView';
+import { RestaurantHistoryView } from './RestaurantHistoryView';
 import { InventoryManagementView } from '../../../core/views/InventoryManagementView';
 import { ReservationManagementView } from './ReservationManagementView';
+import { RestaurantSafetyView } from './RestaurantSafetyView';
+import { PendingOrdersView } from './PendingOrdersView';
 import { StaffScheduleView } from '../../../core/views/StaffScheduleView';
 import { GeneralStaffView } from '../../../core/views/GeneralStaffView';
 import { FinanceManagementView } from '../../../core/views/FinanceManagementView';
@@ -32,7 +39,11 @@ import { InventoryEngine } from '../../../core/services/InventoryEngine';
 import { calculateOrderTotals } from '../../../core/utils/OrderCalculator';
 import { Table, Product, Order, Staff, InventoryItem, OrderItem, ItemStatus, OrderStatus } from '../../../types';
 
-export const RestaurantLayout: React.FC = () => {
+interface RestaurantLayoutProps {
+  defaultView?: string;
+}
+
+export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView = 'tables' }) => {
   const enterpriseId = accountService.getCurrentCompanyId();
   const selectedShopId = accountService.getSelectedShopId();
   const currentUser = accountService.getCurrentUser();
@@ -49,19 +60,24 @@ export const RestaurantLayout: React.FC = () => {
     { id: 'dashboard', icon: <LayoutDashboard />, label: 'Dashboard', roles: ['owner', 'manager', 'dev'] },
     { id: 'tables', icon: <Grid />, label: 'Mapa de Mesas', roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
     { id: 'kitchen', icon: <ChefHat />, label: 'Cozinha (KDS)', roles: ['owner', 'manager', 'staff', 'dev'] },
+    { id: 'history', icon: <History />, label: 'Histórico de Vendas', roles: ['owner', 'manager', 'dev'] },
+    { id: 'orders', icon: <ClipboardList />, label: 'Comandas', roles: ['owner', 'manager', 'staff', 'dev'] },
+    { id: 'pending_orders', icon: <Clock />, label: 'Pendentes', roles: ['owner', 'manager', 'staff', 'dev'] },
     { id: 'menu', icon: <ClipboardList />, label: 'Cardápio / Menu', roles: ['owner', 'manager', 'dev'] },
     { id: 'inventory', icon: <Utensils />, label: 'Estoque / Insumos', roles: ['owner', 'manager', 'staff', 'dev'] },
     { id: 'reservations', icon: <Calendar />, label: 'Reservas', roles: ['owner', 'manager', 'staff', 'dev'] },
     { id: 'staff', icon: <Users />, label: 'RH Central', roles: ['owner', 'manager', 'dev'] },
-    { id: 'schedule', icon: <Calendar />, label: 'Escala Staff', roles: ['owner', 'manager', 'staff', 'dev'] },
-    { id: 'finance', icon: <DollarSign />, label: 'Fluxo de Caixa', roles: ['owner', 'manager', 'dev'] },
+    { id: 'schedule', icon: <CalendarIcon />, label: 'Escala Staff', roles: ['owner', 'manager', 'dev'] },
+    { id: 'safety', icon: <ShieldCheck />, label: 'Saúde & Segurança', roles: ['owner', 'manager', 'dev'] },
+    { id: 'finance', icon: <DollarSign />, label: 'Financeiro', roles: ['owner', 'manager', 'dev'] },
     { id: 'management', icon: <Database />, label: 'Gestão da Unidade', roles: ['owner', 'dev'] },
   ];
 
   const setupOptions = [
     { id: 'restaurant_waiter', label: 'Modo Garçom', desc: 'Lançamento rápido de pedidos em mesas.', icon: <Users />, color: 'bg-emerald-500' },
-    { id: 'restaurant_kitchen', label: 'Modo Cozinha', desc: 'Visualização de pedidos para preparo.', icon: <ChefHat />, color: 'bg-rose-500' },
-    { id: 'admin', label: 'Gestão / Caixa', desc: 'Fechamento de mesas e financeiro.', icon: <ShoppingCart />, color: 'bg-indigo-500' },
+    { id: 'kitchen', label: 'Modo Cozinha/KDS', desc: 'Interface de produção para chefs.', icon: <Utensils />, color: 'bg-emerald-500' },
+    { id: 'safety', label: 'Checklist Sanitário', desc: 'Conformidade ANVISA diária.', icon: <ShieldCheck />, color: 'bg-blue-500' },
+    { id: 'admin', label: 'Gestão/Dashboard', desc: 'Visão 360 do negócio.', icon: <LayoutDashboard />, color: 'bg-indigo-500' },
   ];
 
   const adjustInventory = async (items: OrderItem[], multiplier: number) => {
@@ -173,12 +189,15 @@ export const RestaurantLayout: React.FC = () => {
           setView('tables');
         }}
       />;
-      case 'kitchen': return <KitchenDisplayView />;
+      case 'pending_orders': return <PendingOrdersView />;
+      case 'history': return <RestaurantHistoryView />;
+      case 'kitchen': return <KitchenDisplayView type="kitchen" />;
       case 'menu': return <MenuManagementView />;
       case 'inventory': return <InventoryManagementView module="restaurant" />;
       case 'reservations': return <ReservationManagementView />;
       case 'staff': return <GeneralStaffView module="restaurant" />;
       case 'schedule': return <StaffScheduleView module="restaurant" />;
+      case 'safety': return <RestaurantSafetyView />;
       case 'finance': return <FinanceManagementView module="restaurant" />;
       case 'management': return <CompanyManagement />;
       default: return <TableMapView />;

@@ -233,6 +233,8 @@ export interface OrderItem {
   voidReason?: string;
   sentToKitchen?: boolean;
   modifiers?: ItemModifier[];
+  voidedAt?: number;
+  voidedBy?: string;
 }
 
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';

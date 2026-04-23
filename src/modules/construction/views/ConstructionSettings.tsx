@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../../lib/utils';
-import { constructionService, CustomFieldDefinition } from '../services/constructionService';
+import { constructionService } from '../services/constructionService';
+import { CustomFieldDefinition } from '../../../types';
 
 export const ConstructionSettings: React.FC = () => {
   const [fields, setFields] = useState<CustomFieldDefinition[]>([]);

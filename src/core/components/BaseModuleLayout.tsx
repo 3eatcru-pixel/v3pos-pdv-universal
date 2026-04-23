@@ -54,6 +54,11 @@ export const BaseModuleLayout: React.FC<BaseModuleLayoutProps> = ({
 }) => {
   const { role, mode, isConnected, updateRole, updateMode, resetConfig } = useDeviceConfig();
   const [currentView, setCurrentView] = useState(defaultView);
+
+  React.useEffect(() => {
+    setCurrentView(defaultView);
+  }, [defaultView]);
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return localStorage.getItem(`pos_${moduleName.toLowerCase()}_sidebar_collapsed`) === 'true';
   });

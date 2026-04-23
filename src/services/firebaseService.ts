@@ -122,6 +122,7 @@ const TENANT_SCOPED_COLLECTIONS = new Set([
   'supplier_contracts',
   'services',
   'resources',
+  'auditLogs',
 ]);
 
 function getLocalTenantId(): string | null {
@@ -648,5 +649,25 @@ export const firebaseService = {
 
   getDocRef: (collectionName: string, id: string) => {
     return doc(db, collectionName, id);
+  },
+
+  addAuditLog: async (log: {
+    enterpriseId: string;
+    shopId: string;
+    staffId: string;
+    staffName: string;
+    action: string;
+    details: string;
+    referenceId?: string;
+  }) => {
+    try {
+      const logData = {
+        ...log,
+        timestamp: Date.now(),
+      };
+      await addDoc(collection(db, 'auditLogs'), withTenantMetadata('auditLogs', logData));
+    } catch (e) {
+      handleFirestoreError(e, 'create', 'auditLogs');
+    }
   }
 };

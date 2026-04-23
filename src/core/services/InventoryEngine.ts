@@ -1,4 +1,4 @@
-import { InventoryItem, Product } from '../types';
+import { InventoryItem, Product } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { coreEventBus } from '../events/CoreEventBus';
 import { logger } from './logger';
@@ -19,7 +19,7 @@ export class InventoryEngine {
     shopId: string,
     inventory: InventoryItem[]
   ) {
-    const adjustments: { id: string; amount: number }[] = [];
+    const adjustments: { id: string; amount: number; type: 'inventory' | 'product' }[] = [];
 
     const resolveItem = (item: any, qty: number) => {
       // If the item has a composition (Combo/Kit/Recipe), resolve its ingredients
