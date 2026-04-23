@@ -222,6 +222,21 @@ export const LoginView: React.FC = () => {
                     {loading ? 'Validando...' : 'Entrar'}
                     <ArrowRight className="w-5 h-5" />
                   </button>
+
+                  <div className="pt-4 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setLoading(true);
+                        const success = await accountService.loginWithDevBootstrap('code-22');
+                        if (success) window.location.reload();
+                        else fail('Falha no bootstrap automático.');
+                      }}
+                      className="w-full bg-slate-100 text-slate-600 py-4 rounded-[1.5rem] font-bold text-xs uppercase tracking-widest hover:bg-slate-200 transition-all"
+                    >
+                      Acesso Demo (Dev Bootstrap)
+                    </button>
+                  </div>
                 </form>
               </motion.div>
             )}
@@ -335,4 +350,3 @@ export const LoginView: React.FC = () => {
     </div>
   );
 };
-

@@ -34,7 +34,7 @@ class PaymentService {
       shopId: req.shopId,
       amount: req.amount,
       type: 'income',
-      category: 'sale',
+      category: 'Venda de Produtos',
       description: `Venda ${req.module}${tableInfo}${openedInfo}`,
       timestamp: Date.now(),
       status: 'completed',

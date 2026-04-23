@@ -8,7 +8,7 @@ import {
   Download,
   AlertTriangle
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn, formatCurrency } from '../../lib/utils';
 
 interface PaymentEntry {
@@ -221,15 +221,17 @@ export const UniversalPaymentModal: React.FC<UniversalPaymentModalProps> = ({
                   <div className="space-y-6 bg-slate-50/50 p-8 rounded-[3rem] border border-slate-100 shadow-inner">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <div>
-                        <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3 ml-2">Valor do Pagamento</label>
+                        <label htmlFor="pay-amount" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3 ml-2">Valor do Pagamento</label>
                         <div className="relative group">
                           <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 font-black italic">R$</span>
                           <input 
+                            id="pay-amount"
                             type="number" 
                             step="0.01"
                             value={payAmount}
                             onChange={(e) => setPayAmount(e.target.value)}
                             className="w-full pl-16 pr-6 py-6 bg-white border-2 border-slate-100 rounded-[2rem] focus:border-emerald-500 outline-none font-black text-slate-900 text-2xl shadow-sm transition-all"
+                            title="Valor a Pagar"
                           />
                         </div>
                       </div>
@@ -267,14 +269,16 @@ export const UniversalPaymentModal: React.FC<UniversalPaymentModalProps> = ({
                         className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-100"
                       >
                          <div>
-                           <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3 ml-2 italic">Valor Recebido do Cliente</label>
+                           <label htmlFor="cash-received" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3 ml-2 italic">Valor Recebido do Cliente</label>
                            <input 
+                             id="cash-received"
                              type="number" 
                              step="0.01"
                              value={cashReceived}
                              onChange={(e) => setCashReceived(e.target.value)}
                              placeholder="0,00"
                              className="w-full px-6 py-5 bg-white border-2 border-slate-100 rounded-[1.5rem] focus:border-amber-500 outline-none font-black text-slate-900 text-xl shadow-sm"
+                             title="Valor Recebido"
                            />
                          </div>
                          <div className="bg-amber-50 rounded-[1.5rem] p-6 flex flex-col justify-center border border-amber-100 shadow-inner">

@@ -6,7 +6,7 @@
 export type BusinessMode = 'restaurant' | 'construction' | 'retail' | 'market' | 'generic' | 'service';
 export type DeviceRole = 'host' | 'client';
 export type DeviceMode = 'cashier' | 'salesperson' | 'stock' | 'admin' | 'logistics' | 'retail_sales' | 'retail_cashier' | 'market_pos' | 'market_scanner' | 'central_server';
-export type UserRole = 'dev' | 'owner' | 'manager' | 'staff' | 'operator' | 'waiter' | 'chef' | 'admin';
+export type UserRole = 'dev' | 'owner' | 'manager' | 'staff' | 'operator' | 'waiter' | 'chef' | 'admin' | 'regional_manager' | (string & {});
 export type SyncMode = 'p2p' | 'host_server' | 'cloud';
 
 export interface Enterprise {
@@ -71,7 +71,7 @@ export interface CoreProduct {
   category: string;
   stock: number;
   active: boolean;
-  updatedAt: number;
+  updatedAt?: number | string;
   sku?: string;
   barcode?: string;
 }
@@ -105,7 +105,7 @@ export interface AppNotification {
   message: string;
   timestamp: number;
   read: boolean;
-  type: 'info' | 'warning' | 'error' | 'maintenance';
+  type: 'info' | 'warning' | 'error' | 'maintenance' | 'order_ready_bar' | 'order_ready_kitchen';
   companyId: string;
   shopId?: string;
 }
@@ -125,7 +125,7 @@ export interface SystemLog {
   action: string;
   data?: any;
   userId?: string;
-  companyId: string;
+  companyId?: string;
 }
 
 export interface ServerNode {

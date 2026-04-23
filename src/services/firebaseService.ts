@@ -314,12 +314,14 @@ export const firebaseService = {
     }
   },
 
-  getAllDocs: async (colName: string, enterpriseId?: string) => {
+  getAllDocs: async (colName: string, enterpriseId?: string, shopId?: string | null) => {
     try {
       if (TENANT_SCOPED_COLLECTIONS.has(colName) && !enterpriseId) return [];
       let q = query(collection(db, colName));
       if (enterpriseId) {
-        q = query(collection(db, colName), where('enterpriseId', '==', enterpriseId));
+        const conditions = [where('enterpriseId', '==', enterpriseId)];
+        if (shopId && colName !== 'shops' && colName !== 'staff') conditions.push(where('shopId', '==', shopId));
+        q = query(collection(db, colName), ...conditions);
       }
       const snapshot = await getDocs(q);
       return snapshot.docs.map(d => ({ ...d.data(), id: d.id }));

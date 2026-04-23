@@ -31,6 +31,7 @@ import { ptBR } from 'date-fns/locale';
 
 interface FinanceManagementViewProps {
   module: 'restaurant' | 'market' | 'construction' | 'retail';
+  shopId: string | null;
 }
 
 const CATEGORIES = [
@@ -45,7 +46,7 @@ const CATEGORIES = [
   'Outros'
 ];
 
-export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ module }) => {
+export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ module, shopId }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -55,16 +56,15 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
 
   const currentUser = accountService.getCurrentUser();
   const companyId = currentUser?.companyId || 'default';
-  const shopId = localStorage.getItem('rm_selected_shop_id');
 
   useEffect(() => {
     loadTransactions();
-  }, [companyId]);
+  }, [companyId, shopId]);
 
   const loadTransactions = async () => {
     setLoading(true);
     try {
-      const data = await firebaseService.getAllDocs('transactions', companyId);
+      const data = await firebaseService.getAllDocs('transactions', companyId, shopId);
       setTransactions((data as Transaction[]).sort((a, b) => b.timestamp - a.timestamp));
     } catch (err) {
       console.error(err);

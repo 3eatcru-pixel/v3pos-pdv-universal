@@ -23,7 +23,10 @@ class CoreSyncService {
 
       // Cloud Sync (Atomic)
       try {
-        await firebaseService.decrementProductStocksAtomic(this.companyId, [{ productId, quantity }]);
+        await firebaseService.decrementProductStocksAtomic(
+          [{ productId, quantity }],
+          { enterpriseId: this.companyId }
+        );
         logger.log('core', 'STOCK_SYNC_CLOUD_SUCCESS', { productId, quantity });
       } catch (err) {
         logger.log('core', 'STOCK_SYNC_CLOUD_FAILED', { productId, quantity, error: err });

@@ -350,12 +350,10 @@ class AccountService {
     if (!user) return;
     const msg: SupportMessage = {
       id: `msg-${Date.now()}`,
-      companyId: user.companyId,
+      companyId: user.companyId || '',
       message,
       timestamp: Date.now(),
       status: 'open',
-      statusHistory: [],
-      category: 'general'
     };
     const messages = JSON.parse(localStorage.getItem('pos_support_messages') || '[]');
     messages.push(msg);

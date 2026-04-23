@@ -465,6 +465,7 @@ export default function App() {
   const [pendingOrderFilter, setPendingOrderFilter] = useState<'all' | 'table' | 'takeaway'>('all');
   const [pendingOrderSort, setPendingOrderSort] = useState<'newest' | 'oldest' | 'value'>('newest');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showDevTools, setShowDevTools] = useState(currentUser?.role === 'admin');
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
   const [appScale, setAppScale] = useState(1);
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -507,7 +508,7 @@ export default function App() {
     const closedOrdersToday = relevantOrders.filter(o => o.status === 'delivered' && o.closedAt && o.closedAt >= todayStart);
     const totalSalesToday = closedOrdersToday.reduce((acc, o) => acc + o.total, 0);
     const totalCostToday = closedOrdersToday.reduce((acc, o) => {
-      return acc + (o.items || []).reduce((itemAcc, item) => itemAcc + ((item.cost || 0) * item.quantity), 0);
+      return acc + (o.items || []).reduce((itemAcc, item) => itemAcc + (item.status === 'voided' ? 0 : (item.cost || 0) * item.quantity), 0);
     }, 0);
 
     const closedOrdersYesterday = relevantOrders.filter(o => o.status === 'delivered' && o.closedAt && o.closedAt >= yesterdayStart && o.closedAt <= yesterdayEnd);
@@ -749,7 +750,7 @@ export default function App() {
   const [safetySelectedDate, setSafetySelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   // Undo Stack for Admin
-  const [undoStack, setUndoStack] = useState<Order[]>([]);
+
 
   // Printer Management State
   const [isPrinting, setIsPrinting] = useState(false);
@@ -888,7 +889,54 @@ Obrigado pela preferência!
     }
   };
 
+  const adjustInventory = async (items: OrderItem[], multiplier: number) => {
+    const updatedInventory = [...inventory];
+    for (const item of items) {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) continue;
+
+      const ingredients = (product.ingredients || {}) as Record<string, number>;
+      
+      for (let invIdx = 0; invIdx < updatedInventory.length; invIdx++) {
+        const invItem = updatedInventory[invIdx];
+        const baseQty = ingredients[invItem.id] || 0;
+        
+        let usagePerItem: number = baseQty;
+
+        // Modifiers math
+        const isRemoved = item.modifiers?.some(m => 
+          (invItem.name.toLowerCase().includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(invItem.name.toLowerCase())) &&
+          m.type === 'remove'
+        );
+        if (isRemoved) usagePerItem = 0;
+
+        const extraModifiersCount = item.modifiers?.filter(m => 
+          (invItem.name.toLowerCase().includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(invItem.name.toLowerCase())) &&
+          m.type === 'extra'
+        ).length || 0;
+        
+        // If it's an ingredient, add baseQty. If it's purely an extra, assume 1 unit.
+        usagePerItem += (extraModifiersCount * (baseQty > 0 ? baseQty : 1));
+
+        if (usagePerItem === 0) continue;
+
+        const newStock = Math.max(0, invItem.currentStock + (multiplier * (usagePerItem * item.quantity)));
+        
+        updatedInventory[invIdx] = {
+          ...invItem,
+          currentStock: newStock
+        };
+        
+        await firebaseService.updateItem('inventory', invItem.id, { 
+          currentStock: newStock 
+        });
+      }
+    }
+    setInventory(updatedInventory);
+  };
+
   const handleAddToCart = (product: Product) => {
+
     const itemCost = calculateProductCost(product.id);
     const newItem: OrderItem = {
       id: Math.random().toString(36).substr(2, 9),
@@ -910,24 +958,26 @@ Obrigado pela preferência!
   };
 
   const handleUpdateItemModifiers = (itemId: string, modifiers: ItemModifier[]) => {
-    setCart(prev => prev.map(item => item.id === itemId ? { ...item, modifiers } : item));
-  };
+    setCart(prev => prev.map(item => {
+      if (item.id !== itemId) return item;
 
-  const handleConfirmItemReceipt = (orderId: string, itemId: string) => {
-    setOrders(prev => prev.map(order => {
-      if (order.id === orderId) {
-        return {
-          ...order,
-          items: order.items.map(item => 
-            item.id === itemId && item.status === 'ready' ? { ...item, status: 'delivered' } : item
-          )
-        };
-      }
-      return order;
+      const baseCost = calculateProductCost(item.productId);
+      const modifierCostDelta = modifiers.reduce((acc, m) => {
+        const invItem = inventory.find(i => i.name.toLowerCase().includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(i.name.toLowerCase()));
+        if (!invItem) return acc;
+        
+        if (m.type === 'extra') return acc + (invItem.costPerUnit as number || 0);
+        if (m.type === 'remove') return acc - (invItem.costPerUnit as number || 0);
+        return acc;
+      }, 0);
+
+      const newCost = Math.max(0, baseCost + modifierCostDelta);
+
+      return { ...item, modifiers, cost: newCost };
     }));
   };
 
-  const handleRemoveFromCart = (itemId: string) => {
+  const handleRemoveFromCart = async (itemId: string) => {
     const item = cart.find(i => i.id === itemId);
     if (!item) return;
 
@@ -939,10 +989,16 @@ Obrigado pela preferência!
       const reason = prompt("Motivo do cancelamento (Void):");
       if (reason === null) return;
 
+      // Return stock if it was already deducted
+      if (item.sentToKitchen) {
+        await adjustInventory([item], 1);
+      }
+
       setCart(prev => prev.map(i => i.id === itemId ? { ...i, status: 'voided', voidReason: reason } : i));
     } else {
       setCart(prev => prev.filter(i => i.id !== itemId));
     }
+
   };
 
   const handleUpdateQuantity = (itemId: string, delta: number) => {
@@ -1011,64 +1067,20 @@ Obrigado pela preferência!
       await firebaseService.updateTableStatus(selectedTable.id, 'occupied', orderId);
     }
 
-    setCart(updatedCart);
-    if (isTakeaway) {
-       alert(`Pedido Takeaway #${nextTakeawayNumber} enviado para a cozinha!`);
-       setCart([]); 
-    } else {
-       // O Garçom deve poder terminar um pedido quando ele manda para a cozinha ele volta para a pagina mesas
-       setCurrentView('tables');
-       setSelectedTable(null);
-    }
-
     // Update Inventory Stock based on ingredients and modifiers
-    const updatedInventory = [...inventory];
-    for (const item of newItems) {
-      const product = products.find(p => p.id === item.productId);
-      if (!product || !product.ingredients) continue;
-
-      const ingredients = product.ingredients as Record<string, number>;
-      for (const [ingredientId, baseQtyRaw] of Object.entries(ingredients)) {
-        const baseQty = baseQtyRaw as number;
-        const invIdx = updatedInventory.findIndex(i => i.id === ingredientId);
-        if (invIdx === -1) continue;
-
-        const invItem = updatedInventory[invIdx];
-        let usagePerItem: number = baseQty;
-
-        // Modifiers math
-        const isRemoved = item.modifiers?.some(m => 
-          m.type === 'remove' && (invItem.name.toLowerCase().includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(invItem.name.toLowerCase()))
-        );
-        if (isRemoved) usagePerItem = 0;
-
-        const extraModifiersCount = item.modifiers?.filter(m => 
-          m.type === 'extra' && (invItem.name.toLowerCase().includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(invItem.name.toLowerCase()))
-        ).length || 0;
-        
-        usagePerItem += (extraModifiersCount * baseQty);
-
-        updatedInventory[invIdx] = {
-          ...invItem,
-          currentStock: Math.max(0, invItem.currentStock - (usagePerItem * item.quantity))
-        };
-        
-        await firebaseService.updateItem('inventory', invItem.id, { 
-          currentStock: updatedInventory[invIdx].currentStock 
-        });
-      }
-    }
-    setInventory(updatedInventory);
+    await adjustInventory(newItems, -1);
 
     // Notifications
     const barCategories = ['Bebidas', 'Bar', 'FOH'];
+    const tableIdVal = isTakeaway ? 'takeaway' : selectedTable?.id;
+    const tableNumDisplay = isTakeaway ? `Takeaway #${nextTakeawayNumber}` : `Mesa 0${selectedTable?.number}`;
     
     if (newItems.some(i => !barCategories.includes(i.category))) {
       await firebaseService.addItem('notifications', {
         shopId: (selectedShopId || 'shop-1'),
-        message: `🍗 Cozinha: Novo Pedido Mesa 0${selectedTable.number}`,
+        message: `🍗 Cozinha: Novo Pedido ${tableNumDisplay}`,
         type: 'new_order_kitchen',
-        tableId: selectedTable.id,
+        tableId: tableIdVal,
         timestamp: Date.now(),
         read: false
       });
@@ -1076,36 +1088,40 @@ Obrigado pela preferência!
     if (newItems.some(i => barCategories.includes(i.category))) {
       await firebaseService.addItem('notifications', {
         shopId: (selectedShopId || 'shop-1'),
-        message: `🍹 Bar: Novo Pedido Mesa 0${selectedTable.number}`,
+        message: `🍹 Bar: Novo Pedido ${tableNumDisplay}`,
         type: 'new_order_bar',
-        tableId: selectedTable.id,
+        tableId: tableIdVal,
         timestamp: Date.now(),
         read: false
       });
     }
 
-    setCart(updatedCart);
-    setCurrentView('tables');
+    if (isTakeaway) {
+       alert(`Pedido Takeaway #${nextTakeawayNumber} enviado para a cozinha!`);
+       setCart([]); 
+    } else {
+       setCart(updatedCart);
+       setCurrentView('tables');
+       setSelectedTable(null);
+    }
   };
 
-  const handleApplyDiscount = (amount: number) => {
+  const handleApplyDiscount = async (amount: number) => {
     if (!selectedTable || !currentPermissions.actions.canDiscount) return;
-    setOrders(prev => prev.map(o => {
-      if (o.tableId === selectedTable.id && o.status !== 'delivered') {
-        const { subtotal, serviceFee, tax, discount, total } = calculateOrderTotals(o.items, amount, o.orderType === 'takeaway');
-        return { ...o, subtotal, serviceFee, tax, discount, total };
-      }
-      return o;
-    }));
+    const order = orders.find(o => o.tableId === selectedTable.id && o.status !== 'delivered' && o.status !== 'cancelled');
+    if (!order) return;
+    
+    const { subtotal, serviceFee, tax, discount, total } = calculateOrderTotals(order.items, amount, order.orderType === 'takeaway');
+    await firebaseService.updateItem('orders', order.id, { subtotal, serviceFee, tax, discount, total });
   };
 
-  const handleReopenTable = (orderId: string) => {
+  const handleReopenTable = async (orderId: string) => {
     if (!currentPermissions.actions.canReopenTable) return;
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'preparing', closedAt: undefined } : o));
-    setTables(prev => prev.map(t => t.id === order.tableId ? { ...t, status: 'occupied', currentOrderId: orderId } : t));
+    await firebaseService.updateItem('orders', orderId, { status: 'preparing', closedAt: null });
+    await firebaseService.updateItem('tables', order.tableId, { status: 'occupied', currentOrderId: orderId });
     setCurrentView('tables');
   };
 
@@ -1199,6 +1215,8 @@ Obrigado pela preferência!
     if (confirm("⚠️ Esta mesa já possui itens enviados para a cozinha. Deseja realmente CANCELAR toda a conta?")) {
       if (confirm("❗ CONFIRMAÇÃO FINAL: Todos os itens serão invalidados e a mesa será liberada. Deseja prosseguir?")) {
         const voidReason = "Cancelamento Total (Desistência)";
+        const itemsToVoid = (order?.items || []).filter(i => i.status !== 'voided');
+        
         const updatedItems = (order?.items || []).map(item => ({
           ...item,
           status: 'voided' as ItemStatus,
@@ -1206,6 +1224,12 @@ Obrigado pela preferência!
         }));
 
         if (order) {
+          // Return stock for all items that were deducted (sentToKitchen)
+          const deductedItems = itemsToVoid.filter(i => i.sentToKitchen);
+          if (deductedItems.length > 0) {
+            await adjustInventory(deductedItems, 1);
+          }
+
           await firebaseService.updateItem('orders', order.id, { status: 'cancelled', items: updatedItems });
           await firebaseService.updateTableStatus(tableId, 'free', null);
         }
@@ -1214,6 +1238,7 @@ Obrigado pela preferência!
         setCurrentView('tables');
       }
     }
+
   };
 
   const handleQuickCheckout = async () => {
@@ -1282,6 +1307,11 @@ Obrigado pela preferência!
 
         await firebaseService.updateItem('orders', orderId, updates);
 
+        // Deduct stock for takeaway items once paid/confirmed
+        if (isFullyPaid || shouldSendToKitchen) {
+          await adjustInventory(cart, -1);
+        }
+
         const tableNum = `Takeaway #${nextNumber}`;
         const openedStaff = currentUser?.name || 'Sistema';
 
@@ -1341,6 +1371,12 @@ Obrigado pela preferência!
         };
 
         await firebaseService.updateItem('orders', order.id, updates);
+
+        // Deduct stock if this is a takeaway transitioning from pending
+        if (order.orderType === 'takeaway' && order.status === 'pending' && (isFullyPaid || shouldSendToKitchen)) {
+          await adjustInventory(order.items, -1);
+        }
+
         if (isFullyPaid && order.tableId && order.tableId !== 'takeaway') {
           await firebaseService.updateTableStatus(order.tableId, 'free');
         }
@@ -1502,7 +1538,7 @@ Obrigado pela preferência!
     setEditingReservation(null);
   };
 
-  const handleCreateIncident = () => {
+  const handleCreateIncident = async () => {
     if (!newIncident.title || !newIncident.description) return;
     
     const report: IncidentReport = {
@@ -1516,17 +1552,18 @@ Obrigado pela preferência!
       status: 'open',
       priority: newIncident.priority || 'medium',
       timestamp: Date.now(),
-      location: newIncident.location
-    };
+      location: newIncident.location,
+      enterpriseId: enterpriseId!
+    } as any;
 
-    setIncidentReports(prev => [report, ...prev]);
+    await firebaseService.saveItem('incidentReports', report.id, report);
     setIsIncidentModalOpen(false);
     setNewIncident({ type: 'error', priority: 'medium', status: 'open' });
   };
 
-  const handleDeleteReservation = (id: string) => {
+  const handleDeleteReservation = async (id: string) => {
     if (confirm("Cancelar esta reserva?")) {
-      setReservations(prev => prev.filter(r => r.id !== id));
+      await firebaseService.updateItem('reservations', id, { status: 'cancelled' });
     }
   };
 
@@ -1614,20 +1651,7 @@ Obrigado pela preferência!
     else setInventoryCategories(prev => [...new Set([...prev, category])]);
   };
 
-  const handleSaveInventoryItem = (item: Partial<InventoryItem>) => {
-    if (editingInventoryItem) {
-      setInventory(prev => prev.map(i => i.id === editingInventoryItem.id ? { ...i, ...item } as InventoryItem : i));
-    } else {
-      const newItem: InventoryItem = {
-        ...item,
-        id: `i${Date.now()}`,
-        lastRecountDate: Date.now()
-      } as InventoryItem;
-      setInventory(prev => [...prev, newItem]);
-    }
-    setIsInventoryModalOpen(false);
-    setEditingInventoryItem(null);
-  };
+
 
   const handleOrderStatusChange = async (orderId: string, newStatus: OrderStatus) => {
     const order = orders.find(o => o.id === orderId);
@@ -1723,12 +1747,7 @@ Obrigado pela preferência!
     });
   };
 
-  const handleUndo = () => {
-    if (undoStack.length === 0) return;
-    const lastState = undoStack[undoStack.length - 1];
-    setOrders(prev => prev.map(o => o.id === lastState.id ? lastState : o));
-    setUndoStack(prev => prev.slice(0, -1));
-  };
+
 
   const handleDeliverItem = async (orderId: string, itemId: string) => {
     const order = orders.find(o => o.id === orderId);
@@ -1743,15 +1762,27 @@ Obrigado pela preferência!
     });
 
     if (allDelivered && order.tableId !== 'takeaway') {
-      await firebaseService.updateTableStatus(order.tableId, 'free');
+      // We only clear the ready flag. The table remains occupied until payment.
+      await firebaseService.updateItem('tables', order.tableId, { hasReadyItems: false });
     }
   };
   const handleDeliverOrder = (orderId: string) => {
     handleOrderStatusChange(orderId, 'delivered');
   };
 
-  const markNotificationAsRead = (id: string) => {
+  const markNotificationAsRead = async (id: string) => {
+    // Optimistic local update
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    // Persist to Firebase
+    await firebaseService.updateItem('notifications', id, { read: true });
+  };
+
+  const handleClearNotifications = async () => {
+    const toDelete = [...notifications];
+    setNotifications([]); // Optimistic clear
+    for (const notif of toDelete) {
+      await firebaseService.deleteItem('notifications', notif.id);
+    }
   };
 
   // --- Sub-views ---
@@ -1762,7 +1793,8 @@ Obrigado pela preferência!
     const todayStart = startOfDay(new Date()).getTime();
     
     // Switch between Shop and Region views
-    const isRegionalView = currentUser?.role === 'owner' || currentUser?.role === 'regional_manager';
+    const isRegionalView = currentUser?.role === 'owner' || currentUser?.role === 'regional_manager' || currentUser?.role === 'admin';
+
 
     const closedOrdersToday = (isRegionalView ? orders : filteredOrders).filter(o => o.status === 'delivered' && o.closedAt && o.closedAt >= todayStart);
     const totalSalesToday = closedOrdersToday.reduce((acc, o) => acc + o.total, 0);
@@ -1793,11 +1825,12 @@ Obrigado pela preferência!
     const activeTablesCount = (isRegionalView ? tables : filteredTables).filter(t => t.status === 'occupied').length;
     const preparingCount = (isRegionalView ? orders : filteredOrders).filter(o => o.status === 'preparing').length;
     
-    // Calculate total worked hours today
-    const shiftsToday = shifts.filter(s => isSameDay(s.startTime, new Date()));
+    // Calculate total worked hours today - Only for shifts that have already started
+    const now = Date.now();
+    const shiftsToday = shifts.filter(s => isSameDay(s.startTime, new Date()) && s.startTime <= now);
     const totalWorkedMs = shiftsToday.reduce((acc, shift) => {
       const start = shift.startTime;
-      const end = Math.min(Date.now(), shift.endTime);
+      const end = Math.min(now, shift.endTime);
       return acc + Math.max(0, end - start);
     }, 0);
     const totalHours = Math.floor(totalWorkedMs / (1000 * 60 * 60));
@@ -2116,7 +2149,12 @@ Obrigado pela preferência!
                       <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Configurações e Localização</p>
                     </div>
                   </div>
-                  <button onClick={() => setIsEditTableModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+                  <button 
+                    onClick={() => setIsEditTableModalOpen(false)} 
+                    className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                    title="Fechar Modal"
+                    aria-label="Fechar"
+                  >
                     <X className="w-5 h-5 text-slate-400" />
                   </button>
                 </div>
@@ -2124,31 +2162,37 @@ Obrigado pela preferência!
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Número da Mesa</label>
+                      <label htmlFor="edit-table-number" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Número da Mesa</label>
                       <input
+                        id="edit-table-number"
                         type="number"
                         value={editingTable.number}
                         onChange={(e) => setEditingTable({ ...editingTable, number: parseInt(e.target.value) })}
                         className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                        title="Número da Mesa"
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Capacidade (Pessoas)</label>
+                      <label htmlFor="edit-table-capacity" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Capacidade (Pessoas)</label>
                       <input
+                        id="edit-table-capacity"
                         type="number"
                         value={editingTable.capacity}
                         onChange={(e) => setEditingTable({ ...editingTable, capacity: parseInt(e.target.value) })}
                         className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                        title="Capacidade da Mesa"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Área / Ambiente</label>
+                    <label htmlFor="edit-table-area" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Área / Ambiente</label>
                     <select
+                      id="edit-table-area"
                       value={editingTable.area || 'Salão Principal'}
                       onChange={(e) => setEditingTable({ ...editingTable, area: e.target.value })}
                       className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
+                      title="Área da Mesa"
                     >
                       {Array.from(new Set(tables.map(t => t.area || 'Salão Principal'))).map(area => (
                         <option key={area} value={area}>{area}</option>
@@ -2178,6 +2222,8 @@ Obrigado pela preferência!
                         }
                       }}
                       className="w-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all"
+                      title="Excluir Mesa"
+                      aria-label="Excluir"
                     >
                       <Trash2 className="w-5 h-5" />
                     </button>
@@ -2625,7 +2671,7 @@ Obrigado pela preferência!
                      </div>
                    </div>
                    <p className={cn("text-[10px] font-bold uppercase tracking-widest", p.active ? "text-emerald-600" : "text-rose-600")}>
-                     {p.active ? 'Em Estoque' : 'Esgotado (86)'}
+                     {p.active ? 'Em Estoque' : 'Esgotado'}
                    </p>
                 </button>
               ))}
@@ -2855,7 +2901,7 @@ Obrigado pela preferência!
                   <div className="flex flex-col items-end gap-1.5">
                     {item.status === 'ready' && (
                       <button 
-                        onClick={() => activeOrder && handleConfirmItemReceipt(activeOrder.id, item.id)}
+                        onClick={() => activeOrder && handleDeliverItem(activeOrder.id, item.id)}
                         className="bg-blue-500 text-white text-[9px] font-black uppercase px-2 py-1 rounded shadow-lg hover:bg-blue-400 transition-all active:scale-95"
                       >
                         Recebido
@@ -2968,7 +3014,7 @@ Obrigado pela preferência!
                   onClick={() => {
                     const note = prompt("Nota do Gerente / Reclamação:");
                     if (note !== null) {
-                       setOrders(prev => prev.map(o => o.id === activeOrder.id ? { ...o, notes: note } : o));
+                       firebaseService.updateItem('orders', activeOrder.id, { notes: note });
                     }
                   }}
                   className="col-span-1 bg-amber-500/10 text-amber-500 text-[10px] font-black uppercase py-2.5 rounded-lg border border-amber-500/20 hover:bg-amber-500/20 transition-all flex flex-col items-center justify-center -gap-1"
@@ -3474,15 +3520,15 @@ Obrigado pela preferência!
                 className="p-6 space-y-4"
               >
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Estoque Físico Atual</label>
+                  <label htmlFor="recount-stock" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Estoque Físico Atual</label>
                   <div className="flex items-center gap-3">
-                    <input name="newStock" type="number" step="0.01" required placeholder="Ex: 12.5" className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-mono" />
+                    <input id="recount-stock" name="newStock" type="number" step="0.01" required placeholder="Ex: 12.5" className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-mono" title="Novo Estoque" />
                     <span className="text-xs font-bold text-slate-400 px-3 bg-slate-100 py-3 rounded-xl border border-slate-200">{activeRecountItem.unit}</span>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Comentário / Motivo do Erro</label>
-                  <textarea name="comment" required placeholder="Ex: Desperdício na produção ou erro de entrada..." className="w-full h-24 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none text-sm resize-none" />
+                  <label htmlFor="recount-comment" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Comentário / Motivo do Erro</label>
+                  <textarea id="recount-comment" name="comment" required placeholder="Ex: Desperdício na produção ou erro de entrada..." className="w-full h-24 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none text-sm resize-none" title="Comentário" />
                 </div>
                 <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 flex items-start gap-3">
                   <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
@@ -3518,7 +3564,7 @@ Obrigado pela preferência!
                 onSubmit={(e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
-                  handleSaveInventoryItem({
+                  handleSaveInventory({
                     name: formData.get('name') as string,
                     category: formData.get('category') as string,
                     unit: formData.get('unit') as string,
@@ -3531,14 +3577,14 @@ Obrigado pela preferência!
                 className="p-6 space-y-4"
               >
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Nome do Insumo</label>
-                  <input name="name" defaultValue={editingInventoryItem?.name} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" />
+                  <label htmlFor="inv-name" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Nome do Insumo</label>
+                  <input id="inv-name" name="name" defaultValue={editingInventoryItem?.name} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" title="Nome do Insumo" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Categoria</label>
+                    <label htmlFor="inv-category" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Categoria</label>
                     <div className="flex gap-2">
-                      <select name="category" defaultValue={editingInventoryItem?.category} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none appearance-none font-medium text-slate-600">
+                      <select id="inv-category" name="category" defaultValue={editingInventoryItem?.category} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none appearance-none font-medium text-slate-600" title="Categoria do Insumo">
                         {inventoryCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                       </select>
                       <button 
@@ -3548,14 +3594,16 @@ Obrigado pela preferência!
                           if (newCat) handleAddCategory('inventory', newCat);
                         }}
                         className="bg-slate-100 p-3 rounded-xl text-slate-400 hover:text-emerald-500 transition-colors border border-slate-200 shadow-sm"
+                        title="Adicionar Categoria"
+                        aria-label="Adicionar Categoria"
                       >
                         <Plus className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Localização</label>
-                    <select name="location" defaultValue={editingInventoryItem?.location || 'BOH'} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none appearance-none">
+                    <label htmlFor="inv-location" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Localização</label>
+                    <select id="inv-location" name="location" defaultValue={editingInventoryItem?.location || 'BOH'} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none appearance-none" title="Localização do Insumo">
                       <option value="BOH">BOH (Cozinha)</option>
                       <option value="FOH">FOH (Salão)</option>
                     </select>
@@ -3563,22 +3611,22 @@ Obrigado pela preferência!
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="col-span-1">
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Unidade</label>
-                    <input name="unit" placeholder="kg, un, L..." defaultValue={editingInventoryItem?.unit} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" />
+                    <label htmlFor="inv-unit" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Unidade</label>
+                    <input id="inv-unit" name="unit" placeholder="kg, un, L..." defaultValue={editingInventoryItem?.unit} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" title="Unidade de Medida" />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Custo por Unid (R$)</label>
-                    <input name="costPerUnit" type="number" step="0.01" defaultValue={editingInventoryItem?.costPerUnit} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" />
+                    <label htmlFor="inv-cost" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Custo por Unid (R$)</label>
+                    <input id="inv-cost" name="costPerUnit" type="number" step="0.01" defaultValue={editingInventoryItem?.costPerUnit} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" title="Custo" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Estoque Inicial</label>
-                    <input name="currentStock" type="number" step="0.1" defaultValue={editingInventoryItem?.currentStock} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" />
+                    <label htmlFor="inv-stock" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Estoque Inicial</label>
+                    <input id="inv-stock" name="currentStock" type="number" step="0.1" defaultValue={editingInventoryItem?.currentStock} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" title="Estoque Atual" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Mínimo Crítico</label>
-                    <input name="minStock" type="number" step="0.1" defaultValue={editingInventoryItem?.minStock} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" />
+                    <label htmlFor="inv-min" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Mínimo Crítico</label>
+                    <input id="inv-min" name="minStock" type="number" step="0.1" defaultValue={editingInventoryItem?.minStock} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" title="Mínimo Crítico" />
                   </div>
                 </div>
                 <button type="submit" className="w-full bg-emerald-500 text-white font-bold py-4 rounded-xl hover:bg-emerald-400 transition-all flex items-center justify-center gap-2 mt-4">
@@ -3633,7 +3681,7 @@ Obrigado pela preferência!
                 <td className="px-6 py-4">
                   <div className="w-10 h-10 rounded-lg bg-slate-100 overflow-hidden flex items-center justify-center">
                     {product.image ? (
-                      <img src={product.image} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                      <img src={product.image} referrerPolicy="no-referrer" alt={product.name} className="w-full h-full object-cover" />
                     ) : (
                       <ImageIcon className="w-4 h-4 text-slate-300" />
                     )}
@@ -3715,7 +3763,7 @@ Obrigado pela preferência!
                     name: formData.get('name') as string,
                     price: parseFloat(formData.get('price') as string),
                     category: formData.get('category') as string,
-                    stock: parseInt(formData.get('stock') as string),
+                    stock: parseFloat(formData.get('stock') as string || '0'),
                     wastageMargin: parseFloat(formData.get('wastageMargin') as string || '0'),
                     image: formData.get('image') as string,
                     active: true
@@ -3724,33 +3772,33 @@ Obrigado pela preferência!
                 className="p-6 space-y-4"
               >
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Nome do Produto</label>
-                  <input name="name" defaultValue={editingProduct?.name} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-semibold text-slate-700" />
+                  <label htmlFor="prod-name" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Nome do Produto</label>
+                  <input id="prod-name" name="name" defaultValue={editingProduct?.name} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-semibold text-slate-700" title="Nome do Produto" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Preço Venda (R$)</label>
-                    <input name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-mono font-bold" />
+                    <label htmlFor="prod-price" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Preço Venda (R$)</label>
+                    <input id="prod-price" name="price" type="number" step="0.01" defaultValue={editingProduct?.price} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-mono font-bold" title="Preço de Venda" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Margem de Erro (%)</label>
-                    <input name="wastageMargin" type="number" step="0.1" defaultValue={editingProduct?.wastageMargin || 5} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-mono" />
+                    <label htmlFor="prod-margin" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Margem de Erro (%)</label>
+                    <input id="prod-margin" name="wastageMargin" type="number" step="0.1" defaultValue={editingProduct?.wastageMargin || 5} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-mono" title="Margem de Desperdício" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Estoque</label>
-                    <input name="stock" type="number" defaultValue={editingProduct?.stock} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" />
+                    <label htmlFor="prod-stock" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Estoque</label>
+                    <input id="prod-stock" name="stock" type="number" defaultValue={editingProduct?.stock} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" title="Quantidade em Estoque" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">URL da Imagem (1:1)</label>
-                    <input name="image" defaultValue={editingProduct?.image} placeholder="https://..." className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" />
+                    <label htmlFor="prod-image" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">URL da Imagem (1:1)</label>
+                    <input id="prod-image" name="image" defaultValue={editingProduct?.image} placeholder="https://..." className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none" title="URL da Imagem" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Categoria</label>
+                  <label htmlFor="prod-category" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Categoria</label>
                   <div className="flex gap-2">
-                      <select name="category" defaultValue={editingProduct?.category} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none appearance-none font-medium text-slate-600">
+                      <select id="prod-category" name="category" defaultValue={editingProduct?.category} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none appearance-none font-medium text-slate-600" title="Categoria do Produto">
                         {productCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                       </select>
                       <button 
@@ -3760,6 +3808,8 @@ Obrigado pela preferência!
                           if (newCat) handleAddCategory('product', newCat);
                         }}
                         className="bg-slate-100 p-3 rounded-xl text-slate-400 hover:text-emerald-500 transition-colors border border-slate-200 shadow-sm"
+                        title="Adicionar Categoria"
+                        aria-label="Adicionar Categoria"
                       >
                         <Plus className="w-4 h-4" />
                       </button>
@@ -3769,7 +3819,7 @@ Obrigado pela preferência!
                 {editingProduct && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between px-1">
-                      <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Ficha Técnica (Ingredientes)</label>
+                      <span className="block text-[10px] font-black uppercase text-slate-400 tracking-widest">Ficha Técnica (Ingredientes)</span>
                       <button 
                         type="button"
                         onClick={() => {
@@ -4341,14 +4391,7 @@ Obrigado pela preferência!
                     <td className="px-6 py-4 text-right">
                       {currentPermissions.actions.canReopenTable && (
                         <div className="flex justify-end gap-2 text-[8px] font-bold">
-                          <button 
-                            onClick={handleUndo}
-                            disabled={undoStack.length === 0}
-                            className="bg-slate-100 text-slate-400 p-2 rounded-lg hover:bg-slate-200 disabled:opacity-30"
-                            title="Desfazer Última Ação"
-                          >
-                            <ArrowLeftRight className="w-3 h-3 rotate-180" />
-                          </button>
+
                           {order.status === 'delivered' ? (
                             <button 
                               onClick={() => handleReopenTable(order.id)}
@@ -4404,7 +4447,7 @@ Obrigado pela preferência!
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
                <div>
-                 <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Tipo</label>
+                 <span className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Tipo</span>
                  <div className="grid grid-cols-1 gap-2">
                    {[
                      { id: 'error', label: 'Erro', icon: <AlertTriangle className="w-4 h-4" /> },
@@ -4414,11 +4457,13 @@ Obrigado pela preferência!
                    ].map(type => (
                      <button
                        key={type.id}
+                       type="button"
                        onClick={() => setNewIncident({...newIncident, type: type.id as any})}
                        className={cn(
                         "flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-xs font-bold",
                         newIncident.type === type.id ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-100 text-slate-400"
                        )}
+                       aria-label={`Tipo: ${type.label}`}
                      >
                        {type.icon}
                        {type.label}
@@ -4432,6 +4477,7 @@ Obrigado pela preferência!
                    {['low', 'medium', 'high', 'critical'].map(p => (
                      <button
                        key={p}
+                       type="button"
                        onClick={() => setNewIncident({...newIncident, priority: p as any})}
                        className={cn(
                         "p-3 rounded-xl border-2 transition-all text-[10px] font-black uppercase tracking-widest",
@@ -4446,8 +4492,9 @@ Obrigado pela preferência!
             </div>
 
             <div>
-              <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Título da Ocorrência</label>
+              <label htmlFor="incident-title" className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Título da Ocorrência</label>
               <input 
+                id="incident-title"
                 type="text" 
                 value={newIncident.title || ''}
                 onChange={e => setNewIncident({...newIncident, title: e.target.value})}
@@ -4457,8 +4504,9 @@ Obrigado pela preferência!
             </div>
 
             <div>
-              <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Descrição Detalhada</label>
+              <label htmlFor="incident-desc" className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Descrição Detalhada</label>
               <textarea 
+                id="incident-desc"
                 value={newIncident.description || ''}
                 onChange={e => setNewIncident({...newIncident, description: e.target.value})}
                 rows={4}
@@ -4523,8 +4571,9 @@ Obrigado pela preferência!
 
           <div className="space-y-6">
             <div>
-              <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest text-center">Token da Empresa</label>
+              <label htmlFor="link-token" className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest text-center">Token da Empresa</label>
               <input 
+                id="link-token"
                 type="text" 
                 placeholder="RM-XXX-00"
                 className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-center font-black text-xl tracking-widest text-slate-700 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all uppercase"
@@ -5256,7 +5305,7 @@ Obrigado pela preferência!
                     pix: formData.get('pix') as string,
                     phone: formData.get('phone') as string,
                     pin: formData.get('pin') as string,
-                    role: formData.get('role') as UserRole,
+                    role: (String(formData.get('role') ?? 'staff') as unknown) as UserRole,
                     photo: formData.get('photo') as string,
                     assignedShopIds: Array.from(formData.getAll('assignedShops')) as string[],
                     assignedTableIds: assignedTables
@@ -5265,35 +5314,22 @@ Obrigado pela preferência!
                 className="p-8 space-y-4"
               >
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Nome Completo</label>
-                  <input name="name" defaultValue={editingStaff?.name} required placeholder="Ex: João Silva" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
+                  <label htmlFor="staff-name" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Nome Completo</label>
+                  <input id="staff-name" name="name" defaultValue={editingStaff?.name} required placeholder="Ex: João Silva" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" title="Nome Completo" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Telefone</label>
-                    <input name="phone" defaultValue={editingStaff?.phone} placeholder="(00) 00000-0000" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
+                    <label htmlFor="staff-phone" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Telefone</label>
+                    <input id="staff-phone" name="phone" defaultValue={editingStaff?.phone} placeholder="(00) 00000-0000" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" title="Telefone" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Senha PIN (4 dígitos)</label>
-                    <input name="pin" maxLength={4} defaultValue={editingStaff?.pin || Math.floor(1000 + Math.random() * 9000).toString()} required className="w-full px-5 py-3.5 bg-slate-900 text-emerald-500 border border-slate-700 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-mono font-black" />
+                    <label htmlFor="staff-pin" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Senha PIN (4 dígitos)</label>
+                    <input id="staff-pin" name="pin" maxLength={4} defaultValue={editingStaff?.pin || Math.floor(1000 + Math.random() * 9000).toString()} required className="w-full px-5 py-3.5 bg-slate-900 text-emerald-500 border border-slate-700 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-mono font-black" title="PIN de Acesso" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Chave PIX</label>
-                  <input name="pix" defaultValue={editingStaff?.pix} placeholder="E-mail, CPF, Celular ou Chave Aleatória" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Cargo / Função</label>
-                  <select 
-                    name="role" 
-                    value={modalStaffRole}
-                    onChange={(e) => setModalStaffRole(e.target.value as UserRole)}
-                    className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 appearance-none"
-                  >
-                    {rolePermissions.map(p => (
-                      <option key={p.role} value={p.role}>{p.label || p.role.replace('_', ' ')}</option>
-                    ))}
-                  </select>
+                  <label htmlFor="staff-pix" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">Chave PIX</label>
+                  <input id="staff-pix" name="pix" defaultValue={editingStaff?.pix} placeholder="E-mail, CPF, Celular ou Chave Aleatória" className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" title="Chave PIX" />
                 </div>
                 {modalStaffRole === 'waiter' && (
                   <div>
@@ -5332,8 +5368,8 @@ Obrigado pela preferência!
                    </div>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">URL da Foto (Opcional)</label>
-                  <input name="photo" defaultValue={editingStaff?.photo} placeholder="https://..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
+                  <label htmlFor="staff-photo" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 ml-1">URL da Foto (Opcional)</label>
+                  <input id="staff-photo" name="photo" defaultValue={editingStaff?.photo} placeholder="https://..." className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" title="Foto do Perfil" />
                 </div>
                 
                 <button type="submit" className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-xl shadow-emerald-500/30 hover:bg-emerald-400 transition-all mt-4">
@@ -5599,26 +5635,26 @@ Obrigado pela preferência!
                 className="p-8 space-y-5"
               >
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Cliente</label>
-                  <input name="name" defaultValue={editingReservation?.customerName} required placeholder="Nome Completo" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" />
+                  <label htmlFor="res-name" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Cliente</label>
+                  <input id="res-name" name="name" defaultValue={editingReservation?.customerName} required placeholder="Nome Completo" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" title="Nome do Cliente" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Telefone / WhatsApp</label>
-                  <input name="phone" defaultValue={editingReservation?.customerPhone} required placeholder="(00) 00000-0000" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" />
+                  <label htmlFor="res-phone" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Telefone / WhatsApp</label>
+                  <input id="res-phone" name="phone" defaultValue={editingReservation?.customerPhone} required placeholder="(00) 00000-0000" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" title="Telefone do Cliente" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Mesa</label>
-                    <input name="table" type="number" defaultValue={editingReservation?.tableNumber} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold" />
+                    <label htmlFor="res-table" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Mesa</label>
+                    <input id="res-table" name="table" type="number" defaultValue={editingReservation?.tableNumber} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold" title="Número da Mesa" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Convidados</label>
-                    <input name="guests" type="number" defaultValue={editingReservation?.guestsCount} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold" />
+                    <label htmlFor="res-guests" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Convidados</label>
+                    <input id="res-guests" name="guests" type="number" defaultValue={editingReservation?.guestsCount} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold" title="Quantidade de Pessoas" />
                   </div>
                 </div>
                 <div>
-                   <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Data & Horário</label>
-                   <input name="date" type="datetime-local" defaultValue={editingReservation ? format(editingReservation.dateTime, "yyyy-MM-dd'T'HH:mm") : ''} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold" />
+                   <label htmlFor="res-date" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Data & Horário</label>
+                   <input id="res-date" name="date" type="datetime-local" defaultValue={editingReservation ? format(editingReservation.dateTime, "yyyy-MM-dd'T'HH:mm") : ''} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold" title="Data e Hora" />
                 </div>
                 
                 <button type="submit" className="w-full py-5 bg-emerald-500 text-white rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-xl shadow-emerald-500/30 hover:bg-emerald-400 transition-all mt-4">
@@ -5709,11 +5745,13 @@ Obrigado pela preferência!
                  </button>
               </div>
               <form 
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
                   const printerData: any = {
                     id: editingPrinter?.id || `p-${Math.random().toString(36).substr(2, 9)}`,
+                    enterpriseId: enterpriseId!,
+                    shopId: selectedShopId || 'shop-1',
                     name: formData.get('name') as string,
                     type: formData.get('type') as PrinterType,
                     connectionType: formData.get('connectionType') as any,
@@ -5723,54 +5761,59 @@ Obrigado pela preferência!
                     isDefault: formData.get('isDefault') === 'on'
                   };
                   
-                  setPrinters(prev => {
-                    const existing = prev.find(p => p.id === printerData.id);
-                    if (existing) {
-                      return prev.map(p => {
-                        if (p.id === printerData.id) return printerData;
-                        if (printerData.isDefault && p.type === printerData.type) return { ...p, isDefault: false };
-                        return p;
-                      });
+                  if (printerData.isDefault) {
+                    for (const p of printers) {
+                      if (p.type === printerData.type && p.isDefault && p.id !== printerData.id) {
+                        await firebaseService.updateItem('printers', p.id, { isDefault: false });
+                      }
                     }
-                    return [...prev.map(p => (printerData.isDefault && p.type === printerData.type) ? { ...p, isDefault: false } : p), printerData];
-                  });
+                  }
+                  
+                  if (editingPrinter) {
+                     await firebaseService.updateItem('printers', printerData.id, printerData);
+                  } else {
+                     await firebaseService.saveItem('printers', printerData.id, printerData);
+                  }
+                  
                   setIsPrinterModalOpen(false);
                 }}
                 className="p-8 space-y-5"
               >
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Nome Identificador</label>
-                  <input name="name" defaultValue={editingPrinter?.name} required placeholder="Ex: Impressora Cozinha" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Finalidade</label>
-                    <select name="type" defaultValue={editingPrinter?.type} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 appearance-none">
-                      <option value="receipt">Recibos/Caixa</option>
-                      <option value="kitchen">Cozinha (KDS)</option>
-                      <option value="bar">Bar (BDS)</option>
-                      <option value="report">Relatórios</option>
-                    </select>
+                    <label htmlFor="printer-name" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Nome da Impressora</label>
+                    <input id="printer-name" name="name" defaultValue={editingPrinter?.name} required className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none" title="Nome da Impressora" />
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Conexão</label>
-                    <select name="connectionType" defaultValue={editingPrinter?.connectionType} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 appearance-none">
-                      <option value="network">Rede (Ethernet/WiFi)</option>
-                      <option value="usb">USB Local</option>
-                      <option value="system_default">Padrão do Sistema</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="printer-type" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Tipo / Destino</label>
+                      <select id="printer-type" name="type" defaultValue={editingPrinter?.type} className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none" title="Tipo de Impressora">
+                        <option value="receipt">Recibo / Conta</option>
+                        <option value="kitchen">Cozinha</option>
+                        <option value="bar">Bar</option>
+                        <option value="report">Relatórios</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="printer-conn" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Conexão</label>
+                      <select id="printer-conn" name="connectionType" defaultValue={editingPrinter?.connectionType} className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none" title="Tipo de Conexão">
+                        <option value="network">Rede (IP)</option>
+                        <option value="usb">USB / Local</option>
+                        <option value="bluetooth">Bluetooth</option>
+                        <option value="system_default">Padrão do Sistema</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-4">
                   <div className="col-span-2">
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">IP (Se Rede)</label>
-                    <input name="ipAddress" defaultValue={editingPrinter?.ipAddress} placeholder="192.168.1.100" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" />
+                    <label htmlFor="printer-ip" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">IP (Se Rede)</label>
+                    <input id="printer-ip" name="ipAddress" defaultValue={editingPrinter?.ipAddress} placeholder="192.168.1.100" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" title="Endereço IP" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Porta</label>
-                    <input name="port" type="number" defaultValue={editingPrinter?.port || 9100} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" />
+                    <label htmlFor="printer-port" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Porta</label>
+                    <input id="printer-port" name="port" type="number" defaultValue={editingPrinter?.port || 9100} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 tracking-tight" title="Porta de Conexão" />
                   </div>
                 </div>
 
@@ -7285,7 +7328,7 @@ Obrigado pela preferência!
       case 'reports': return renderReports();
       case 'history': return renderHistory();
       case 'staff_mgmt': return <GeneralStaffView module="restaurant" />;
-      case 'finance_mgmt': return <FinanceManagementView module="restaurant" />;
+      case 'finance_mgmt': return <FinanceManagementView module="restaurant" shopId={selectedShopId} />;
       case 'supplier_mgmt': return <SupplierManagementView module="restaurant" />;
       case 'service_mgmt': return <ServiceLayout />;
       case 'menu_mgmt': return renderMenuManagement();
@@ -7531,23 +7574,29 @@ Obrigado pela preferência!
               )}
             </div>
           )}
-          <div className="pt-6 mt-6 border-t border-slate-800 space-y-3">
-             {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4">Modo Simulação</div>}
-             <button 
-               onClick={handleRoleCycle}
-               title={isSidebarCollapsed ? `Cargo: ${(currentUser?.role || 'waiter').replace('_', ' ').toUpperCase()}` : undefined}
-               className={cn(
-                 "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-emerald-400 hover:bg-emerald-500/10 transition-all border border-emerald-500/20 overflow-hidden",
-                 isSidebarCollapsed && "justify-center px-0"
-               )}
-             >
-                <User className="w-4 h-4 shrink-0" />
-                {!isSidebarCollapsed && (
-                  <span className="truncate">
-                    Cargo: {(currentUser?.role || 'waiter').replace('_', ' ').toUpperCase()}
-                  </span>
+
+          {showDevTools && (
+            <div className="pt-6 mt-6 border-t border-slate-800 space-y-3">
+              {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4">Ferramentas de Simulação</div>}
+              <button 
+                onClick={handleRoleCycle}
+                title={isSidebarCollapsed ? `Cargo: ${(currentUser?.role || 'waiter').replace('_', ' ').toUpperCase()}` : undefined}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-amber-400 hover:bg-amber-500/10 transition-all border border-amber-500/20 overflow-hidden",
+                  isSidebarCollapsed && "justify-center px-0"
                 )}
-             </button>
+              >
+                  <Zap className="w-4 h-4 shrink-0" />
+                  {!isSidebarCollapsed && (
+                    <span className="truncate">
+                      Simular Cargo: {(currentUser?.role || 'waiter').replace('_', ' ').toUpperCase()}
+                    </span>
+                  )}
+              </button>
+            </div>
+          )}
+          
+          <div className="pt-6 mt-6 border-t border-slate-800 space-y-3">
              <button
                 onClick={handleLogout}
                 title={isSidebarCollapsed ? "Encerrar Turno" : undefined}
@@ -7586,7 +7635,7 @@ Obrigado pela preferência!
                     "text-[10px] uppercase tracking-widest font-black",
                     currentUser?.role === 'owner' ? "text-emerald-500" : currentUser?.role === 'waiter' ? "text-amber-500" : "text-blue-400"
                   )}>
-                    {currentUser?.role === 'owner' ? 'Gerente Ativo' : currentUser?.role === 'waiter' ? 'Garçom' : currentUser?.role?.replace('_', ' ')}
+                    {currentUser?.role === 'owner' ? 'Gerente Ativo' : currentUser?.role === 'waiter' ? 'Garçom' : currentUser?.role === 'admin' ? 'Desenvolvedor' : currentUser?.role?.replace('_', ' ')}
                   </p>
                 </div>
               </div>
@@ -7719,10 +7768,10 @@ Obrigado pela preferência!
                       <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
                         <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Notificações</h4>
                         <button 
-                          onClick={() => setNotifications(prev => prev.map(n => ({...n, read: true})))}
+                          onClick={handleClearNotifications}
                           className="text-[10px] font-bold text-emerald-600 hover:underline"
                         >
-                          Marcar lidas
+                          Limpar todas
                         </button>
                       </div>
                       <div className="max-h-96 overflow-y-auto divide-y divide-slate-50 custom-scrollbar">

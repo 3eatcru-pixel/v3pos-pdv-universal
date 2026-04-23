@@ -14,7 +14,7 @@ import {
   Database,
   LayoutGrid
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { accountService } from '../services/accountService';
 import { cn } from '../../lib/utils';
 import { ModuleManagement } from '../views/ModuleManagement';
@@ -91,6 +91,8 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
         <button 
           onClick={() => setIsOpen(true)}
           className="bg-white/90 backdrop-blur-md border border-slate-200 p-4 rounded-2xl text-slate-600 hover:bg-white hover:text-blue-600 transition-all shadow-sm group active:scale-95"
+          title="Configurações Globais"
+          aria-label="Abrir Configurações"
         >
           <Settings className="w-6 h-6 group-hover:rotate-90 transition-transform" />
         </button>
@@ -123,6 +125,8 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                     <button 
                       onClick={resetState}
                       className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-slate-600 transition-colors"
+                      title="Fechar"
+                      aria-label="Fechar"
                     >
                         <X className="w-5 h-5" />
                     </button>
@@ -273,15 +277,17 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                   <div className="space-y-4">
                     <div className="relative">
                       <Key className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                      <label htmlFor="admin-pin" className="sr-only">PIN Administrativo</label>
                       <input 
+                        id="admin-pin"
                         type="password"
                         required
                         maxLength={4}
-                        autoFocus
                         value={pin}
                         onChange={(e) => setPin(e.target.value)}
                         placeholder="PIN ADMIN" 
                         className="w-full bg-slate-50 border-2 border-transparent focus:border-rose-500 focus:bg-white rounded-[1.5rem] py-6 pl-14 pr-6 font-mono font-black text-3xl tracking-[0.5em] outline-none transition-all text-center"
+                        title="PIN Administrativo"
                       />
                     </div>
                     {error && <p className="text-[10px] text-rose-500 font-black text-center animate-bounce uppercase">{error}</p>}

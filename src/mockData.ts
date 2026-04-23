@@ -86,16 +86,16 @@ export const MOCK_SHOPS: Shop[] = [
 ];
 
 export const MOCK_PRODUCTS: Product[] = [
-  { id: '1', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Burger Clássico', price: 25.00, category: 'Hambúrgueres', stock: 50, active: true, ingredients: { 'i1': 0.150, 'i2': 1, 'i4': 0.02 }, image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&h=500&fit=crop' },
-  { id: '2', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Burger Duplo', price: 35.00, category: 'Hambúrgueres', stock: 30, active: true, ingredients: { 'i1': 0.300, 'i2': 1, 'i4': 0.04 }, image: 'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=500&h=500&fit=crop' },
-  { id: '3', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Batata Frita', price: 15.00, category: 'Acompanhamentos', stock: 100, active: true, ingredients: { 'i3': 0.200 }, image: 'https://images.unsplash.com/photo-1573016608244-7d5f0d3b7a38?w=500&h=500&fit=crop' },
-  { id: '4', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Refrigerante 350ml', price: 7.00, category: 'Bebidas', stock: 200, active: true, ingredients: { 'i5': 1 }, image: 'https://images.unsplash.com/photo-1622483767028-3f66f344507c?w=500&h=500&fit=crop' },
-  { id: '5', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Suco Natural', price: 10.00, category: 'Bebidas', stock: 50, active: true, image: 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=500&h=500&fit=crop' },
-  { id: '6', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Cerveja Artesanal', price: 18.00, category: 'Bebidas', stock: 80, active: true, ingredients: { 'i6': 1 }, image: 'https://images.unsplash.com/photo-1584225065152-4a1454aa3d4e?w=500&h=500&fit=crop' },
-  { id: '7', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Pudim de Leite', price: 12.00, category: 'Sobremesas', stock: 20, active: true, image: 'https://images.unsplash.com/photo-1528975604071-b4dc52a2d18c?w=500&h=500&fit=crop' },
-  { id: '8', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Combo Casal', price: 65.00, category: 'Combos', stock: 15, active: true, ingredients: { 'i1': 0.300, 'i2': 2, 'i3': 0.400 }, image: 'https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5?w=500&h=500&fit=crop' },
-  { id: '9', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Milkshake Chocolate', price: 22.00, category: 'Sobremesas', stock: 40, active: true, image: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=500&h=500&fit=crop' },
-  { id: '10', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Salada Caesar', price: 28.00, category: 'Saladas', stock: 25, active: true, image: 'https://images.unsplash.com/photo-1550317144-b38c5f61732b?w=500&h=500&fit=crop' },
+  { id: '1', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Burger Clássico', price: 25.00, category: 'Hambúrgueres', stock: 50, active: true, ingredients: { 'i1': 0.150, 'i2': 1, 'i4': 0.02 }, image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '2', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Burger Duplo', price: 35.00, category: 'Hambúrgueres', stock: 30, active: true, ingredients: { 'i1': 0.300, 'i2': 1, 'i4': 0.04 }, image: 'https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '3', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Batata Frita', price: 15.00, category: 'Acompanhamentos', stock: 100, active: true, ingredients: { 'i3': 0.200 }, image: 'https://images.unsplash.com/photo-1573016608244-7d5f0d3b7a38?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '4', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Refrigerante 350ml', price: 7.00, category: 'Bebidas', stock: 200, active: true, ingredients: { 'i5': 1 }, image: 'https://images.unsplash.com/photo-1622483767028-3f66f344507c?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '5', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Suco Natural', price: 10.00, category: 'Bebidas', stock: 50, active: true, image: 'https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '6', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Cerveja Artesanal', price: 18.00, category: 'Bebidas', stock: 80, active: true, ingredients: { 'i6': 1 }, image: 'https://images.unsplash.com/photo-1584225065152-4a1454aa3d4e?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '7', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Pudim de Leite', price: 12.00, category: 'Sobremesas', stock: 20, active: true, image: 'https://images.unsplash.com/photo-1528975604071-b4dc52a2d18c?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '8', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Combo Casal', price: 65.00, category: 'Combos', stock: 15, active: true, ingredients: { 'i1': 0.300, 'i2': 2, 'i3': 0.400 }, image: 'https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '9', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Milkshake Chocolate', price: 22.00, category: 'Sobremesas', stock: 40, active: true, image: 'https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
+  { id: '10', enterpriseId: 'ent-1', shopId: 'shop-1', name: 'Salada Caesar', price: 28.00, category: 'Saladas', stock: 25, active: true, image: 'https://images.unsplash.com/photo-1550317144-b38c5f61732b?w=500&h=500&fit=crop', updatedAt: new Date().toISOString() },
 ];
 
 export const MOCK_TABLES: Table[] = [
@@ -229,6 +229,12 @@ export const MOCK_PERMISSIONS: RolePermissions[] = [
     label: 'Cozinheiro / Chef',
     views: ['kitchen', 'inventory', 'staff_pnl'],
     actions: { canVoid: false, canDiscount: false, canViewSales: false, canManageStaff: false, canManageInventory: false, canEditMenu: false, canReopenTable: false, canManageSchedule: false }
+  },
+  {
+    role: 'admin',
+    label: 'Administrador / Desenvolvedor',
+    views: ['dashboard', 'tables', 'pending_orders', 'orders', 'kitchen', 'bar', 'inventory', 'reports', 'history', 'staff_mgmt', 'menu_mgmt', 'schedule', 'reservations', 'printer_mgmt', 'safety', 'settings', 'service_mgmt', 'staff_pnl', 'customization', 'company_mgmt'],
+    actions: { canVoid: true, canDiscount: true, canViewSales: true, canManageStaff: true, canManageInventory: true, canEditMenu: true, canReopenTable: true, canManageSchedule: true }
   }
 ];
 
