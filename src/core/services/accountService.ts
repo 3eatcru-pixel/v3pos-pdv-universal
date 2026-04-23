@@ -34,6 +34,15 @@ class AccountService {
     return session?.tenantId || null;
   }
 
+  public getSelectedShopId(): string | null {
+    return localStorage.getItem('rm_selected_shop_id');
+  }
+
+  public setSelectedShopId(shopId: string | null): void {
+    if (shopId) localStorage.setItem('rm_selected_shop_id', shopId);
+    else localStorage.removeItem('rm_selected_shop_id');
+  }
+
   public getCurrentTenant() {
     return authService.getCurrentTenant();
   }
@@ -178,6 +187,7 @@ class AccountService {
     localStorage.removeItem('pos_business_mode');
     localStorage.removeItem('pos_device_role');
     localStorage.removeItem('pos_device_mode');
+    localStorage.removeItem('rm_selected_shop_id');
     window.location.reload();
   }
 
@@ -240,8 +250,6 @@ class AccountService {
   }
 
   public async getCompanyMetrics(companyId: string) {
-    // In a production app, this would be an aggregate query in Firestore
-    // For now, let's fetch orders and staff for this company to give semi-real data
     const orders = await firebaseService.getAllDocs('orders');
     const staff = await firebaseService.getAllDocs('staff');
     
@@ -328,7 +336,6 @@ class AccountService {
   }
 
   public async loginAsManager(companyId: string) {
-    // For a dev, we can impersonate the owner role for full access testing
     const ok = await authService.impersonateTenant(companyId);
     if (!ok) {
       throw new Error('Falha ao abrir sessão de impersonação para esta empresa.');
@@ -347,6 +354,8 @@ class AccountService {
       message,
       timestamp: Date.now(),
       status: 'open',
+      statusHistory: [],
+      category: 'general'
     };
     const messages = JSON.parse(localStorage.getItem('pos_support_messages') || '[]');
     messages.push(msg);
@@ -382,6 +391,7 @@ class AccountService {
     localStorage.removeItem('pos_device_role');
     localStorage.removeItem('pos_business_mode');
     localStorage.removeItem('pos_sync_mode');
+    localStorage.removeItem('rm_selected_shop_id');
     window.location.reload();
   }
 

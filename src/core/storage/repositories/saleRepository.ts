@@ -1,13 +1,19 @@
 import { indexedDBAdapter } from '../adapters/indexedDBAdapter';
 import { Sale } from '../types';
+import { coreEventBus } from '../../events/CoreEventBus';
+import { CoreSale } from '../../types';
 
 class SaleRepository {
   async create(sale: Sale): Promise<Sale> {
-    return indexedDBAdapter.add('sales', sale);
+    const created = await indexedDBAdapter.add('sales', sale);
+    coreEventBus.emit('sale:created', created as unknown as CoreSale);
+    return created;
   }
 
   async update(sale: Sale): Promise<Sale> {
-    return indexedDBAdapter.update('sales', sale);
+    const updated = await indexedDBAdapter.update('sales', sale);
+    // coreEventBus.emit('sale:updated', updated as unknown as CoreSale);
+    return updated;
   }
 
   async findById(id: string): Promise<Sale | undefined> {

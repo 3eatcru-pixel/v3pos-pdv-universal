@@ -1,5 +1,7 @@
 import { indexedDBAdapter } from '../adapters/indexedDBAdapter';
 import { Product, SaleItem } from '../types';
+import { coreEventBus } from '../../events/CoreEventBus';
+import { CoreProduct } from '../../types';
 
 class ProductRepository {
   async create(product: Product): Promise<Product> {
@@ -7,15 +9,17 @@ class ProductRepository {
   }
 
   async update(product: Product): Promise<Product> {
-    return indexedDBAdapter.update('products', product);
+    const updated = await indexedDBAdapter.update('products', product);
+    coreEventBus.emit('product:updated', updated as unknown as CoreProduct);
+    return updated;
   }
 
-  async findById(id: string): Promise<Product | undefined> {
-    return indexedDBAdapter.get<Product>('products', id);
+  async findById(id: string): Promise<CoreProduct | undefined> {
+    return indexedDBAdapter.get<CoreProduct>('products', id);
   }
 
-  async findAll(): Promise<Product[]> {
-    return indexedDBAdapter.getAll<Product>('products');
+  async findAll(): Promise<CoreProduct[]> {
+    return indexedDBAdapter.getAll<CoreProduct>('products');
   }
 
   async applySaleItems(items: SaleItem[]): Promise<void> {
@@ -40,6 +44,7 @@ class ProductRepository {
       };
 
       await this.update(productToSave);
+      coreEventBus.emit('product:stock_decremented', { productId: item.productId, quantity });
     }
   }
 }

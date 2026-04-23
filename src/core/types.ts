@@ -1,29 +1,13 @@
 /**
  * Core Types for Modular POS
+ * Shared across all industry modules (Restaurant, Retail, Market, etc.)
  */
 
 export type BusinessMode = 'restaurant' | 'construction' | 'retail' | 'market' | 'generic' | 'service';
 export type DeviceRole = 'host' | 'client';
 export type DeviceMode = 'cashier' | 'salesperson' | 'stock' | 'admin' | 'logistics' | 'retail_sales' | 'retail_cashier' | 'market_pos' | 'market_scanner' | 'central_server';
-export type UserRole = 'dev' | 'owner' | 'manager' | 'staff' | 'operator';
+export type UserRole = 'dev' | 'owner' | 'manager' | 'staff' | 'operator' | 'waiter' | 'chef' | 'admin';
 export type SyncMode = 'p2p' | 'host_server' | 'cloud';
-
-export interface ServerNode {
-  id: string;
-  companyId: string;
-  connectedDevices: string[];
-  status: 'online' | 'offline' | 'fallback';
-  lastBackup?: number;
-  uptime: number;
-}
-
-export interface BackupMetadata {
-  id: string;
-  timestamp: number;
-  size: number;
-  entityCount: number;
-  type: 'auto' | 'manual';
-}
 
 export interface Enterprise {
   id: string;
@@ -41,6 +25,7 @@ export interface Enterprise {
   enabledModules?: string[];
   lastDevAccess?: number;
   owners?: string[];
+  regions?: string[];
 }
 
 export type Company = Enterprise;
@@ -48,21 +33,70 @@ export type Company = Enterprise;
 export interface Shop {
   id: string;
   enterpriseId: string;
+  companyId?: string;
   name: string;
   regionId: string;
+  address?: string;
+  cnpj?: string;
   settings: any;
 }
 
-export interface Staff {
+export interface User {
   id: string;
-  enterpriseId: string;
   name: string;
   role: UserRole;
-  active: boolean;
-  pin: string;
-  assignedShopIds: string[];
   email?: string;
+  pin?: string;
+  companyId?: string;
+  photo?: string;
+}
+
+export interface Staff extends User {
+  active: boolean;
+  assignedShopIds: string[];
+  companyId?: string;
+  enterpriseId?: string;
   phone?: string;
+  salary?: number;
+  contractType?: 'clt' | 'pj' | 'freelancer' | 'intern';
+  performanceScore?: number;
+}
+
+export interface CoreProduct {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  name: string;
+  price: number;
+  category: string;
+  stock: number;
+  active: boolean;
+  updatedAt: number;
+  sku?: string;
+  barcode?: string;
+}
+
+export interface CoreSaleItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+export interface CoreSale {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  staffId: string;
+  items: CoreSaleItem[];
+  total: number;
+  subtotal: number;
+  tax: number;
+  discount: number;
+  paymentMethod: string;
+  timestamp: number;
+  status: 'pending' | 'completed' | 'cancelled';
 }
 
 export interface AppNotification {
@@ -73,15 +107,42 @@ export interface AppNotification {
   read: boolean;
   type: 'info' | 'warning' | 'error' | 'maintenance';
   companyId: string;
+  shopId?: string;
 }
 
-export interface Employee {
+export interface SyncEvent {
   id: string;
-  name: string;
-  role: 'manager' | 'staff' | 'operator';
+  type: string;
+  payload: any;
+  sourceDevice: string;
   companyId: string;
-  deviceId?: string;
-  joinedAt: number;
+  timestamp: number;
+}
+
+export interface SystemLog {
+  timestamp: number;
+  origin: BusinessMode | 'system' | 'core';
+  action: string;
+  data?: any;
+  userId?: string;
+  companyId: string;
+}
+
+export interface ServerNode {
+  id: string;
+  companyId: string;
+  connectedDevices: string[];
+  status: 'online' | 'offline' | 'syncing';
+  uptime: number;
+  lastBackup: number;
+}
+
+export interface BackupMetadata {
+  id: string;
+  timestamp: number;
+  size: number;
+  entityCount: number;
+  type: 'auto' | 'manual';
 }
 
 export interface SupportMessage {
@@ -90,56 +151,4 @@ export interface SupportMessage {
   message: string;
   timestamp: number;
   status: 'open' | 'resolved';
-}
-
-export interface SyncEvent {
-  id: string;
-  type: string;
-  payload: any;
-  sourceDevice: string;
-  companyId: string; // Critical for isolation
-  timestamp: number;
-}
-
-export interface User {
-  id: string;
-  name: string;
-  role: UserRole;
-  email?: string;
-  pin?: string;
-  companyId: string;
-}
-
-export interface CoreProduct {
-  id: string;
-  name: string;
-  price: number;
-  category: string;
-  active: boolean;
-  enterpriseId: string;
-  updateAt: number;
-}
-
-export interface CoreSale {
-  id: string;
-  total: number;
-  timestamp: number;
-  status: 'pending' | 'completed' | 'cancelled';
-  paymentMethod?: string;
-  enterpriseId: string;
-}
-
-export interface ModuleInfo {
-  id: string;
-  name: string;
-  version: string;
-  enabled: boolean;
-}
-
-export interface SystemLog {
-  timestamp: number;
-  origin: 'core' | 'restaurant' | 'construction' | 'retail' | 'market' | 'system';
-  action: string;
-  data?: any;
-  userId?: string;
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { RefreshCw, Settings, Lock, ShieldAlert } from 'lucide-react';
 import { BusinessMode } from './core/types';
 import { moduleManager } from './moduleManager';
 import { ModeSelector } from './core/components/ModeSelector';
@@ -16,11 +17,11 @@ import { ServiceLayout } from './modules/service/views/ServiceLayout';
 import { ModuleManagement } from './core/views/ModuleManagement';
 import { BusinessConfig } from './types';
 import { firebaseService } from './services/firebaseService';
-import { ShieldAlert, Lock, Settings, LayoutGrid, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { coreSyncService } from './core/services/CoreSyncService';
 
 // We'll import the legacy App (Restaurant) for now to keep functionality
-import LegacyApp from './App';
+import { RestaurantLayout } from './modules/restaurant/views/RestaurantLayout';
 
 import { UniversalPaymentModal } from './core/components/UniversalPaymentModal';
 
@@ -34,6 +35,11 @@ export default function ModularApp() {
   const [company, setCompany] = useState<Company | null>(null);
   const [isSystemPaused, setIsSystemPaused] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+
+  // Initialize Core Services
+  useEffect(() => {
+    console.log('[Core] Sync Service Active');
+  }, []);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -195,7 +201,7 @@ export default function ModularApp() {
   // Current Content
   let content = null;
   if (mode === 'restaurant' && !lockedModules.includes('restaurant')) {
-    content = <LegacyApp />;
+    content = <RestaurantLayout />;
   } else if (mode === 'construction' && !lockedModules.includes('construction')) {
     content = <ConstructionLayout />;
   } else if (mode === 'retail' && !lockedModules.includes('retail')) {

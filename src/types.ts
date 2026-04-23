@@ -3,12 +3,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { 
+  Enterprise, 
+  Shop, 
+  Staff as CoreStaff, 
+  User as CoreUser, 
+  CoreProduct, 
+  CoreSale,
+  BusinessMode,
+  UserRole as CoreUserRole,
+  AppNotification as CoreNotification
+} from './core/types';
+
+export type { Enterprise, Shop, BusinessMode };
+
 export type SystemMode = 'restaurant' | 'distributor' | 'service';
-export type BusinessMode = 'restaurant' | 'construction' | 'retail' | 'market' | 'generic' | 'service';
-
 export type TableStatus = 'free' | 'occupied' | 'reserved' | 'closed';
-
-export type UserRole = string;
+export type UserRole = CoreUserRole | string;
 
 export interface Permission {
   id: string;
@@ -70,11 +81,7 @@ export interface StaffSchedule {
   status: 'planned' | 'confirmed' | 'missing' | 'completed';
 }
 
-export interface User {
-  id: string; // usr_xxx
-  email: string;
-  name: string;
-  photo?: string;
+export interface User extends CoreUser {
   createdAt: number;
 }
 
@@ -91,42 +98,12 @@ export interface InviteCode {
 
 export type Company = Enterprise;
 
-export interface Enterprise {
-  id: string; // cmp_xxx
-  name: string;
-  ownerId: string; // usr_xxx
-  businessType: BusinessMode;
-  ownerEmail: string;
-  ownerPhone?: string;
-  ownerName?: string;
-  accessCode: string;
-  status: 'active' | 'inactive' | 'maintenance';
-  isPaused?: boolean;
-  createdAt: number;
-  lockedModules?: string[];
-  enabledModules?: string[];
-  lastDevAccess?: number;
-  regions: Region[];
-  owners?: string[];
-}
-
 export interface Region {
   id: string;
   name: string;
   enterpriseId: string;
   managerIds: string[]; // List of user IDs (regional managers)
   shops: Shop[];
-}
-
-export interface Shop {
-  id: string; // str_xxx
-  name: string;
-  enterpriseId: string;
-  companyId?: string; // Kept for compat
-  regionId: string;
-  address?: string;
-  cnpj?: string;
-  settings: CompanySettings;
 }
 
 export interface RolePermissions {
@@ -194,21 +171,12 @@ export interface Shift {
   area: 'FOH' | 'BOH';
 }
 
-export interface Product {
-  id: string;
-  enterpriseId: string;
-  shopId: string;
-  name: string;
-  price: number;
-  category: string;
+export interface Product extends CoreProduct {
   image?: string;
-  stock?: number;
-  barcode?: string;
   unit?: 'un' | 'kg' | 'lt' | 'g';
   expiration?: number;
   ingredients?: Record<string, number>;
   wastageMargin?: number;
-  active: boolean;
   type?: 'product' | 'service'; // Added to distinguish in POS
 }
 
@@ -279,24 +247,14 @@ export interface OrderItem {
 
 export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
 
-export interface Staff {
-  id: string; // emp_xxx
-  enterpriseId: string;
+export interface Staff extends CoreStaff {
   companyId?: string; // Kept for compat
   storeId?: string; // Optional if not assigned to specific store
-  name: string;
-  role: UserRole;
-  active: boolean;
   cpf?: string;
   pix?: string;
-  phone?: string;
   photo?: string;
-  pin?: string;
   userId?: string; // Reference to the User ID (for identity)
-  assignedShopIds: string[];
   assignedTableIds?: string[];
-  salary?: number;
-  contractType?: 'clt' | 'pj' | 'freelancer' | 'intern';
   admissionDate?: number;
   bankInfo?: {
     bankName: string;
@@ -304,7 +262,6 @@ export interface Staff {
     account: string;
   };
   documents?: { name: string; url: string; uploadDate: number }[];
-  performanceScore?: number;
   skills?: string[]; // For Service Business
   commissionRate?: number; // Base rate for the professional
   schedule?: {
@@ -362,7 +319,7 @@ export interface Transaction {
   status: 'pending' | 'completed' | 'cancelled';
   paymentMethod: 'cash' | 'card' | 'pix' | 'other';
   referenceId?: string; // Order ID
-  module: 'restaurant' | 'market' | 'retail' | 'construction' | 'service';
+  module: BusinessMode;
   staffId: string;
   staffName: string;
   change?: number; // Change given if cash
@@ -462,14 +419,8 @@ export interface IncidentReport {
   location?: string;
 }
 
-export interface AppNotification {
-  id: string;
-  shopId: string;
-  message: string;
-  type: 'order_ready_kitchen' | 'order_ready_bar' | 'new_order_kitchen' | 'new_order_bar' | 'low_stock' | 'system';
+export interface AppNotification extends CoreNotification {
   tableId?: string;
-  timestamp: number;
-  read: boolean;
 }
 
 export interface CompanySettings {

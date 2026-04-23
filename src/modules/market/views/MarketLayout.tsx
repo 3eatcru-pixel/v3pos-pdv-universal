@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShoppingCart, 
   Database, 
@@ -40,6 +40,8 @@ import { FinanceManagementView } from '../../../core/views/FinanceManagementView
 import { SupplierManagementView } from '../../../core/views/SupplierManagementView';
 import { CompanyManagement } from '../../../core/views/CompanyManagement';
 import { accountService } from '../../../core/services/accountService';
+import { firebaseService } from '../../../services/firebaseService';
+import { Shop } from '../../../core/types';
 import { cn } from '../../../lib/utils';
 import { 
   Beef, 
@@ -81,7 +83,15 @@ export const MarketLayout: React.FC = () => {
   });
 
   const currentUser = accountService.getCurrentUser();
+  const [selectedShopId, setSelectedShopId] = useState<string | null>(accountService.getSelectedShopId());
+  const [shops, setShops] = useState<Shop[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsub = firebaseService.subscribeCollection('shops', currentUser.companyId, null, setShops);
+    return () => unsub();
+  }, [currentUser]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -89,6 +99,11 @@ export const MarketLayout: React.FC = () => {
     }, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleShopChange = (shopId: string | null) => {
+    setSelectedShopId(shopId);
+    accountService.setSelectedShopId(shopId);
+  };
 
   const handleRoleSelect = (selectedRole: DeviceRole) => {
     meshNetwork.setRole(selectedRole);
@@ -229,6 +244,25 @@ export const MarketLayout: React.FC = () => {
     </button>
   );
 
+  const navItems = useMemo(() => {
+    const items = [
+      { id: 'dashboard', icon: <LayoutGrid />, label: 'Insights Hub', roles: ['owner', 'manager', 'dev'] },
+      { id: 'pos', icon: <Barcode />, label: 'Checkout Rápido', roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
+      { id: 'inventory', icon: <Package />, label: 'Lotes & Validade', roles: ['owner', 'manager', 'staff', 'dev'] },
+      { id: 'butcher', icon: <Beef />, label: 'Açougue Central', roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
+      { id: 'bakery', icon: <Croissant />, label: 'Padaria / Doceria', roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
+      { id: 'produce', icon: <Apple />, label: 'Hortifruti', roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
+      { id: 'scales', icon: <Scale />, label: 'Hardware Balanças', roles: ['owner', 'manager', 'dev'] },
+      { id: 'employees', icon: <UsersIcon />, label: 'RH & Performance', roles: ['owner', 'manager', 'dev'] },
+      { id: 'schedule', icon: <CalendarIcon />, label: 'Escala Interna', roles: ['owner', 'manager', 'staff', 'dev'] },
+      { id: 'finance', icon: <DollarSign />, label: 'Fluxo Financeiro', roles: ['owner', 'manager', 'dev'] },
+      { id: 'suppliers', icon: <Truck />, label: 'Contratos / B2B', roles: ['owner', 'manager', 'dev'] },
+      { id: 'settings', icon: <Settings />, label: 'Periféricos', roles: ['owner', 'dev'] },
+      { id: 'management', icon: <Database />, label: 'Gestão da Unidade', roles: ['owner', 'dev'] },
+    ];
+    return items.filter(item => !currentUser || item.roles.includes(currentUser.role));
+  }, [currentUser]);
+
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard': return <MarketDashboard />;
@@ -280,24 +314,11 @@ export const MarketLayout: React.FC = () => {
         </div>
 
         <div className="flex-1 px-8 space-y-3 overflow-y-auto custom-scrollbar transition-all">
-           <NavItem icon={<LayoutGrid />} label="Insights Hub" id="dashboard" />
-           <NavItem icon={<Barcode />} label="Checkout Rápido" id="pos" />
-           <NavItem icon={<Package />} label="Lotes & Validade" id="inventory" />
-           
-           <div className="pt-6 mb-4 border-t border-slate-50 mt-4 h-[1px] border-dashed" />
-           <span className="px-6 text-[9px] font-black uppercase text-slate-400 tracking-widest block mb-4 italic">Setores Especialistas</span>
-           <NavItem icon={<Beef />} label="Açougue Central" id="butcher" />
-           <NavItem icon={<Croissant />} label="Padaria / Doceria" id="bakery" />
-           <NavItem icon={<Apple />} label="Hortifruti" id="produce" />
-
-           <div className="pt-6 mb-4 border-t border-slate-50 mt-4 h-[1px] border-dashed" />
-           <NavItem icon={<Scale />} label="Hardware Balanças" id="scales" />
-           <NavItem icon={<UsersIcon />} label="RH & Performance" id="employees" />
-           <NavItem icon={<CalendarIcon />} label="Escala Interna" id="schedule" />
-           <NavItem icon={<DollarSign />} label="Fluxo Financeiro" id="finance" />
-           <NavItem icon={<Truck />} label="Contratos / B2B" id="suppliers" />
-           <NavItem icon={<Settings />} label="Periféricos" id="settings" />
-           <NavItem icon={<Database />} label="Gestão da Unidade" id="management" />
+           {navItems.map(item => (
+             <React.Fragment key={item.id}>
+               <NavItem icon={item.icon} label={item.label} id={item.id as MarketView} />
+             </React.Fragment>
+           ))}
         </div>
 
         <div className={cn("p-10 border-t border-slate-50 bg-slate-50/20", isSidebarCollapsed && "p-6")}>
@@ -361,19 +382,22 @@ export const MarketLayout: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-10">
-                <div className="hidden lg:flex items-center gap-6 bg-slate-50 px-6 py-3 rounded-2xl border border-slate-100">
-                   <div className="flex items-center gap-3">
-                      <AlertTriangle className="w-4 h-4 text-rose-500" />
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">03 Vencidos Hoje</span>
-                   </div>
-                   <div className="w-px h-4 bg-slate-200" />
-                   <div className="flex items-center gap-3">
-                      <Zap className="w-4 h-4 text-amber-500" />
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pico: Horti</span>
-                   </div>
-                </div>
+                 <div className="hidden lg:flex items-center gap-6 bg-slate-50 px-6 py-3 rounded-2xl border border-slate-100">
+                    <select 
+                      value={accountService.getSelectedShopId() || ''} 
+                      onChange={(e) => {
+                        accountService.setSelectedShopId(e.target.value);
+                        window.location.reload();
+                      }}
+                      className="bg-transparent border-none text-[10px] font-black uppercase outline-none cursor-pointer"
+                    >
+                      {shops.map(shop => (
+                        <option key={shop.id} value={shop.id}>{shop.name}</option>
+                      ))}
+                    </select>
+                 </div>
 
-                <button className="relative p-4 bg-slate-100 rounded-2xl text-slate-400 hover:text-emerald-600 transition-all group">
+                 <button className="relative p-4 bg-slate-100 rounded-2xl text-slate-400 hover:text-emerald-600 transition-all group">
                    <Bell className="w-6 h-6 group-hover:rotate-12 transition-transform" />
                    <span className="absolute top-2 right-2 w-3 h-3 bg-rose-500 rounded-full border-[4px] border-white" />
                 </button>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShoppingBag, 
   Database, 
@@ -39,6 +39,8 @@ import { FinanceManagementView } from '../../../core/views/FinanceManagementView
 import { SupplierManagementView } from '../../../core/views/SupplierManagementView';
 import { CompanyManagement } from '../../../core/views/CompanyManagement';
 import { accountService } from '../../../core/services/accountService';
+import { firebaseService } from '../../../services/firebaseService';
+import { Shop } from '../../../core/types';
 import { cn } from '../../../lib/utils';
 
 type RetailView = 'dashboard' | 'inventory' | 'pos' | 'crm' | 'reports' | 'promotions' | 'settings' | 'management' | 'schedule' | 'staff' | 'finance' | 'suppliers';
@@ -56,7 +58,15 @@ export const RetailLayout: React.FC = () => {
   });
 
   const currentUser = accountService.getCurrentUser();
+  const [selectedShopId, setSelectedShopId] = useState<string | null>(accountService.getSelectedShopId());
+  const [shops, setShops] = useState<Shop[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsub = firebaseService.subscribeCollection('shops', currentUser.companyId, null, setShops);
+    return () => unsub();
+  }, [currentUser]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -64,6 +74,11 @@ export const RetailLayout: React.FC = () => {
     }, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleShopChange = (shopId: string | null) => {
+    setSelectedShopId(shopId);
+    accountService.setSelectedShopId(shopId);
+  };
 
   const handleRoleSelect = (selectedRole: DeviceRole) => {
     meshNetwork.setRole(selectedRole);
@@ -178,6 +193,24 @@ export const RetailLayout: React.FC = () => {
     localStorage.setItem('pos_retail_sidebar_collapsed', String(newState));
   };
 
+  const navItems = useMemo(() => {
+    const items = [
+      { id: 'dashboard', icon: <LayoutDashboard />, label: 'Dashboard', roles: ['owner', 'manager', 'dev'] },
+      { id: 'pos', icon: <CreditCard />, label: 'Vendas / PDV', roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
+      { id: 'inventory', icon: <Box />, label: 'Produtos & Estoque', roles: ['owner', 'manager', 'staff', 'dev'] },
+      { id: 'crm', icon: <Target />, label: 'Clientes & CRM', roles: ['owner', 'manager', 'staff', 'dev'] },
+      { id: 'staff', icon: <Users />, label: 'RH Central', roles: ['owner', 'manager', 'dev'] },
+      { id: 'schedule', icon: <CalendarIcon />, label: 'Escala Staff', roles: ['owner', 'manager', 'staff', 'dev'] },
+      { id: 'finance', icon: <DollarSign />, label: 'Fluxo de Caixa', roles: ['owner', 'manager', 'dev'] },
+      { id: 'suppliers', icon: <Truck />, label: 'Fornecedores', roles: ['owner', 'manager', 'dev'] },
+      { id: 'promotions', icon: <Gift />, label: 'Promoções', roles: ['owner', 'manager', 'dev'] },
+      { id: 'reports', icon: <FileText />, label: 'Relatórios', roles: ['owner', 'manager', 'dev'] },
+      { id: 'settings', icon: <Settings />, label: 'Configuração', roles: ['owner', 'dev'] },
+      { id: 'management', icon: <Database />, label: 'Gestão da Unidade', roles: ['owner', 'dev'] },
+    ];
+    return items.filter(item => !currentUser || item.roles.includes(currentUser.role));
+  }, [currentUser]);
+
   const NavItem = ({ icon, label, id }: { icon: React.ReactNode, label: string, id: RetailView }) => (
     <button 
       onClick={() => setCurrentView(id)}
@@ -247,20 +280,11 @@ export const RetailLayout: React.FC = () => {
         </div>
 
         <div className="flex-1 px-6 space-y-2 overflow-y-auto custom-scrollbar">
-           <NavItem icon={<LayoutDashboard />} label="Dashboard" id="dashboard" />
-           <NavItem icon={<CreditCard />} label="Vendas / PDV" id="pos" />
-           <NavItem icon={<Box />} label="Produtos & Estoque" id="inventory" />
-           <NavItem icon={<Target />} label="Clientes & CRM" id="crm" />
-           <NavItem icon={<Users />} label="RH Central" id="staff" />
-           <NavItem icon={<CalendarIcon />} label="Escala Staff" id="schedule" />
-           <NavItem icon={<DollarSign />} label="Fluxo de Caixa" id="finance" />
-           <NavItem icon={<Truck />} label="Fornecedores" id="suppliers" />
-           <NavItem icon={<Gift />} label="Promoções" id="promotions" />
-           <NavItem icon={<FileText />} label="Relatórios" id="reports" />
-           
-           <div className="pt-8 mb-4 border-t border-slate-50 mt-4 h-[1px]" />
-           <NavItem icon={<Settings />} label="Configuração" id="settings" />
-           <NavItem icon={<Database />} label="Gestão da Unidade" id="management" />
+           {navItems.map(item => (
+             <React.Fragment key={item.id}>
+               <NavItem icon={item.icon} label={item.label} id={item.id as RetailView} />
+             </React.Fragment>
+           ))}
         </div>
 
         <div className={cn("p-8 border-t border-slate-50 bg-slate-50/10", isSidebarCollapsed && "p-4")}>
@@ -317,6 +341,19 @@ export const RetailLayout: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-8">
+                <select 
+                  value={accountService.getSelectedShopId() || ''} 
+                  onChange={(e) => {
+                    accountService.setSelectedShopId(e.target.value);
+                    window.location.reload();
+                  }}
+                  className="bg-slate-100 border-none text-[10px] font-black uppercase px-4 py-2 rounded-xl outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer"
+                >
+                  {shops.map(shop => (
+                    <option key={shop.id} value={shop.id}>{shop.name}</option>
+                  ))}
+                </select>
+
                 <button className="relative p-3 bg-slate-100 rounded-xl text-slate-400 hover:text-indigo-600 transition-all group">
                    <Bell className="w-5 h-5 group-hover:rotate-12 transition-transform" />
                    <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-rose-500 rounded-full border-[3px] border-white" />

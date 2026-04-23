@@ -25,22 +25,26 @@ import { ServiceClientsPage } from './ServiceClientsPage';
 import { ServiceResourcesPage } from './ServiceResourcesPage';
 import { FinanceManagementView } from '../../../core/views/FinanceManagementView';
 import { CompanyManagement } from '../../../core/views/CompanyManagement';
+import { accountService } from '../../../core/services/accountService';
 
 type ServiceTab = 'dashboard' | 'calendar' | 'services' | 'employees' | 'clients' | 'resources' | 'finance' | 'management';
 
 export const ServiceLayout: React.FC = () => {
   const [activeTab, setActiveTab] = React.useState<ServiceTab>('calendar');
+  const currentUser = accountService.getCurrentUser();
 
-  const tabs = [
-    { id: 'calendar', label: 'Agenda & Reservas', icon: Calendar },
-    { id: 'dashboard', label: 'Performance', icon: LayoutDashboard },
-    { id: 'finance', label: 'Financeiro & Caixa', icon: DollarSign },
-    { id: 'services', label: 'Catálogo de Serviços', icon: Scissors },
-    { id: 'employees', label: 'Profissionais', icon: Users },
-    { id: 'clients', label: 'Clientes', icon: UserCircle },
-    { id: 'resources', label: 'Recursos', icon: Database },
-    { id: 'management', label: 'Gestão da Unidade', icon: Building },
+  const allTabs = [
+    { id: 'calendar', label: 'Agenda & Reservas', icon: Calendar, roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
+    { id: 'dashboard', label: 'Performance', icon: LayoutDashboard, roles: ['owner', 'manager', 'dev'] },
+    { id: 'finance', label: 'Financeiro & Caixa', icon: DollarSign, roles: ['owner', 'manager', 'dev'] },
+    { id: 'services', label: 'Catálogo de Serviços', icon: Scissors, roles: ['owner', 'manager', 'dev'] },
+    { id: 'employees', label: 'Profissionais', icon: Users, roles: ['owner', 'manager', 'dev'] },
+    { id: 'clients', label: 'Clientes', icon: UserCircle, roles: ['owner', 'manager', 'staff', 'dev'] },
+    { id: 'resources', label: 'Recursos', icon: Database, roles: ['owner', 'manager', 'dev'] },
+    { id: 'management', label: 'Gestão da Unidade', icon: Building, roles: ['owner', 'dev'] },
   ];
+
+  const tabs = allTabs.filter(tab => !currentUser || tab.roles.includes(currentUser.role));
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex font-sans overflow-hidden">
@@ -119,15 +123,15 @@ export const ServiceLayout: React.FC = () => {
                    <span className="absolute top-3 right-3 w-2 h-2 bg-rose-500 rounded-full border-2 border-white" />
                 </button>
                 <div className="h-10 w-[1px] bg-slate-200 mx-2" />
-                <div className="flex items-center gap-4 bg-white p-2 pr-6 rounded-2xl border border-slate-100 shadow-sm">
-                   <div className="w-8 h-8 bg-slate-900 rounded-xl flex items-center justify-center text-white text-[10px] font-black">
-                      ADM
-                   </div>
-                   <div className="hidden md:block">
-                      <p className="text-[10px] font-black uppercase text-slate-900 tracking-tighter leading-none mb-1">Admin Master</p>
-                      <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">Online</span>
-                   </div>
-                </div>
+                 <div className="flex items-center gap-4 bg-white p-2 pr-6 rounded-2xl border border-slate-100 shadow-sm">
+                    <div className="w-8 h-8 bg-slate-900 rounded-xl flex items-center justify-center text-white text-[10px] font-black">
+                       {currentUser?.name?.charAt(0).toUpperCase() || 'U'}
+                    </div>
+                    <div className="hidden md:block">
+                       <p className="text-[10px] font-black uppercase text-slate-900 tracking-tighter leading-none mb-1">{currentUser?.name || 'Usuário'}</p>
+                       <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">{currentUser?.role || 'staff'}</span>
+                    </div>
+                 </div>
             </div>
         </header>
 
