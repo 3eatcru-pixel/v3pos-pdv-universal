@@ -21,6 +21,7 @@ import { startOfDay } from 'date-fns';
 import { RestaurantDashboard } from './RestaurantDashboard';
 import { TableMapView } from './TableMapView';
 import { KitchenDisplayView } from './KitchenDisplayView';
+import { BarDisplayView } from './BarDisplayView';
 import { MenuManagementView } from './MenuManagementView';
 import { RestaurantHistoryView } from './RestaurantHistoryView';
 import { InventoryManagementView } from '../../../core/views/InventoryManagementView';
@@ -39,6 +40,8 @@ import { accountService } from '../../../core/services/accountService';
 import { firebaseService } from '../../../services/firebaseService';
 import { InventoryEngine } from '../../../core/services/InventoryEngine';
 import { calculateOrderTotals } from '../../../core/utils/OrderCalculator';
+import { RestaurantRoutingEngine } from '../services/RestaurantRoutingEngine';
+import { RestaurantNotificationEngine } from '../services/RestaurantNotificationEngine';
 import { Table, Product, Order, Staff, InventoryItem, OrderItem, ItemStatus, OrderStatus } from '../../../types';
 
 interface RestaurantLayoutProps {
@@ -62,6 +65,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
     { id: 'dashboard', icon: <LayoutDashboard />, label: 'Dashboard', roles: ['owner', 'manager', 'dev'] },
     { id: 'tables', icon: <Grid />, label: 'Mapa de Mesas', roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
     { id: 'kitchen', icon: <ChefHat />, label: 'Cozinha (KDS)', roles: ['owner', 'manager', 'staff', 'dev'] },
+    { id: 'bar', icon: <ShoppingCart />, label: 'Bar (BDS)', roles: ['owner', 'manager', 'staff', 'dev'] },
     { id: 'history', icon: <History />, label: 'Histórico de Vendas', roles: ['owner', 'manager', 'dev'] },
     { id: 'orders', icon: <ClipboardList />, label: 'Comandas', roles: ['owner', 'manager', 'staff', 'dev'] },
     { id: 'pending_orders', icon: <Clock />, label: 'Pendentes', roles: ['owner', 'manager', 'staff', 'dev'] },
@@ -147,20 +151,34 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
       await firebaseService.updateItem('tables', selectedTable!.id, { status: 'occupied', currentOrderId: finalOrderId });
     }
 
-    await adjustInventory(newItems, -1);
+    await adjustInventory(newItems, 1);
+    const tableNumDisplay = isTakeaway
+      ? `Takeaway #${orderData.takeawayNumber}`
+      : `Mesa 0${selectedTable?.number}`;
+    const split = RestaurantRoutingEngine.splitItemsByStation(newItems);
+    const allergySuffix = split.hasAllergyAlert ? ' (ALERTA DE ALERGIA)' : '';
 
-    // Notification
-    const tableNumDisplay = isTakeaway ? `Takeaway #${orderData.takeawayNumber}` : `Mesa 0${selectedTable?.number}`;
-    await firebaseService.saveItem('notifications', `notif-${Date.now()}`, {
-      id: `notif-${Date.now()}`,
-      shopId: (selectedShopId || 'shop-1'),
-      message: `🍗 Cozinha: Novo Pedido ${tableNumDisplay}`,
-      type: 'new_order_kitchen',
-      tableId: isTakeaway ? 'takeaway' : selectedTable?.id,
-      timestamp: Date.now(),
-      read: false,
-      enterpriseId: enterpriseId!
-    });
+    if (split.kitchenItems.length > 0) {
+      await RestaurantNotificationEngine.emit({
+        enterpriseId: enterpriseId || 'local-ent',
+        shopId: selectedShopId || 'shop-1',
+        title: 'Novo pedido - Cozinha',
+        message: `Novo pedido ${tableNumDisplay} com ${split.kitchenItems.length} item(ns) para cozinha${allergySuffix}.`,
+        type: 'new_order_kitchen',
+        tableId: isTakeaway ? 'takeaway' : selectedTable?.id,
+      });
+    }
+
+    if (split.barItems.length > 0) {
+      await RestaurantNotificationEngine.emit({
+        enterpriseId: enterpriseId || 'local-ent',
+        shopId: selectedShopId || 'shop-1',
+        title: 'Novo pedido - Bar',
+        message: `Novo pedido ${tableNumDisplay} com ${split.barItems.length} item(ns) para bar${allergySuffix}.`,
+        type: 'new_order_bar',
+        tableId: isTakeaway ? 'takeaway' : selectedTable?.id,
+      });
+    }
   };
 
   const renderContent = (currentView: string, setView: (v: string) => void) => {
@@ -196,6 +214,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
       case 'third_party_orders': return <ThirdPartyOrdersView />;
       case 'history': return <RestaurantHistoryView />;
       case 'kitchen': return <KitchenDisplayView type="kitchen" />;
+      case 'bar': return <BarDisplayView />;
       case 'menu': return <MenuManagementView />;
       case 'inventory': return <InventoryManagementView module="restaurant" />;
       case 'reservations': return <ReservationManagementView />;
@@ -220,3 +239,4 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
     />
   );
 };
+

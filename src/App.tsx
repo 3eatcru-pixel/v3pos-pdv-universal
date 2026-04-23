@@ -979,7 +979,7 @@ export default function App() {
     }
 
     // Update Inventory Stock based on ingredients and modifiers
-    await adjustInventory(newItems, -1);
+    await adjustInventory(newItems, 1);
 
     // Notifications
     const barCategories = ['Bebidas', 'Bar', 'FOH'];
@@ -1237,7 +1237,7 @@ export default function App() {
 
         // Deduct stock for takeaway items once paid/confirmed
         if (isFullyPaid || shouldSendToKitchen) {
-          await adjustInventory(cart, -1);
+          await adjustInventory(cart, 1);
         }
 
         const tableNum = `Takeaway #${nextNumber}`;
@@ -1305,7 +1305,7 @@ export default function App() {
 
         // Deduct stock if this is a takeaway transitioning from pending
         if (order.orderType === 'takeaway' && order.status === 'pending' && (isFullyPaid || shouldSendToKitchen)) {
-          await adjustInventory(order.items, -1);
+          await adjustInventory(order.items, 1);
         }
 
         if (isFullyPaid && order.tableId && order.tableId !== 'takeaway') {

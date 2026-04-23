@@ -10,7 +10,9 @@ import { cn } from '../../../lib/utils';
 import { useCollection } from '../../../hooks/useCollection';
 import { accountService } from '../../../core/services/accountService';
 import { firebaseService } from '../../../services/firebaseService';
-import { Order, Table, AppNotification } from '../../../types';
+import { Order, Table } from '../../../types';
+import { RestaurantRoutingEngine } from '../services/RestaurantRoutingEngine';
+import { RestaurantNotificationEngine } from '../services/RestaurantNotificationEngine';
 
 export const KitchenDisplayView: React.FC = () => {
   const enterpriseId = accountService.getCurrentCompanyId();
@@ -56,21 +58,22 @@ export const KitchenDisplayView: React.FC = () => {
       }
       return item;
     });
+    const hasPendingKitchen = updatedItems.some(
+      (item) => !barCategories.includes(item.category) && (item.status === 'pending' || item.status === 'preparing'),
+    );
+    const nextOrderStatus = hasPendingKitchen ? order.status : 'ready';
+    await firebaseService.updateItem('orders', orderId, { items: updatedItems, status: nextOrderStatus });
 
-    await firebaseService.updateItem('orders', orderId, { items: updatedItems });
-    
-    // Notification
-    const notifId = `notif-${Date.now()}`;
-    await firebaseService.saveItem('notifications', notifId, {
-      id: notifId,
-      title: 'Pratos Prontos',
-      message: `O pedido da Mesa ${tables.find(t => t.id === order.tableId)?.number || '?'} está pronto na cozinha.`,
-      timestamp: Date.now(),
-      read: false,
+    const tableNumber = tables.find((t) => t.id === order.tableId)?.number || '?';
+    const split = RestaurantRoutingEngine.splitItemsByStation(order.items);
+    await RestaurantNotificationEngine.emit({
+      enterpriseId: enterpriseId || 'local-ent',
+      shopId: order.shopId || 'shop-1',
+      title: 'Itens prontos - Cozinha',
+      message: `Itens da Mesa ${tableNumber} prontos na cozinha${split.hasAllergyAlert ? ' (conferir alergias)' : ''}.`,
       type: 'order_ready_kitchen',
-      companyId: enterpriseId!,
-      tableId: order.tableId
-    } as AppNotification);
+      tableId: order.tableId,
+    });
   };
 
   return (
@@ -199,3 +202,4 @@ export const KitchenDisplayView: React.FC = () => {
     </div>
   );
 };
+

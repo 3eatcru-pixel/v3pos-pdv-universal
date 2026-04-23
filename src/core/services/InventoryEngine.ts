@@ -54,6 +54,20 @@ export class InventoryEngine {
             adjustments.push({ id: item.id, amount: qty * multiplier, type: 'product' });
           }
         }
+
+        // Modifiers can affect stock usage:
+        // - extra: consumes additional stock
+        // - remove: reduces stock usage of linked ingredient
+        if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
+          item.modifiers.forEach((mod: any) => {
+            if (!mod?.inventoryItemId) return;
+            if (mod.type === 'allergy') return; // informational only
+            const modifierSign = mod.type === 'remove' ? -1 : 1;
+            const modifierQty = qty * modifierSign;
+            const modifierItem = { id: mod.inventoryItemId, quantity: modifierQty, composition: [] };
+            resolveItem(modifierItem, modifierQty);
+          });
+        }
       }
     };
 

@@ -8,6 +8,13 @@ export interface CsvMappingRow {
   provider?: ThirdPartyProvider;
 }
 
+const escapeCsv = (value: string): string => {
+  if (/[",;\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+};
+
 const normalizeHeader = (value: string): string => value.trim().toLowerCase().replace(/\s+/g, '');
 
 const toBoolean = (value: string | undefined): boolean | undefined => {
@@ -100,5 +107,30 @@ export class ThirdPartyMappingCsvEngine {
       });
     }
     return rows;
+  }
+
+  static toCsv(rows: CsvMappingRow[], delimiter = ','): string {
+    const header = ['productId', 'externalSku', 'externalName', 'active', 'provider'];
+    const lines = [header.join(delimiter)];
+    for (const row of rows) {
+      lines.push(
+        [
+          escapeCsv(row.productId || ''),
+          escapeCsv(row.externalSku || ''),
+          escapeCsv(row.externalName || ''),
+          row.active === undefined ? '' : row.active ? 'true' : 'false',
+          escapeCsv(row.provider || ''),
+        ].join(delimiter),
+      );
+    }
+    return lines.join('\n');
+  }
+
+  static templateCsv(delimiter = ','): string {
+    return [
+      ['productId', 'externalSku', 'externalName', 'active', 'provider'].join(delimiter),
+      ['prod-1', 'SKU-001', 'Produto Externo 1', 'true', 'ifood'].join(delimiter),
+      ['prod-2', 'SKU-002', 'Produto Externo 2', 'true', 'uber_eats'].join(delimiter),
+    ].join('\n');
   }
 }

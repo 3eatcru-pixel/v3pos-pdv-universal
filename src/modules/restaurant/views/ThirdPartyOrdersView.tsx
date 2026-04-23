@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, Link2, RefreshCw, Save, Send, Store, Truck, Upload, XCircle } from 'lucide-react';
+import { CheckCircle2, Download, Link2, Printer as PrinterIcon, RefreshCw, Save, Send, Store, Truck, Upload, XCircle } from 'lucide-react';
 import { useCollection } from '../../../hooks/useCollection';
 import { accountService } from '../../../core/services/accountService';
 import { ThirdPartyOrderEngine } from '../services/ThirdPartyOrderEngine';
 import { ThirdPartyCatalogSyncEngine } from '../services/ThirdPartyCatalogSyncEngine';
 import { ThirdPartyProductMappingEngine } from '../services/ThirdPartyProductMappingEngine';
 import { ThirdPartyMappingCsvEngine } from '../services/ThirdPartyMappingCsvEngine';
+import { printerService } from '../../../services/printerService';
 import type {
   InventoryItem,
+  Printer,
   Product,
   ThirdPartyCatalogSyncJob,
   ThirdPartyOrder,
@@ -176,6 +178,7 @@ export const ThirdPartyOrdersView: React.FC = () => {
   const [csvPreviewCount, setCsvPreviewCount] = useState(0);
   const [isImportingCsv, setIsImportingCsv] = useState(false);
   const [actionBusyOrderId, setActionBusyOrderId] = useState<string | null>(null);
+  const [printBusyOrderId, setPrintBusyOrderId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const lastAutoSyncRef = useRef<Record<string, number>>({});
@@ -188,6 +191,7 @@ export const ThirdPartyOrdersView: React.FC = () => {
   const { data: productMappings } = useCollection<ThirdPartyProductMapping>('thirdPartyProductMappings');
   const { data: products } = useCollection<Product>('products');
   const { data: inventory } = useCollection<InventoryItem>('inventory');
+  const { data: printers } = useCollection<Printer>('printers');
 
   const scopedOrders = useMemo(
     () => orders.filter((o) => o.userId === currentUser?.id).sort((a, b) => b.receivedAt - a.receivedAt),
@@ -343,10 +347,24 @@ export const ThirdPartyOrdersView: React.FC = () => {
         thirdPartyOrder: order,
         staffId,
       });
-      setMessage(`Pedido aceito e criado internamente: ${internalOrder.id}.`);
+      setPrintBusyOrderId(order.id);
+      const printed = await handlePrintThirdPartyOrder(
+        {
+          ...order,
+          status: 'accepted',
+        },
+        true,
+        'triplicate',
+      );
+      setMessage(
+        printed
+          ? `Pedido aceito, criado internamente (${internalOrder.id}) e impresso.`
+          : `Pedido aceito e criado internamente (${internalOrder.id}). Impressao pendente.`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao aceitar pedido.');
     } finally {
+      setPrintBusyOrderId(null);
       setActionBusyOrderId(null);
     }
   };
@@ -512,6 +530,105 @@ export const ThirdPartyOrdersView: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Falha na importação CSV.');
     } finally {
       setIsImportingCsv(false);
+    }
+  };
+
+  const downloadCsv = (fileName: string, content: string) => {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadTemplateCsv = () => {
+    const content = ThirdPartyMappingCsvEngine.templateCsv(',');
+    downloadCsv('template-thirdparty-mappings.csv', content);
+  };
+
+  const handleExportMappingsCsv = () => {
+    const rows = scopedMappings.map((mapping) => ({
+      productId: mapping.productId,
+      externalSku: mapping.externalSku,
+      externalName: mapping.externalName,
+      active: mapping.active,
+      provider: mapping.provider,
+    }));
+    const content = ThirdPartyMappingCsvEngine.toCsv(rows, ',');
+    downloadCsv(`mappings-${selectedProvider}.csv`, content);
+  };
+
+  useEffect(() => {
+    printerService.updatePrinters(printers);
+  }, [printers]);
+
+  const buildThirdPartyPrintContent = (order: ThirdPartyOrder, copyType: 'kitchen' | 'dispatch' | 'cashier'): string => {
+    const itemsText = order.items
+      .map((item) => `${item.quantity}x ${item.name} - ${formatCurrency(item.unitPrice * item.quantity)}`)
+      .join('\n');
+    const copyLabel =
+      copyType === 'kitchen' ? 'VIA COZINHA' : copyType === 'dispatch' ? 'VIA EXPEDICAO' : 'VIA CONFERENCIA';
+    const includePrices = copyType !== 'kitchen';
+    const lines = [
+      '================================',
+      '        PEDIDO TERCEIROS        ',
+      `          ${copyLabel}           `,
+      '================================',
+      `Origem: ${order.provider}`,
+      `Pedido Externo: ${order.externalOrderId}`,
+      `Cliente: ${order.customerName || 'N/A'}`,
+      `Telefone: ${order.customerPhone || 'N/A'}`,
+      `Status: ${order.status.toUpperCase()}`,
+      '--------------------------------',
+      includePrices
+        ? itemsText || 'Sem itens'
+        : (order.items.map((item) => `${item.quantity}x ${item.name}`).join('\n') || 'Sem itens'),
+      '--------------------------------',
+      ...(includePrices
+        ? [`Subtotal: ${formatCurrency(order.subtotal)}`, `Entrega: ${formatCurrency(order.deliveryFee || 0)}`, `TOTAL: ${formatCurrency(order.total)}`]
+        : []),
+      `Recebido em: ${new Date(order.receivedAt).toLocaleString()}`,
+      '================================',
+      '',
+    ];
+    return lines.join('\n');
+  };
+
+  const handlePrintThirdPartyOrder = async (
+    order: ThirdPartyOrder,
+    silent = false,
+    mode: 'single' | 'triplicate' = 'single',
+  ): Promise<boolean> => {
+    try {
+      const printer = printerService.getDefaultPrinter('kitchen') || printerService.getDefaultPrinter('receipt');
+      if (!printer) {
+        if (!silent) setError('Nenhuma impressora de cozinha/recibo configurada.');
+        return false;
+      }
+      if (mode === 'single') {
+        const content = buildThirdPartyPrintContent(order, 'dispatch');
+        const ok = await printerService.print(printer.id, content);
+        if (!ok && !silent) setError('Falha ao imprimir: impressora offline.');
+        return ok;
+      }
+
+      const copies: Array<'kitchen' | 'dispatch' | 'cashier'> = ['kitchen', 'dispatch', 'cashier'];
+      for (const copyType of copies) {
+        const content = buildThirdPartyPrintContent(order, copyType);
+        const ok = await printerService.print(printer.id, content);
+        if (!ok) {
+          if (!silent) setError(`Falha ao imprimir ${copyType}.`);
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      if (!silent) setError(err instanceof Error ? err.message : 'Falha ao imprimir pedido.');
+      return false;
     }
   };
 
@@ -841,6 +958,20 @@ export const ThirdPartyOrdersView: React.FC = () => {
               <Upload className="w-4 h-4" />
               {isImportingCsv ? 'Importando...' : 'Importar mapeamentos'}
             </button>
+            <button
+              onClick={handleExportMappingsCsv}
+              className="inline-flex items-center justify-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider"
+            >
+              <Download className="w-4 h-4" />
+              Exportar CSV
+            </button>
+            <button
+              onClick={handleDownloadTemplateCsv}
+              className="inline-flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider"
+            >
+              <Download className="w-4 h-4" />
+              Baixar modelo
+            </button>
             <span className="inline-flex items-center text-xs text-slate-500">
               {csvFileName ? `${csvFileName} (${csvPreviewCount} linhas)` : 'Nenhum arquivo carregado'}
             </span>
@@ -930,6 +1061,23 @@ export const ThirdPartyOrdersView: React.FC = () => {
                     >
                       <XCircle className="w-4 h-4" />
                       Rejeitar
+                    </button>
+                  </div>
+                )}
+                {!isPending && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={async () => {
+                        setPrintBusyOrderId(order.id);
+                        const printed = await handlePrintThirdPartyOrder(order, false);
+                        if (printed) setMessage('Pedido impresso com sucesso.');
+                        setPrintBusyOrderId(null);
+                      }}
+                      disabled={printBusyOrderId === order.id}
+                      className="inline-flex items-center gap-2 bg-slate-800 text-white px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider disabled:opacity-50"
+                    >
+                      <PrinterIcon className="w-4 h-4" />
+                      {printBusyOrderId === order.id ? 'Imprimindo...' : 'Reimprimir'}
                     </button>
                   </div>
                 )}
