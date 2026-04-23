@@ -47,6 +47,29 @@ class ProductRepository {
       coreEventBus.emit('product:stock_decremented', { productId: item.productId, quantity });
     }
   }
+
+  async revertSaleItems(items: SaleItem[]): Promise<void> {
+    for (const item of items) {
+      const quantity = Number(item.quantity || 0);
+      if (!item.productId || quantity <= 0) continue;
+
+      const existing = await this.findById(item.productId);
+      const currentStock = Number(existing?.stock ?? 0);
+      const nextStock = currentStock + quantity;
+
+      const productToSave: Product = {
+        id: item.productId,
+        name: existing?.name || item.name || 'Unknown Product',
+        category: existing?.category,
+        price: existing?.price ?? item.unitPrice,
+        stock: nextStock,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await this.update(productToSave);
+      coreEventBus.emit('product:stock_incremented', { productId: item.productId, quantity });
+    }
+  }
 }
 
 export const productRepository = new ProductRepository();

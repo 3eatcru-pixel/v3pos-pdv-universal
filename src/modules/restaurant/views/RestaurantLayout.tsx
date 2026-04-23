@@ -14,7 +14,8 @@ import {
   ShieldCheck,
   Calendar as CalendarIcon,
   Clock,
-  History
+  History,
+  Truck
 } from 'lucide-react';
 import { startOfDay } from 'date-fns';
 import { RestaurantDashboard } from './RestaurantDashboard';
@@ -31,6 +32,7 @@ import { GeneralStaffView } from '../../../core/views/GeneralStaffView';
 import { FinanceManagementView } from '../../../core/views/FinanceManagementView';
 import { CompanyManagement } from '../../../core/views/CompanyManagement';
 import { OrderManagement } from './OrderManagement';
+import { ThirdPartyOrdersView } from './ThirdPartyOrdersView';
 import { BaseModuleLayout } from '../../../core/components/BaseModuleLayout';
 import { useCollection } from '../../../hooks/useCollection';
 import { accountService } from '../../../core/services/accountService';
@@ -63,6 +65,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
     { id: 'history', icon: <History />, label: 'Histórico de Vendas', roles: ['owner', 'manager', 'dev'] },
     { id: 'orders', icon: <ClipboardList />, label: 'Comandas', roles: ['owner', 'manager', 'staff', 'dev'] },
     { id: 'pending_orders', icon: <Clock />, label: 'Pendentes', roles: ['owner', 'manager', 'staff', 'dev'] },
+    { id: 'third_party_orders', icon: <Truck />, label: 'Pedidos Terceiros', roles: ['owner', 'manager', 'staff', 'dev'] },
     { id: 'menu', icon: <ClipboardList />, label: 'Cardápio / Menu', roles: ['owner', 'manager', 'dev'] },
     { id: 'inventory', icon: <Utensils />, label: 'Estoque / Insumos', roles: ['owner', 'manager', 'staff', 'dev'] },
     { id: 'reservations', icon: <Calendar />, label: 'Reservas', roles: ['owner', 'manager', 'staff', 'dev'] },
@@ -190,6 +193,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
         }}
       />;
       case 'pending_orders': return <PendingOrdersView />;
+      case 'third_party_orders': return <ThirdPartyOrdersView />;
       case 'history': return <RestaurantHistoryView />;
       case 'kitchen': return <KitchenDisplayView type="kitchen" />;
       case 'menu': return <MenuManagementView />;

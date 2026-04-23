@@ -163,6 +163,66 @@ class RetailService {
     return await integrationLayer.registerSale('retail', sale as any, sale.items);
   }
 
+  async processReturn(input: { originalSaleId: string; reason: string; items?: { productId: string; quantity: number }[] }) {
+    const originalSale = await saleRepository.findById(input.originalSaleId);
+    if (!originalSale) {
+      throw new Error('sale_not_found');
+    }
+
+    const allowedItems = Array.isArray(input.items) && input.items.length > 0
+      ? originalSale.items.filter((item) => {
+          const requested = input.items!.find((r) => r.productId === item.productId);
+          return requested && requested.quantity > 0;
+        }).map((item) => {
+          const requested = input.items!.find((r) => r.productId === item.productId)!;
+          return { ...item, quantity: Math.min(item.quantity, requested.quantity), totalPrice: item.unitPrice * Math.min(item.quantity, requested.quantity) };
+        })
+      : originalSale.items.map((item) => ({ ...item }));
+
+    if (allowedItems.length === 0) {
+      throw new Error('return_items_empty');
+    }
+
+    const subtotal = allowedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const taxRatio = originalSale.subtotal > 0 ? originalSale.tax / originalSale.subtotal : 0;
+    const tax = Number((subtotal * taxRatio).toFixed(2));
+    const total = Number((subtotal + tax).toFixed(2));
+
+    const returnSale: Sale = {
+      id: `ret_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      createdAt: new Date().toISOString(),
+      subtotal: -subtotal,
+      tax: -tax,
+      total: -total,
+      paymentMethod: originalSale.paymentMethod,
+      synced: false,
+      items: allowedItems,
+      kind: 'return',
+      originalSaleId: originalSale.id,
+      reason: input.reason || 'devolucao',
+    };
+
+    await saleRepository.create(returnSale);
+    await productRepository.revertSaleItems(returnSale.items);
+
+    if (meshNetwork.isConnectedToLocalMesh) {
+      this.lastSyncAttemptAt = Date.now();
+      meshNetwork.emitEvent('RETAIL_SALE', returnSale);
+      await saleRepository.update({ ...returnSale, synced: true });
+      this.lastSyncSuccessAt = Date.now();
+      this.pushSyncEvent({
+        type: 'SEND',
+        status: 'success',
+        saleId: returnSale.id,
+        message: 'Devolucao enviada para malha',
+      });
+      await this.emitSyncStatusEvent();
+    }
+
+    this.emitSaleUpdateEvent('local', returnSale.id);
+    return returnSale;
+  }
+
   private startUnsyncedRetryLoop() {
     if (this.retryTimer) return;
     this.retryTimer = setInterval(() => {
@@ -229,7 +289,11 @@ class RetailService {
     await saleRepository.create(sale);
     logger.log('retail', 'SALE_SYNC_RECEIVED', { saleId: sale.id, total: sale.total });
 
-    await productRepository.applySaleItems(sale.items);
+    if (sale.kind === 'return') {
+      await productRepository.revertSaleItems(sale.items);
+    } else {
+      await productRepository.applySaleItems(sale.items);
+    }
     this.logProductUpdates(sale.items, 'sync_receive');
 
     this.emitSaleUpdateEvent('remote', sale.id);
@@ -269,6 +333,9 @@ class RetailService {
       paymentMethod: String(rawSale?.paymentMethod || 'unknown'),
       synced,
       items,
+      kind: rawSale?.kind || 'sale',
+      originalSaleId: rawSale?.originalSaleId,
+      reason: rawSale?.reason,
     };
   }
 

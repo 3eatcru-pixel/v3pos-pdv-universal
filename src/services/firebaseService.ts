@@ -84,7 +84,9 @@ const handleFirestoreError = (error: any, operationType: FirestoreErrorInfo['ope
       'incidentReports',
       'reservations',
       'printers',
-      'shifts'
+      'shifts',
+      'thirdPartyOrders',
+      'thirdPartyProviderConfigs'
     ];
     if (nonCriticalCollections.includes(path || '') && (operationType === 'list' || operationType === 'get') && errorInfo.authInfo.isAnonymous) {
       console.warn(`Anonymous user denied access to ${path}. This is expected if the session is not authenticated. Operation: ${operationType}`);
@@ -123,6 +125,8 @@ const TENANT_SCOPED_COLLECTIONS = new Set([
   'services',
   'resources',
   'auditLogs',
+  'thirdPartyOrders',
+  'thirdPartyProviderConfigs',
 ]);
 
 function getLocalTenantId(): string | null {
