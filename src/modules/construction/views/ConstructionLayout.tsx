@@ -30,8 +30,11 @@ import { SupplierManagementView } from '../../../core/views/SupplierManagementVi
 import { PrinterManagement } from '../../../core/views/PrinterManagement';
 import { CompanyManagement } from '../../../core/views/CompanyManagement';
 import { BaseModuleLayout } from '../../../core/components/BaseModuleLayout';
+import { accountService } from '../../../core/services/accountService';
 
 export const ConstructionLayout: React.FC = () => {
+  const selectedShopId = accountService.getSelectedShopId();
+
   const navItems = [
     { id: 'dashboard', icon: <LayoutDashboard />, label: 'Painel Geral', roles: ['owner', 'manager', 'dev'] },
     { id: 'inventory', icon: <Boxes />, label: 'Loja / Estoque', roles: ['owner', 'manager', 'staff', 'dev'] },
@@ -64,7 +67,7 @@ export const ConstructionLayout: React.FC = () => {
       case 'customers': return <ConstructionCustomers />;
       case 'staff': return <GeneralStaffView module="construction" />;
       case 'schedule': return <StaffScheduleView module="construction" />;
-      case 'finance': return <FinanceManagementView module="construction" />;
+      case 'finance': return <FinanceManagementView module="construction" shopId={selectedShopId} />;
       case 'suppliers': return <SupplierManagementView module="construction" />;
       case 'printers': return <PrinterManagement />;
       case 'settings': return <ConstructionSettings />;

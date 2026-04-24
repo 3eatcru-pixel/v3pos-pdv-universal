@@ -26,8 +26,11 @@ import { FinanceManagementView } from '../../../core/views/FinanceManagementView
 import { SupplierManagementView } from '../../../core/views/SupplierManagementView';
 import { CompanyManagement } from '../../../core/views/CompanyManagement';
 import { BaseModuleLayout } from '../../../core/components/BaseModuleLayout';
+import { accountService } from '../../../core/services/accountService';
 
 export const RetailLayout: React.FC = () => {
+  const selectedShopId = accountService.getSelectedShopId();
+
   const navItems = [
     { id: 'dashboard', icon: <LayoutDashboard />, label: 'Dashboard', roles: ['owner', 'manager', 'dev'] },
     { id: 'pos', icon: <CreditCard />, label: 'Vendas / PDV', roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
@@ -57,7 +60,7 @@ export const RetailLayout: React.FC = () => {
       case 'crm': return <RetailCRM />;
       case 'staff': return <GeneralStaffView module="retail" />;
       case 'schedule': return <StaffScheduleView module="retail" />;
-      case 'finance': return <FinanceManagementView module="retail" />;
+      case 'finance': return <FinanceManagementView module="retail" shopId={selectedShopId} />;
       case 'suppliers': return <SupplierManagementView module="retail" />;
       case 'management': return <CompanyManagement />;
       default: return <RetailDashboard />;

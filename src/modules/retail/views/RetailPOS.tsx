@@ -27,6 +27,7 @@ import { paymentService } from '../../../services/paymentService';
 import { retailService, RetailSyncStatus } from '../services/retailService';
 import { accountService } from '../../../core/services/accountService';
 import { BarcodeEngine } from '../../../core/services/BarcodeEngine';
+import { StockReconciliationEngine } from '../../../core/services/StockReconciliationEngine';
 
 interface CartItem {
   id: string;
@@ -54,23 +55,37 @@ export const RetailPOS: React.FC = () => {
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedReconProductId, setSelectedReconProductId] = useState('');
+  const [countedStockInput, setCountedStockInput] = useState('');
+  const [reconcileComment, setReconcileComment] = useState('');
+  const [approverName, setApproverName] = useState('');
+  const [isReconcilingStock, setIsReconcilingStock] = useState(false);
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+  const [returnSaleId, setReturnSaleId] = useState('');
+  const [returnReason, setReturnReason] = useState('');
+  const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
+  const [returnSignature, setReturnSignature] = useState('');
+  const currentUser = accountService.getCurrentUser();
+  const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
+  const shopId = accountService.getSelectedShopId();
   
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const tax = subtotal * 0.05;
   const total = subtotal + tax;
 
   useEffect(() => {
-    const user = accountService.getCurrentUser();
-    const entId = user?.companyId || accountService.getCurrentCompanyId() || 'default';
-    const sId = localStorage.getItem('rm_selected_shop_id') || 'default';
+    if (!enterpriseId || !shopId) {
+      setProducts([]);
+      return;
+    }
 
-    const unsub = firebaseService.subscribeCollection('products', entId, sId, (data) => {
+    const unsub = firebaseService.subscribeCollection('products', enterpriseId, shopId, (data) => {
       // Filter for retail relevant categories if needed, or just show all
       setProducts(data);
     });
 
     return () => unsub();
-  }, []);
+  }, [enterpriseId, shopId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -141,7 +156,7 @@ export const RetailPOS: React.FC = () => {
           }
 
           const saleData = {
-            id: `sale_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            id: `sale_${Date.now()}_${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`,
             items: cart.map((item) => ({
               productId: item.id,
               name: item.name,
@@ -203,19 +218,139 @@ export const RetailPOS: React.FC = () => {
     alert('Codigo nao encontrado no cadastro de produtos.');
   };
 
-  const handleQuickReturn = async () => {
-    const originalSaleId = prompt('Informe o ID da venda para devolucao:');
-    if (!originalSaleId) return;
-    const reason = prompt('Motivo da devolucao (ex: defeito, arrependimento, troca):') || 'devolucao';
+  const handleQuickReturn = () => {
+    setIsReturnModalOpen(true);
+  };
 
+  const handleSubmitReturn = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!returnSaleId.trim() || !returnReason.trim() || !returnSignature.trim()) return;
+    setIsSubmittingReturn(true);
     try {
-      await retailService.processReturn({ originalSaleId, reason });
-      alert('Devolucao registrada com sucesso.');
+      await retailService.processReturn({ originalSaleId: returnSaleId.trim(), reason: returnReason.trim() });
+      const proofId = `ret-proof-${Date.now()}`;
+      if (enterpriseId && shopId) {
+        await firebaseService.saveItem('returnReceipts', proofId, {
+          id: proofId,
+          enterpriseId,
+          shopId,
+          originalSaleId: returnSaleId.trim(),
+          reason: returnReason.trim(),
+          signature: returnSignature.trim(),
+          staffId: currentUser?.id || 'manual',
+          staffName: currentUser?.name || 'Manual',
+          timestamp: Date.now(),
+        });
+        await firebaseService.addAuditLog({
+          enterpriseId,
+          shopId,
+          staffId: currentUser?.id || 'manual',
+          staffName: currentUser?.name || 'Manual',
+          action: 'retail_return_registered',
+          details: `Devolucao registrada para venda ${returnSaleId.trim()} com comprovante ${proofId}.`,
+          referenceId: proofId,
+        });
+      }
       const status = await retailService.getSyncQueueStatus();
       setSyncStatus(status);
+      setIsReturnModalOpen(false);
+      setReturnSaleId('');
+      setReturnReason('');
+      setReturnSignature('');
+      alert(`Devolucao registrada com sucesso. Comprovante: ${proofId}`);
     } catch (error) {
       console.error('Erro ao registrar devolucao:', error);
       alert('Nao foi possivel registrar a devolucao. Verifique o ID da venda.');
+    } finally {
+      setIsSubmittingReturn(false);
+    }
+  };
+
+  const approvalThresholdPercent = 5;
+  const selectedReconProduct = products.find((p) => p.id === selectedReconProductId) || null;
+  const selectedCurrentStock = selectedReconProduct ? Number(selectedReconProduct.stock || 0) : 0;
+  const countedStockValue = Number(countedStockInput);
+  const stockDiff = selectedReconProduct && Number.isFinite(countedStockValue)
+    ? countedStockValue - selectedCurrentStock
+    : 0;
+  const adjustmentPercentPreview = selectedReconProduct
+    ? (selectedCurrentStock === 0
+      ? (countedStockValue === 0 ? 0 : 100)
+      : (Math.abs(stockDiff) / Math.abs(selectedCurrentStock)) * 100)
+    : 0;
+  const approvalRequiredPreview = selectedReconProduct && Number.isFinite(countedStockValue)
+    ? adjustmentPercentPreview >= approvalThresholdPercent
+    : false;
+
+  const handleApplyStockReconciliation = async () => {
+    if (!selectedReconProduct) {
+      alert('Selecione um produto para reconciliar.');
+      return;
+    }
+    if (!Number.isFinite(countedStockValue) || countedStockValue < 0) {
+      alert('Informe uma contagem fisica valida.');
+      return;
+    }
+    if (!reconcileComment.trim()) {
+      alert('Informe o motivo da contagem.');
+      return;
+    }
+    if (approvalRequiredPreview && !approverName.trim()) {
+      alert(`Ajuste acima de ${approvalThresholdPercent}% exige aprovador.`);
+      return;
+    }
+
+    const currentUser = accountService.getCurrentUser();
+    const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
+    const shopId = accountService.getSelectedShopId();
+    if (!enterpriseId || !shopId) {
+      alert('Contexto de empresa/loja nao encontrado.');
+      return;
+    }
+
+    const maybe = selectedReconProduct as {
+      cost?: number;
+      costPrice?: number;
+      unitCost?: number;
+      unit?: string;
+    };
+    const costPerUnit = Number(maybe.costPrice ?? maybe.unitCost ?? maybe.cost ?? 0) || 0;
+
+    setIsReconcilingStock(true);
+    try {
+      await StockReconciliationEngine.reconcileStock({
+        enterpriseId,
+        shopId,
+        item: {
+          id: selectedReconProduct.id,
+          name: selectedReconProduct.name,
+          shopId,
+          unit: maybe.unit || 'un',
+          currentStock: selectedCurrentStock,
+          costPerUnit,
+          sourceType: 'product',
+        },
+        newStock: countedStockValue,
+        comment: reconcileComment,
+        staffId: currentUser?.id || 'manual',
+        staffName: currentUser?.name || 'Manual',
+        approvalThresholdPercent,
+        approverId: approvalRequiredPreview ? currentUser?.id || 'manual-approver' : undefined,
+        approverName: approvalRequiredPreview ? approverName : undefined,
+      });
+
+      setProducts((prev) =>
+        prev.map((p) => (p.id === selectedReconProduct.id ? { ...p, stock: countedStockValue } : p)),
+      );
+      setCountedStockInput('');
+      setReconcileComment('');
+      setApproverName('');
+      alert('Reconciliacao aplicada com sucesso.');
+    } catch (error) {
+      console.error('Erro ao reconciliar estoque:', error);
+      alert('Nao foi possivel aplicar a reconciliacao.');
+    } finally {
+      setIsReconcilingStock(false);
     }
   };
 
@@ -406,7 +541,7 @@ export const RetailPOS: React.FC = () => {
                      <User className="w-4 h-4" /> Cliente
                   </button>
                   <button
-                    onClick={() => void handleQuickReturn()}
+                    onClick={handleQuickReturn}
                     className="py-5 bg-white text-slate-800 border-2 border-slate-100 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-slate-100 transition-all shadow-sm"
                   >
                      <Ticket className="w-4 h-4" /> Cupom
@@ -427,6 +562,77 @@ export const RetailPOS: React.FC = () => {
       </div>
 
       <AnimatePresence>
+        {isReturnModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[220] flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white w-full max-w-xl rounded-[2rem] shadow-2xl p-8"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-black uppercase tracking-tight text-slate-900">Registrar Devolucao</h3>
+                <button onClick={() => setIsReturnModalOpen(false)} className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitReturn} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">ID da venda original</label>
+                  <input
+                    value={returnSaleId}
+                    onChange={(e) => setReturnSaleId(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                    placeholder="Ex: sale_171000..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Motivo da devolucao</label>
+                  <textarea
+                    rows={3}
+                    value={returnReason}
+                    onChange={(e) => setReturnReason(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-300"
+                    placeholder="Ex: defeito, arrependimento, troca"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Assinatura do operador</label>
+                  <input
+                    value={returnSignature}
+                    onChange={(e) => setReturnSignature(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                    placeholder="Nome completo / assinatura"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsReturnModalOpen(false)}
+                    className="py-3 rounded-xl bg-white border border-slate-200 text-slate-600 font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingReturn}
+                    className={cn(
+                      "py-3 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all",
+                      isSubmittingReturn ? "bg-slate-400 text-white cursor-not-allowed" : "bg-indigo-600 text-white hover:bg-indigo-700"
+                    )}
+                  >
+                    {isSubmittingReturn ? 'Processando...' : 'Confirmar devolucao'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
         {isQuickStockOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-6">
             <motion.div 
@@ -438,55 +644,115 @@ export const RetailPOS: React.FC = () => {
               <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-900 text-white">
                 <div>
                   <h2 className="text-2xl font-black uppercase tracking-tight">
-                    Gestão de Faltas (Eletrônicos/Vestuário)
+                    Contagem & Reconciliacao de Estoque
                   </h2>
-                  <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">Ative ou esgote itens da vitrine</p>
+                  <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">Contagem fisica com trilha de auditoria</p>
                 </div>
                 <button onClick={() => setIsQuickStockOpen(false)} className="p-3 bg-white/10 rounded-2xl text-slate-300 hover:text-white hover:bg-rose-500 transition-all">
                   <X className="w-6 h-6" />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                  {products.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={async () => {
-                        const user = accountService.getCurrentUser();
-                        const entId = user?.companyId || accountService.getCurrentCompanyId() || null;
-                        const sId = localStorage.getItem('rm_selected_shop_id') || null;
-                        const nextActive = !p.active;
-                        try {
-                          await firebaseService.updateItem('products', p.id, { active: nextActive, enterpriseId: entId, shopId: sId });
-                          setProducts(products.map(prod => prod.id === p.id ? { ...prod, active: nextActive } : prod));
-                        } catch (err) {
-                          console.error('Error persisting quick stock change:', err);
-                        }
-                      }}
-                      className={cn(
-                        "p-6 rounded-3xl border-2 text-left transition-all duration-300 flex flex-col items-start gap-4 ring-offset-2",
-                        p.active ? "bg-white border-slate-100 hover:border-indigo-200" : "bg-rose-50 border-rose-200 ring-2 ring-rose-500 shadow-lg shadow-rose-500/20"
+              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4 max-h-[55vh] overflow-y-auto pr-2 custom-scrollbar">
+                  {products.map((p) => {
+                    const isSelected = p.id === selectedReconProductId;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setSelectedReconProductId(p.id);
+                          setCountedStockInput(String(Number(p.stock || 0)));
+                        }}
+                        className={cn(
+                          "w-full p-5 rounded-3xl border-2 text-left transition-all duration-300",
+                          isSelected ? "bg-indigo-50 border-indigo-400 shadow-lg" : "bg-white border-slate-100 hover:border-indigo-200"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-2 inline-block bg-slate-100 text-slate-600">
+                              {p.category || 'Sem categoria'}
+                            </span>
+                            <h4 className="font-black text-sm uppercase tracking-tight text-slate-800">{p.name}</h4>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Atual</p>
+                            <p className="text-lg font-black text-slate-800">{Number(p.stock || 0)}</p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 space-y-4">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">Aplicar contagem</h3>
+                  {!selectedReconProduct ? (
+                    <p className="text-xs font-bold text-slate-500">Selecione um produto na lista para iniciar.</p>
+                  ) : (
+                    <>
+                      <div className="text-xs font-bold text-slate-600">
+                        Produto: <span className="text-slate-900">{selectedReconProduct.name}</span>
+                      </div>
+                      <div className="text-xs font-bold text-slate-600">
+                        Estoque atual: <span className="text-slate-900">{selectedCurrentStock}</span>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Contagem fisica</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={countedStockInput}
+                          onChange={(e) => setCountedStockInput(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-black text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Motivo</label>
+                        <textarea
+                          rows={3}
+                          value={reconcileComment}
+                          onChange={(e) => setReconcileComment(e.target.value)}
+                          placeholder="Ex: contagem de fechamento do turno"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-300"
+                        />
+                      </div>
+
+                      {Number.isFinite(countedStockValue) && (
+                        <div className={cn("rounded-2xl border p-4", approvalRequiredPreview ? "bg-rose-50 border-rose-200" : "bg-white border-slate-200")}>
+                          <div className="text-xs font-bold text-slate-700">
+                            Diferenca: {stockDiff > 0 ? '+' : ''}{stockDiff} ({adjustmentPercentPreview.toFixed(2)}%)
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            Limite para aprovacao: {approvalThresholdPercent}%
+                          </div>
+                          {approvalRequiredPreview && (
+                            <div className="mt-3">
+                              <label className="block text-[10px] font-black uppercase tracking-widest text-rose-500 mb-2">Aprovador</label>
+                              <input
+                                value={approverName}
+                                onChange={(e) => setApproverName(e.target.value)}
+                                placeholder="Nome do gerente/dono"
+                                className="w-full bg-white border border-rose-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-300"
+                              />
+                            </div>
+                          )}
+                        </div>
                       )}
-                    >
-                       <div className="w-full flex items-start justify-between gap-4">
-                         <div>
-                           <span className={cn(
-                             "text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-2 inline-block",
-                             p.active ? "bg-slate-100 text-slate-500" : "bg-rose-500 text-white"
-                           )}>
-                             {p.category}
-                           </span>
-                           <h4 className={cn("font-black text-sm uppercase tracking-tight", p.active ? "text-slate-800" : "text-rose-900 line-through decoration-rose-500/50 decoration-2")}>{p.name}</h4>
-                         </div>
-                         <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0 border-2", p.active ? "bg-emerald-50 border-emerald-200 text-emerald-500" : "bg-rose-100 border-rose-300 text-rose-600")}>
-                           <ShoppingCart className="w-5 h-5 line-through" />
-                         </div>
-                       </div>
-                       <p className={cn("text-[10px] font-bold uppercase tracking-widest", p.active ? "text-emerald-600" : "text-rose-600")}>
-                         {p.active ? 'Em Estoque' : 'Vitrine Esgotada'}
-                       </p>
-                    </button>
-                  ))}
+
+                      <button
+                        onClick={() => void handleApplyStockReconciliation()}
+                        disabled={isReconcilingStock}
+                        className={cn(
+                          "w-full py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all",
+                          isReconcilingStock ? "bg-slate-400 text-white cursor-not-allowed" : "bg-indigo-600 text-white hover:bg-indigo-700"
+                        )}
+                      >
+                        {isReconcilingStock ? 'Aplicando...' : 'Aplicar reconciliacao'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </motion.div>

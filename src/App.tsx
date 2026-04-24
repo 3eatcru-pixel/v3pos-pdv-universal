@@ -576,7 +576,24 @@ export default function App() {
   const [isNotificationPaneOpen, setIsNotificationPaneOpen] = useState(false);
 
   // Company & Device Linking
-  const [companySettings, setCompanySettings] = useState<CompanySettings>({ name: 'RestManager POS', cnpj: '', address: '' });
+  const [companySettings, setCompanySettings] = useState<CompanySettings>(() => {
+    const raw = localStorage.getItem('rm_company_settings');
+    if (!raw) {
+      return { name: 'RestManager POS', cnpj: '', address: '', requireAllergyDoubleConfirmation: false };
+    }
+    try {
+      const parsed = JSON.parse(raw) as CompanySettings;
+      return {
+        name: parsed.name || 'RestManager POS',
+        cnpj: parsed.cnpj || '',
+        address: parsed.address || '',
+        logo: parsed.logo,
+        requireAllergyDoubleConfirmation: Boolean(parsed.requireAllergyDoubleConfirmation),
+      };
+    } catch {
+      return { name: 'RestManager POS', cnpj: '', address: '', requireAllergyDoubleConfirmation: false };
+    }
+  });
   const [isDeviceLinked, setIsDeviceLinked] = useState<boolean>(() => {
     return !!localStorage.getItem('rm_device_linked');
   });
@@ -625,6 +642,10 @@ export default function App() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [linkToken]);
+
+  useEffect(() => {
+    localStorage.setItem('rm_company_settings', JSON.stringify(companySettings));
+  }, [companySettings]);
 
   const handleLinkDevice = (token: string) => {
     if (token === linkToken) {

@@ -153,10 +153,13 @@ export interface Reservation {
 export interface Shift {
   id: string;
   shopId: string;
+  enterpriseId?: string;
   staffId: string;
   startTime: number; // timestamp
   endTime: number; // timestamp
-  area: 'FOH' | 'BOH';
+  area: string;
+  module?: 'restaurant' | 'market' | 'construction' | 'retail' | 'service' | string;
+  status?: 'planned' | 'confirmed' | 'missing' | 'completed';
 }
 
 export interface Product extends CoreProduct {
@@ -428,6 +431,14 @@ export interface Order {
   sourceProvider?: ThirdPartyProvider;
   sourceExternalOrderId?: string;
   acceptedByStaffId?: string;
+  allergyConfirmation?: {
+    waiterConfirmed?: boolean;
+    kitchenConfirmed?: boolean;
+    barConfirmed?: boolean;
+    waiterConfirmedAt?: number;
+    kitchenConfirmedAt?: number;
+    barConfirmedAt?: number;
+  };
 }
 
 export interface Transaction {
@@ -496,11 +507,38 @@ export interface RecountRequest {
   shopId: string;
   itemId: string;
   itemName: string;
+  itemSourceType?: 'inventory' | 'product';
   previousStock: number;
   newStock: number;
+  adjustmentPercent?: number;
+  approvalRequired?: boolean;
+  approvedById?: string;
+  approvedByName?: string;
+  staffId?: string;
+  staffName?: string;
+  sessionId?: string;
+  costPerUnit?: number;
+  varianceValue?: number;
   comment: string;
   date: number;
   status: 'pending' | 'applied' | 'rejected';
+}
+
+export interface StockCountSession {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  module: 'restaurant' | 'market' | 'construction' | 'retail';
+  mode: 'blind';
+  status: 'open' | 'closed';
+  openedAt: number;
+  openedById: string;
+  openedByName: string;
+  openSignature: string;
+  closedAt?: number;
+  closedById?: string;
+  closedByName?: string;
+  closeSignature?: string;
 }
 
 export interface InventoryItem {
@@ -552,6 +590,7 @@ export interface CompanySettings {
   cnpj?: string;
   address?: string;
   logo?: string;
+  requireAllergyDoubleConfirmation?: boolean;
 }
 
 export interface DeviceLink {

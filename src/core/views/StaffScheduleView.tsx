@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   Calendar as CalendarIcon, 
   ChevronLeft, 
@@ -25,14 +25,14 @@ import {
   isWithinInterval
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Shift, Staff, UserRole } from '../../types';
+import { Shift, Staff } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
 import { useCollection } from '../../hooks/useCollection';
 import { cn } from '../../lib/utils';
 
 interface StaffScheduleViewProps {
-  module: 'restaurant' | 'market' | 'construction' | 'retail';
+  module: 'restaurant' | 'market' | 'construction' | 'retail' | 'service';
 }
 
 const moduleConfigs: Record<string, { title: string; areas: { id: string; label: string; color: string }[] }> = {
@@ -74,18 +74,27 @@ const moduleConfigs: Record<string, { title: string; areas: { id: string; label:
       { id: 'Stock', label: 'Estoque/Recebim.', color: '#64748b' },
       { id: 'Admin', label: 'Financeiro/Admin', color: '#8b5cf6' }
     ]
+  },
+  service: {
+    title: 'Escala de Servicos',
+    areas: [
+      { id: 'Atendimento', label: 'Atendimento', color: '#10b981' },
+      { id: 'Execucao', label: 'Execucao', color: '#3b82f6' },
+      { id: 'Backoffice', label: 'Backoffice', color: '#8b5cf6' }
+    ]
   }
 };
 
 export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) => {
-  const { data: shifts } = useCollection<Shift>('shifts');
-  const { data: staff } = useCollection<Staff>('staff');
+  const currentUser = accountService.getCurrentUser();
+  const companyId = currentUser?.companyId || accountService.getCurrentCompanyId();
+  const selectedShopId = accountService.getSelectedShopId();
+  const { data: shifts } = useCollection<Shift>('shifts', { enterpriseId: companyId ?? null, shopId: selectedShopId ?? null });
+  const { data: staff } = useCollection<Staff>('staff', { enterpriseId: companyId ?? null });
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
 
-  const currentUser = accountService.getCurrentUser();
-  const companyId = currentUser?.companyId || 'default';
   const config = moduleConfigs[module] || moduleConfigs.restaurant;
 
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
@@ -100,6 +109,10 @@ export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) 
 
   const handleSaveShift = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!companyId || !selectedShopId) {
+      alert('Contexto de empresa/loja nao encontrado.');
+      return;
+    }
     const formData = new FormData(e.currentTarget);
     const dateStr = formData.get('date') as string;
     const startTimeStr = formData.get('startTime') as string;
@@ -107,21 +120,27 @@ export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) 
     
     const start = new Date(`${dateStr}T${startTimeStr}:00`).getTime();
     const end = new Date(`${dateStr}T${endTimeStr}:00`).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      alert('Horario invalido: o termino deve ser maior que o inicio.');
+      return;
+    }
 
     const shiftData = {
       staffId: formData.get('staffId') as string,
       area: formData.get('area') as string,
       startTime: start,
       endTime: end,
-      shopId: localStorage.getItem('rm_selected_shop_id') || 'main-shop',
-      enterpriseId: companyId
+      shopId: selectedShopId,
+      enterpriseId: companyId,
+      module,
+      status: editingShift?.status || 'planned',
     };
 
     try {
       if (editingShift?.id) {
         await firebaseService.saveItem('shifts', editingShift.id, { ...editingShift, ...shiftData });
       } else {
-        const id = `shift-${Math.random().toString(36).substr(2, 9)}`;
+        const id = `shift-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
         await firebaseService.saveItem('shifts', id, { ...shiftData, id });
       }
       setIsModalOpen(false);
@@ -243,14 +262,20 @@ export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) 
                               })}
                               <button 
                                 onClick={() => {
+                                  const baseDay = new Date(day);
+                                  baseDay.setHours(8, 0, 0, 0);
+                                  const endDay = new Date(day);
+                                  endDay.setHours(16, 0, 0, 0);
                                   setEditingShift({
                                     id: '',
                                     staffId: member.id,
-                                    startTime: day.setHours(8,0,0,0),
-                                    endTime: day.setHours(16,0,0,0),
+                                    startTime: baseDay.getTime(),
+                                    endTime: endDay.getTime(),
                                     area: config.areas[0].id,
-                                    shopId: 'main-shop',
-                                    enterpriseId: companyId
+                                    shopId: selectedShopId || '',
+                                    enterpriseId: companyId || '',
+                                    module,
+                                    status: 'planned',
                                   } as Shift);
                                   setIsModalOpen(true);
                                 }}

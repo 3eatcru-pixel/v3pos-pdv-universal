@@ -71,7 +71,10 @@ export class FinanceEngine {
     const receitaBruta = transactions.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
     const despesasOperacionais = transactions.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
     const impactoReconciliacao = recountRequests.reduce((sum, recount) => {
-      const cost = inventoryCostMap[recount.itemId] ?? 0;
+      if (typeof recount.varianceValue === 'number') {
+        return sum + recount.varianceValue;
+      }
+      const cost = typeof recount.costPerUnit === 'number' ? recount.costPerUnit : (inventoryCostMap[recount.itemId] ?? 0);
       const diff = recount.newStock - recount.previousStock;
       return sum + diff * cost;
     }, 0);

@@ -221,7 +221,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
       case 'staff': return <GeneralStaffView module="restaurant" />;
       case 'schedule': return <StaffScheduleView module="restaurant" />;
       case 'safety': return <RestaurantSafetyView />;
-      case 'finance': return <FinanceManagementView module="restaurant" />;
+      case 'finance': return <FinanceManagementView module="restaurant" shopId={selectedShopId} />;
       case 'management': return <CompanyManagement />;
       default: return <TableMapView />;
     }

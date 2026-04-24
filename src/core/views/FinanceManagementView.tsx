@@ -26,12 +26,12 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '../../lib/utils';
 import { StatCard } from '../components/CommonUI';
-import { InventoryItem, RecountRequest, Transaction } from '../../types';
+import { RecountRequest, StockCountSession, Transaction } from '../../types';
 import { accountService } from '../services/accountService';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { FinanceEngine } from '../services/FinanceEngine';
-import { StockReconciliationEngine } from '../services/StockReconciliationEngine';
+import { StockReconciliationEngine, StockReconciliationItem } from '../services/StockReconciliationEngine';
 
 interface FinanceManagementViewProps {
   module: 'restaurant' | 'market' | 'construction' | 'retail';
@@ -52,8 +52,9 @@ const CATEGORIES = [
 
 export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ module, shopId }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [stockItems, setStockItems] = useState<StockReconciliationItem[]>([]);
   const [recountRequests, setRecountRequests] = useState<RecountRequest[]>([]);
+  const [countSessions, setCountSessions] = useState<StockCountSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isReconcileModalOpen, setIsReconcileModalOpen] = useState(false);
@@ -64,9 +65,13 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
   const [selectedInventoryId, setSelectedInventoryId] = useState('');
   const [countedStock, setCountedStock] = useState('');
   const [reconcileComment, setReconcileComment] = useState('');
+  const [approverName, setApproverName] = useState('');
+  const [openSessionSignature, setOpenSessionSignature] = useState('');
+  const [closeSessionSignature, setCloseSessionSignature] = useState('');
 
   const currentUser = accountService.getCurrentUser();
   const companyId = currentUser?.companyId || 'default';
+  const approvalThresholdPercent = module === 'market' ? 3 : 5;
 
   useEffect(() => {
     loadTransactions();
@@ -87,12 +92,14 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
 
   const loadInventoryData = async () => {
     try {
-      const [items, recounts] = await Promise.all([
-        StockReconciliationEngine.listInventory(companyId, shopId),
+      const [items, recounts, sessions] = await Promise.all([
+        StockReconciliationEngine.listStockItems(companyId, shopId),
         StockReconciliationEngine.listRecountRequests(companyId, shopId),
+        StockReconciliationEngine.listCountSessions(companyId, shopId),
       ]);
-      setInventoryItems(items);
+      setStockItems(items);
       setRecountRequests(recounts.slice(0, 8));
+      setCountSessions(sessions.slice(0, 12));
     } catch (err) {
       console.error(err);
     }
@@ -128,7 +135,7 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
   const handleReconcileStock = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedInventoryId) return;
-    const selectedItem = inventoryItems.find((item) => item.id === selectedInventoryId);
+    const selectedItem = stockItems.find((item) => `${item.sourceType}:${item.id}` === selectedInventoryId);
     if (!selectedItem) return;
 
     setReconciling(true);
@@ -141,28 +148,110 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
         comment: reconcileComment,
         staffId: currentUser?.id || 'manual',
         staffName: currentUser?.name || 'Manual',
+        approvalThresholdPercent,
+        approverId: approverName.trim() ? currentUser?.id || 'manual-approver' : undefined,
+        approverName: approverName.trim() || undefined,
+        sessionId: activeBlindSession?.id,
       });
       setIsReconcileModalOpen(false);
       setSelectedInventoryId('');
       setCountedStock('');
       setReconcileComment('');
+      setApproverName('');
       await loadInventoryData();
     } catch (err) {
       console.error(err);
-      alert('Falha ao aplicar reconciliação de estoque.');
+      const message = err instanceof Error ? err.message : '';
+      if (message.startsWith('approval_required:')) {
+        alert(`Ajuste acima de ${approvalThresholdPercent}% exige aprovador.`);
+      } else {
+        alert('Falha ao aplicar reconciliação de estoque.');
+      }
     } finally {
       setReconciling(false);
     }
   };
 
+  const handleOpenBlindSession = async () => {
+    if (!shopId) {
+      alert('Selecione uma loja para abrir a sessão.');
+      return;
+    }
+    if (!openSessionSignature.trim()) {
+      alert('Assinatura obrigatória para abrir sessão cega.');
+      return;
+    }
+    try {
+      await StockReconciliationEngine.openBlindCountSession({
+        enterpriseId: companyId,
+        shopId,
+        module,
+        staffId: currentUser?.id || 'manual',
+        staffName: currentUser?.name || 'Manual',
+        signature: openSessionSignature,
+      });
+      setOpenSessionSignature('');
+      await loadInventoryData();
+    } catch (err) {
+      console.error(err);
+      alert('Falha ao abrir sessão de contagem cega.');
+    }
+  };
+
+  const handleCloseBlindSession = async () => {
+    if (!activeBlindSession) return;
+    if (!closeSessionSignature.trim()) {
+      alert('Assinatura obrigatória para fechar sessão cega.');
+      return;
+    }
+    try {
+      await StockReconciliationEngine.closeBlindCountSession({
+        enterpriseId: companyId,
+        sessionId: activeBlindSession.id,
+        staffId: currentUser?.id || 'manual',
+        staffName: currentUser?.name || 'Manual',
+        signature: closeSessionSignature,
+      });
+      setCloseSessionSignature('');
+      await loadInventoryData();
+    } catch (err) {
+      console.error(err);
+      alert('Falha ao fechar sessão de contagem cega.');
+    }
+  };
+
   const { totalIncome, totalExpense, balance } = FinanceEngine.summarize(transactions);
   const filteredTransactions = FinanceEngine.filterTransactions(transactions, filterType, searchTerm);
-  const selectedInventoryItem = inventoryItems.find((item) => item.id === selectedInventoryId) || null;
-  const inventoryCostMap = inventoryItems.reduce<Record<string, number>>((acc, item) => {
+  const selectedInventoryItem = stockItems.find((item) => `${item.sourceType}:${item.id}` === selectedInventoryId) || null;
+  const inventoryCostMap = stockItems.reduce<Record<string, number>>((acc, item) => {
     acc[item.id] = Number(item.costPerUnit) || 0;
     return acc;
   }, {});
   const dre = FinanceEngine.summarizeDre(transactions, recountRequests, inventoryCostMap);
+  const inventoryCount = stockItems.filter((item) => item.sourceType === 'inventory').length;
+  const productCount = stockItems.filter((item) => item.sourceType === 'product').length;
+  const activeBlindSession = countSessions.find((session) => session.status === 'open') || null;
+  const countedStockValue = Number(countedStock);
+  const stockDiff = selectedInventoryItem && Number.isFinite(countedStockValue)
+    ? countedStockValue - Number(selectedInventoryItem.currentStock)
+    : 0;
+  const adjustmentPercentPreview = selectedInventoryItem
+    ? (selectedInventoryItem.currentStock === 0
+      ? (countedStockValue === 0 ? 0 : 100)
+      : (Math.abs(stockDiff) / Math.abs(selectedInventoryItem.currentStock)) * 100)
+    : 0;
+  const approvalRequiredPreview = selectedInventoryItem && Number.isFinite(countedStockValue)
+    ? adjustmentPercentPreview >= approvalThresholdPercent
+    : false;
+  const marketStockAsset = module === 'market'
+    ? stockItems.reduce((sum, item) => sum + (item.currentStock * (item.costPerUnit || 0)), 0)
+    : 0;
+  const marketBreakRiskItems = module === 'market'
+    ? stockItems.filter((item) => item.currentStock <= 2).length
+    : 0;
+  const marketLossAdjustments = module === 'market'
+    ? recountRequests.reduce((sum, row) => sum + Math.min(0, row.varianceValue || 0), 0)
+    : 0;
 
   return (
     <div className="space-y-10 animate-in fade-in duration-500 font-sans">
@@ -220,6 +309,14 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
          <StatCard title="Resultado Líquido" value={formatCurrency(dre.resultadoLiquido)} icon={<DollarSign />} accentColor="blue" subtitle="Receita - Despesa + Ajustes" />
       </div>
 
+      {module === 'market' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <StatCard title="Capital em Estoque" value={formatCurrency(marketStockAsset)} icon={<Boxes />} accentColor="blue" subtitle="Quantidade x custo unitÃ¡rio" />
+          <StatCard title="Perdas por Ajuste" value={formatCurrency(marketLossAdjustments)} icon={<TrendingDown />} accentColor="rose" subtitle="SomatÃ³rio de variaÃ§Ãµes negativas" />
+          <StatCard title="Risco de Ruptura" value={String(marketBreakRiskItems)} icon={<AlertCircle />} accentColor="amber" subtitle="Itens com estoque <= 2" />
+        </div>
+      )}
+
       <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-8">
          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -234,13 +331,49 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
             </button>
          </div>
 
+         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {!activeBlindSession ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-3">
+                <div className="text-[10px] font-black uppercase tracking-widest text-amber-700">SessÃ£o Cega</div>
+                <input
+                  value={openSessionSignature}
+                  onChange={(e) => setOpenSessionSignature(e.target.value)}
+                  placeholder="Assinatura de abertura"
+                  className="w-full bg-white border border-amber-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-amber-300"
+                />
+                <button onClick={handleOpenBlindSession} className="w-full px-4 py-3 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-700 transition-all">
+                  Abrir SessÃ£o Cega
+                </button>
+              </div>
+            ) : (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3">
+                <div className="text-[10px] font-black uppercase tracking-widest text-emerald-700">SessÃ£o Cega Ativa</div>
+                <div className="text-xs font-bold text-emerald-900">Aberta por {activeBlindSession.openedByName} em {format(activeBlindSession.openedAt, 'dd/MM/yyyy HH:mm')}</div>
+                <input
+                  value={closeSessionSignature}
+                  onChange={(e) => setCloseSessionSignature(e.target.value)}
+                  placeholder="Assinatura de fechamento"
+                  className="w-full bg-white border border-emerald-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-300"
+                />
+                <button onClick={handleCloseBlindSession} className="w-full px-4 py-3 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all">
+                  Fechar SessÃ£o Cega
+                </button>
+              </div>
+            )}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Regra de AprovaÃ§Ã£o</div>
+              <div className="text-xs text-slate-700 font-medium">Ajuste acima de {approvalThresholdPercent}% exige aprovador.</div>
+              <div className="text-xs text-slate-500">MÃ³dulo atual: {module.toUpperCase()}</div>
+            </div>
+         </div>
+
          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <StatCard
               title="Itens em Estoque"
-              value={String(inventoryItems.length)}
+              value={String(stockItems.length)}
               icon={<Boxes />}
               accentColor="blue"
-              subtitle="Inventário monitorado"
+              subtitle={`Insumos: ${inventoryCount} | Produtos: ${productCount}`}
             />
             <StatCard
               title="Reconciliações"
@@ -263,9 +396,11 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
              <thead>
                <tr className="text-left">
                  <th className="px-5 pb-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Item</th>
+                 <th className="px-5 pb-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Tipo</th>
                  <th className="px-5 pb-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Anterior</th>
                  <th className="px-5 pb-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Novo</th>
                  <th className="px-5 pb-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Diferença</th>
+                 <th className="px-5 pb-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Impacto</th>
                  <th className="px-5 pb-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Data</th>
                </tr>
              </thead>
@@ -278,18 +413,20 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
                        <div className="font-black text-slate-800 text-xs">{row.itemName}</div>
                        <div className="text-[10px] text-slate-400">{row.comment}</div>
                      </td>
+                     <td className="px-5 py-4 text-[10px] font-black uppercase text-slate-500">{row.itemSourceType === 'product' ? 'Produto' : 'Insumo'}</td>
                      <td className="px-5 py-4 text-sm font-bold text-slate-700">{row.previousStock}</td>
                      <td className="px-5 py-4 text-sm font-bold text-slate-700">{row.newStock}</td>
                      <td className={cn("px-5 py-4 text-sm font-black", diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-rose-600' : 'text-slate-500')}>
                        {diff > 0 ? '+' : ''}{diff}
                      </td>
+                     <td className={cn("px-5 py-4 text-sm font-black", (row.varianceValue || 0) > 0 ? 'text-emerald-600' : (row.varianceValue || 0) < 0 ? 'text-rose-600' : 'text-slate-500')}>{formatCurrency(row.varianceValue || 0)}</td>
                      <td className="px-5 py-4 rounded-r-xl text-xs font-bold text-slate-500">{format(row.date, 'dd/MM/yyyy HH:mm')}</td>
                    </tr>
                  );
                })}
                {recountRequests.length === 0 && (
                  <tr>
-                   <td colSpan={5} className="py-10 text-center text-sm text-slate-400 italic">Nenhuma reconciliação aplicada ainda.</td>
+                   <td colSpan={7} className="py-10 text-center text-sm text-slate-400 italic">Nenhuma reconciliação aplicada ainda.</td>
                  </tr>
                )}
              </tbody>
@@ -418,9 +555,9 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
                     className="w-full bg-slate-50 border-2 border-transparent rounded-2xl p-5 font-bold focus:border-emerald-500 outline-none transition-all"
                   >
                     <option value="">Selecione um item</option>
-                    {inventoryItems.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} ({item.currentStock} {item.unit})
+                    {stockItems.map((item) => (
+                      <option key={`${item.sourceType}:${item.id}`} value={`${item.sourceType}:${item.id}`}>
+                        [{item.sourceType === 'inventory' ? 'INSUMO' : 'PRODUTO'}] {item.name} ({item.currentStock} {item.unit})
                       </option>
                     ))}
                   </select>
@@ -431,7 +568,7 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
                     <label htmlFor="previous-stock" className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2">Estoque atual</label>
                     <input
                       id="previous-stock"
-                      value={selectedInventoryItem ? `${selectedInventoryItem.currentStock} ${selectedInventoryItem.unit}` : '--'}
+                      value={activeBlindSession ? 'Oculto (sessÃ£o cega ativa)' : (selectedInventoryItem ? `${selectedInventoryItem.currentStock} ${selectedInventoryItem.unit}` : '--')}
                       readOnly
                       className="w-full bg-slate-100 rounded-2xl p-5 font-bold text-slate-600"
                     />
@@ -463,6 +600,30 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
                     placeholder="Ex: contagem de fechamento de turno"
                   />
                 </div>
+
+                {selectedInventoryItem && Number.isFinite(countedStockValue) && (
+                  <div className={cn("rounded-2xl border p-4", approvalRequiredPreview ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200")}>
+                    <div className="text-xs font-bold text-slate-700">
+                      DiferenÃ§a: {stockDiff > 0 ? '+' : ''}{stockDiff.toFixed(3)} ({adjustmentPercentPreview.toFixed(2)}%)
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      Limite para dupla confirmaÃ§Ã£o: {approvalThresholdPercent}%
+                    </div>
+                    {approvalRequiredPreview && (
+                      <div className="mt-3">
+                        <label htmlFor="approver-name" className="block text-[10px] font-black uppercase text-rose-500 tracking-widest mb-2">Aprovador</label>
+                        <input
+                          id="approver-name"
+                          value={approverName}
+                          onChange={(e) => setApproverName(e.target.value)}
+                          required={approvalRequiredPreview}
+                          placeholder="Nome do aprovador (gerente/dono)"
+                          className="w-full bg-white border border-rose-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-300"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <button
                   type="submit"

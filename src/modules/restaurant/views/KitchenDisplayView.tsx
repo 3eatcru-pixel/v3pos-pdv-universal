@@ -27,6 +27,16 @@ export const KitchenDisplayView: React.FC = () => {
   }, []);
 
   const barCategories = ['Bebidas', 'Bar', 'FOH'];
+  const isAllergyGateEnabled = (): boolean => {
+    try {
+      const raw = localStorage.getItem('rm_company_settings');
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { requireAllergyDoubleConfirmation?: boolean };
+      return Boolean(parsed.requireAllergyDoubleConfirmation);
+    } catch {
+      return false;
+    }
+  };
   const activeOrders = orders
     .map(o => ({
       ...o,
@@ -52,6 +62,34 @@ export const KitchenDisplayView: React.FC = () => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
+    const kitchenItems = order.items.filter((item) => !barCategories.includes(item.category));
+    const hasKitchenAllergy = kitchenItems.some(
+      (item) =>
+        item.modifiers?.some((mod) => mod.type === 'allergy') ||
+        (item.notes || '').toLowerCase().includes('alerg'),
+    );
+    const allergyGateEnabled = isAllergyGateEnabled();
+
+    if (allergyGateEnabled && hasKitchenAllergy && !order.allergyConfirmation?.waiterConfirmed) {
+      await firebaseService.updateItem('orders', orderId, {
+        allergyConfirmation: {
+          ...(order.allergyConfirmation || {}),
+          kitchenConfirmed: true,
+          kitchenConfirmedAt: Date.now(),
+        },
+      });
+      const tableNumber = tables.find((t) => t.id === order.tableId)?.number || '?';
+      await RestaurantNotificationEngine.emit({
+        enterpriseId: enterpriseId || 'local-ent',
+        shopId: order.shopId || 'shop-1',
+        title: 'Aguardando confirmação do garçom',
+        message: `Mesa ${tableNumber} possui alergia. Garçom deve confirmar antes de finalizar na cozinha.`,
+        type: 'warning',
+        tableId: order.tableId,
+      });
+      return;
+    }
+
     const updatedItems = order.items.map(item => {
       if (!barCategories.includes(item.category) && item.status === 'preparing') {
         return { ...item, status: 'ready' };
@@ -62,7 +100,15 @@ export const KitchenDisplayView: React.FC = () => {
       (item) => !barCategories.includes(item.category) && (item.status === 'pending' || item.status === 'preparing'),
     );
     const nextOrderStatus = hasPendingKitchen ? order.status : 'ready';
-    await firebaseService.updateItem('orders', orderId, { items: updatedItems, status: nextOrderStatus });
+    await firebaseService.updateItem('orders', orderId, {
+      items: updatedItems,
+      status: nextOrderStatus,
+      allergyConfirmation: {
+        ...(order.allergyConfirmation || {}),
+        kitchenConfirmed: hasKitchenAllergy ? true : order.allergyConfirmation?.kitchenConfirmed,
+        kitchenConfirmedAt: hasKitchenAllergy ? Date.now() : order.allergyConfirmation?.kitchenConfirmedAt,
+      },
+    });
 
     const tableNumber = tables.find((t) => t.id === order.tableId)?.number || '?';
     const split = RestaurantRoutingEngine.splitItemsByStation(order.items);

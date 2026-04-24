@@ -8,7 +8,8 @@ import {
   ClipboardList, 
   Trash2, 
   UtensilsCrossed,
-  Truck
+  Truck,
+  AlertTriangle
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCollection } from '../../../hooks/useCollection';
@@ -25,6 +26,23 @@ export const PendingOrdersView: React.FC<PendingOrdersViewProps> = ({ onOpenThir
   const { data: tables } = useCollection<Table>('tables');
 
   const pendingOrders = orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled');
+  const isAllergyGateEnabled = (): boolean => {
+    try {
+      const raw = localStorage.getItem('rm_company_settings');
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { requireAllergyDoubleConfirmation?: boolean };
+      return Boolean(parsed.requireAllergyDoubleConfirmation);
+    } catch {
+      return false;
+    }
+  };
+
+  const hasOrderAllergy = (order: Order): boolean =>
+    order.items.some(
+      (item) =>
+        item.modifiers?.some((mod) => mod.type === 'allergy') ||
+        (item.notes || '').toLowerCase().includes('alerg'),
+    );
 
   const handleSendPendingToKitchen = async (orderId: string) => {
     const order = orders.find(o => o.id === orderId);
@@ -35,6 +53,16 @@ export const PendingOrdersView: React.FC<PendingOrdersViewProps> = ({ onOpenThir
 
   const handleOrderStatusChange = async (orderId: string, status: any) => {
     await firebaseService.updateItem('orders', orderId, { status });
+  };
+
+  const handleWaiterAllergyConfirm = async (order: Order) => {
+    await firebaseService.updateItem('orders', order.id, {
+      allergyConfirmation: {
+        ...(order.allergyConfirmation || {}),
+        waiterConfirmed: true,
+        waiterConfirmedAt: Date.now(),
+      },
+    });
   };
 
   return (
@@ -66,6 +94,8 @@ export const PendingOrdersView: React.FC<PendingOrdersViewProps> = ({ onOpenThir
         {pendingOrders.map(order => {
            const table = tables.find(t => t.id === order.tableId);
            const hasUnsentItems = order.items.some(i => !i.sentToKitchen && i.status !== 'voided');
+           const hasAllergy = hasOrderAllergy(order);
+           const mustWaiterConfirm = isAllergyGateEnabled() && hasAllergy && !order.allergyConfirmation?.waiterConfirmed;
            
            return (
              <motion.div 
@@ -117,6 +147,20 @@ export const PendingOrdersView: React.FC<PendingOrdersViewProps> = ({ onOpenThir
                        <p className="text-xs text-amber-700 font-medium italic">{order.notes}</p>
                     </div>
                   )}
+
+                  {hasAllergy && (
+                    <div className={cn(
+                      "p-3 rounded-xl border text-xs font-bold",
+                      mustWaiterConfirm ? "bg-rose-50 text-rose-700 border-rose-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    )}>
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span>
+                          {mustWaiterConfirm ? 'Alergia detectada: aguardando confirmação do garçom' : 'Alergia detectada: confirmação do garçom registrada'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                </div>
 
                <div className="p-4 bg-slate-50 border-t border-slate-100 grid grid-cols-2 gap-3">
@@ -151,6 +195,15 @@ export const PendingOrdersView: React.FC<PendingOrdersViewProps> = ({ onOpenThir
                       className="col-span-2 py-3 bg-slate-900 text-white font-black text-[9px] uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-xl shadow-slate-900/10"
                     >
                        <UtensilsCrossed className="w-3.5 h-3.5 text-amber-400" /> Enviar à Cozinha
+                    </button>
+                  )}
+
+                  {mustWaiterConfirm && (
+                    <button
+                      onClick={() => handleWaiterAllergyConfirm(order)}
+                      className="col-span-2 py-3 bg-amber-500 text-white font-black text-[9px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all flex items-center justify-center gap-2 shadow-xl shadow-amber-500/20"
+                    >
+                       <AlertTriangle className="w-3.5 h-3.5" /> Confirmar Alergia (Garçom)
                     </button>
                   )}
                </div>

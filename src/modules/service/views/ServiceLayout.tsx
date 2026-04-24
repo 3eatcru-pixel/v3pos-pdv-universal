@@ -21,8 +21,11 @@ import { GeneralStaffView } from '../../../core/views/GeneralStaffView';
 import { FinanceManagementView } from '../../../core/views/FinanceManagementView';
 import { CompanyManagement } from '../../../core/views/CompanyManagement';
 import { BaseModuleLayout } from '../../../core/components/BaseModuleLayout';
+import { accountService } from '../../../core/services/accountService';
 
 export const ServiceLayout: React.FC = () => {
+  const selectedShopId = accountService.getSelectedShopId();
+
   const navItems = [
     { id: 'calendar', label: 'Agenda & Reservas', icon: <Calendar />, roles: ['owner', 'manager', 'staff', 'operator', 'dev'] },
     { id: 'dashboard', label: 'Performance', icon: <LayoutDashboard />, roles: ['owner', 'manager', 'dev'] },
@@ -48,7 +51,7 @@ export const ServiceLayout: React.FC = () => {
       case 'employees': return <GeneralStaffView module="service" />;
       case 'clients': return <ServiceClientsPage />;
       case 'resources': return <ServiceResourcesPage />;
-      case 'finance': return <FinanceManagementView module="service" />;
+      case 'finance': return <FinanceManagementView module="service" shopId={selectedShopId} />;
       case 'management': return <CompanyManagement />;
       default: return <ServiceCalendar />;
     }

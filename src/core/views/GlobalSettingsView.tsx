@@ -386,6 +386,30 @@ export const GlobalSettingsView: React.FC<GlobalSettingsViewProps> = ({
                             title="Endereço"
                           />
                        </div>
+                       <div className="bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Segurança de Alergia</p>
+                            <p className="text-xs text-slate-500 font-medium">Exigir dupla confirmação (garçom + cozinha/bar) antes de marcar pronto.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setCompanySettings({
+                              ...companySettings,
+                              requireAllergyDoubleConfirmation: !companySettings.requireAllergyDoubleConfirmation
+                            })}
+                            className={cn(
+                              "w-14 h-8 rounded-full relative transition-all",
+                              companySettings.requireAllergyDoubleConfirmation ? "bg-emerald-500" : "bg-slate-300"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-sm",
+                                companySettings.requireAllergyDoubleConfirmation ? "left-7" : "left-1"
+                              )}
+                            />
+                          </button>
+                       </div>
                        <button type="button" className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-blue-600 transition-all shadow-xl shadow-slate-900/10">
                           Atualizar Informações
                        </button>
