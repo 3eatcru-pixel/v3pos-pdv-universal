@@ -236,8 +236,9 @@ export const BarDisplayView: React.FC = () => {
                 <button
                   onClick={() => handleAcceptItems(order.id)}
                   className="w-full bg-slate-900 text-white font-black py-4 rounded-xl hover:bg-slate-800 transition-all text-[10px] uppercase tracking-widest"
+                  title="Aceitar todos os itens pendentes da barra"
                 >
-                  Aceitar Todos
+                  Aceitar Todos os Itens
                 </button>
               )}
               {order.items.some((i) => i.status === 'preparing') && (

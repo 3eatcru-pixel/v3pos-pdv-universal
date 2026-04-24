@@ -382,8 +382,9 @@ export const RetailDashboard: React.FC = () => {
                 value={syncFilter}
                 onChange={(event) => setSyncFilter(event.target.value as 'ALL' | RetailSyncHistoryEvent['type'])}
                 className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600"
+                title="Filtrar eventos de sincronização por tipo"
               >
-                <option value="ALL">Todos</option>
+                <option value="ALL">Todos os Eventos</option>
                 <option value="SEND">Send</option>
                 <option value="RECEIVE">Receive</option>
                 <option value="DUPLICATE">Duplicate</option>

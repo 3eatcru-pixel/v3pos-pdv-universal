@@ -65,8 +65,8 @@ class PaymentService {
    * In a real environment, this would call a driver or local hardware bridge.
    */
   private triggerCashRegister(trx: Transaction) {
-    console.log('--- ABRINDO GAVETA DE DINHEIRO ---');
-    console.log(`Valor: ${trx.amount} | Troco: ${trx.change || 0}`);
+    // Gaveta de dinheiro aberta
+    // Transação processada com valor e troco
     
     // Dispatch a custom event for the UI to show a "Register Opened" notification if needed
     const event = new CustomEvent('cash-register-open', { 

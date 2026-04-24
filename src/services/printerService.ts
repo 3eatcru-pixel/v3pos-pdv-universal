@@ -50,7 +50,7 @@ class PrinterService {
     }
 
     job.status = 'completed';
-    console.log(`[PRINT] ${printer.name}: ${content}`);
+    // [PRINT] Conteúdo enviado para impressora
     
     // For receipt printers, we can also trigger browser print for real hardware testing if system_default
     if (printer.connectionType === 'system_default') {

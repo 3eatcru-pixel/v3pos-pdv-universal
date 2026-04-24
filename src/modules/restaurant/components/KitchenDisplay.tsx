@@ -163,8 +163,9 @@ export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({
                   <button 
                     onClick={() => onAcceptItems(order.id, type === 'bar')}
                     className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-slate-800 transition-all text-[10px] uppercase tracking-widest shadow-lg shadow-slate-900/10 active:scale-95"
+                    title={`Aceitar todos os itens pendentes da ${type === 'bar' ? 'barra' : 'cozinha'}`}
                   >
-                    Aceitar Todos
+                    Aceitar Todos os Itens
                   </button>
                 )}
                 {order.items.some(i => i.status === 'preparing') && (

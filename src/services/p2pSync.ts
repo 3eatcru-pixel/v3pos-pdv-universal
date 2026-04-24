@@ -85,7 +85,7 @@ class MeshNetwork {
         this.socket?.emit('mesh:join', { companyId: user.companyId, deviceId: this.deviceId });
       }
       if (this.isFallbackMode) {
-        console.log('[MeshNetwork] Server Reconnected. RESYNCING dataset...');
+        // [MeshNetwork] Servidor Reconectado. RESSINCRONIZANDO dataset
         this.isFallbackMode = false;
         this.performServerResync();
       }

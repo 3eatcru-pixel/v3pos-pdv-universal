@@ -146,7 +146,7 @@ export const ServiceDashboard: React.FC = () => {
          <div className="lg:col-span-2 bg-white p-12 rounded-[4rem] border border-slate-100 shadow-sm">
             <div className="flex items-center justify-between mb-10">
                <h3 className="text-lg font-black uppercase tracking-tighter italic">Ranking de Performance</h3>
-               <button className="text-[10px] font-black uppercase text-emerald-500 tracking-widest hover:translate-x-1 transition-transform">Ver Todos →</button>
+               <button className="text-[10px] font-black uppercase text-emerald-500 tracking-widest hover:translate-x-1 transition-transform" title="Ver todos os profissionais do ranking de performance">Ver Todos os Profissionais →</button>
             </div>
             <div className="space-y-6">
                {[

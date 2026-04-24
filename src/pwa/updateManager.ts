@@ -1,7 +1,7 @@
 export function setupUpdateListener() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      console.log('App atualizado');
+      // App atualizado, recarregando página
       window.location.reload();
     });
   }

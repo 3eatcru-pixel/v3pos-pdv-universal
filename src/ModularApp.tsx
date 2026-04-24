@@ -39,7 +39,7 @@ export default function ModularApp() {
 
   // Initialize Core Services
   useEffect(() => {
-    console.log('[Core] Sync Service Active');
+    // Sync Service ativo
   }, []);
 
   useEffect(() => {

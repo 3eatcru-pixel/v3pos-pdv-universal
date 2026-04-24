@@ -14,7 +14,7 @@ class ServerEngine {
   private unsubscribeSync: (() => void) | null = null;
 
   public async start(companyId: string) {
-    console.log(`[ServerEngine] Initializing Kernel for company: ${companyId}`);
+    // [ServerEngine] Inicializando Kernel para empresa
     this.stop();
     
     this.node = {
@@ -68,7 +68,7 @@ class ServerEngine {
     this.eventHistory.push(event);
     
     // 3. Authority Persistence
-    console.log(`[ServerEngine] PERSISTING event: ${event.type}`);
+    // [ServerEngine] PERSISTING event
     await dbLocal.addToLedger(event);
 
     // 4. Distribution (Server enforces sync to everyone)
@@ -83,7 +83,7 @@ class ServerEngine {
   }
 
   public async createBackup(type: 'auto' | 'manual' = 'manual'): Promise<BackupMetadata> {
-    console.log(`[ServerEngine] Generating ${type} backup...`);
+    // [ServerEngine] Gerando backup
     
     // In a real server this would write to FS or Cloud Storage
     // Here we snapshot the current localStorage/IndexedDB
@@ -112,7 +112,7 @@ class ServerEngine {
     const backup = this.getBackups().find(b => b.id === backupId);
     if (!backup) throw new Error("Backup not found");
     
-    console.log(`[ServerEngine] RESTORING from ${backupId}...`);
+    // [ServerEngine] RESTORING de backup
     // Logic to reload data state
     window.location.reload();
   }

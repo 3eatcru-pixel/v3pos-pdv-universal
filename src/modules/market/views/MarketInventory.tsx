@@ -455,8 +455,9 @@ export const MarketInventory: React.FC = () => {
                           "px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all",
                           filter === cat ? "bg-slate-900 text-white shadow-xl shadow-slate-200" : "bg-white text-slate-400 hover:text-slate-700 shadow-sm border border-slate-100"
                         )}
+                        title={`Filtrar por ${cat === 'all' ? 'todas as categorias' : cat}`}
                       >
-                        {cat === 'all' ? 'Ver Todos' : cat}
+                        {cat === 'all' ? 'Ver Todas as Categorias' : cat}
                       </button>
                     ))}
                 </div>

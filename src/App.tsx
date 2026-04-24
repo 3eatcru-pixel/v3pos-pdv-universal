@@ -301,7 +301,7 @@ export default function App() {
   useEffect(() => {
     if (staff.length === 0 && shops.length === 0 && enterprises.length === 0) {
        // Avoid multiple seeds if called in parallel
-       console.log("Seeding initial data...");
+       // Inicializando dados padrão
        firebaseService.seedData({
          enterprises: MOCK_ENTERPRISES,
          shops: MOCK_SHOPS,
@@ -345,6 +345,30 @@ export default function App() {
     setHoldingActive(false);
   };
 
+  /**
+   * Função auxiliar para confirmar ações em múltiplas etapas
+   * Evita necessidade de múltiplos confirm() em cascata
+   */
+  const confirmMultiStep = async (steps: Array<{
+    title: string;
+    message: string;
+    icon?: string;
+  }>): Promise<boolean> => {
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      const isFinal = i === steps.length - 1;
+      const stepNumber = steps.length > 1 ? `(${i + 1}/${steps.length}) ` : '';
+      const finalFlag = isFinal ? '[FINAL] ' : '';
+      
+      const message = `${finalFlag}${stepNumber}${step.title}\n\n${step.message}${isFinal ? '\n\n⚠️ Esta ação NÃO pode ser desfeita!' : ''}`;
+      
+      if (!confirm(message)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   useEffect(() => {
     if (selectedShopId) localStorage.setItem('rm_selected_shop_id', selectedShopId);
     else if (shops.length > 0 && !selectedShopId) setSelectedShopId(shops[0].id);
@@ -352,7 +376,19 @@ export default function App() {
 
   const handleHardReset = async () => {
     if (!enterpriseId) return;
-    if (!confirm(`Ã¢Å¡Â Ã¯Â¸Â ATENÃƒâ€¡ÃƒÆ’O: Isso apagarÃƒÂ¡ TODOS os dados da empresa "${enterpriseId}" (pedidos, funcionÃƒÂ¡rios, produtos, mesas) e reiniciarÃƒÂ¡ com os dados padrÃƒÂ£o. Deseja continuar?`)) return;
+    
+    const confirmed = await confirmMultiStep([
+      {
+        title: '⚠️ Aviso: Deletar Todos os Dados',
+        message: `Isso apagará TODOS os dados da empresa "${enterpriseId}":\n- Pedidos\n- Funcionários\n- Produtos\n- Mesas\n\nOs dados serão reiniciados com valores padrão.`
+      },
+      {
+        title: '❌ Confirmação Final',
+        message: 'Tem certeza de que deseja prosseguir? Esta operação não pode ser desfeita!'
+      }
+    ]);
+    
+    if (!confirmed) return;
     
     try {
       const collections = [
@@ -783,10 +819,10 @@ export default function App() {
       'Atendente': staff.find(s => s.id === order.staffId)?.name || 'Sistema',
       'Itens': order.items.filter(i => i.status !== 'voided').map(i => `${i.quantity}x ${i.name}`).join(', '),
       'Subtotal': order.subtotal,
-      'ServiÃƒÂ§o': order.serviceFee || 0,
+      'Serviço': order.serviceFee || 0,
       'Desconto': order.discount,
       'Total': order.total,
-      'MÃƒÂ©todo Pagamento': order.paymentMethod || 'N/A'
+      'Método Pagamento': order.paymentMethod || 'N/A'
     }));
 
     const ws = XLSX.utils.json_to_sheet(data);
@@ -1071,14 +1107,11 @@ export default function App() {
         const isDistributor = systemMode === 'distributor';
         const shouldSendToKitchen = order.orderType === 'takeaway' && order.status === 'pending' && !isDistributor;
         
-        const updatedItems = order.items.map(item => {
-          if (isDistributor) return { ...item, status: 'delivered' as ItemStatus, sentToKitchen: true };
-          if (shouldSendToKitchen && item.status === 'pending') {
-            return { ...item, status: 'preparing' as ItemStatus, sentToKitchen: true };
-          }
-          return item;
-        });
-
+        const updatedItems = order.items.map(item => ({
+          ...item,
+          status: 'delivered' as ItemStatus,
+          sentToKitchen: true 
+        }));
         const currentPayments = order.payments || [];
         const allPayments = [...currentPayments, ...payments];
         const totalPaidSoFar = allPayments.reduce((sum, p) => sum + (p.amount - (p.change || 0)), 0);
@@ -1146,10 +1179,20 @@ export default function App() {
       return;
     }
 
-    // "se o cliente desistiu cancelar mesa com 2 confirmaÃƒÂ§ÃƒÂ£o"
-    if (confirm("Ã¢Å¡Â Ã¯Â¸Â Esta mesa jÃƒÂ¡ possui itens enviados para a cozinha. Deseja realmente CANCELAR toda a conta?")) {
-      if (confirm("Ã¢Ââ€” CONFIRMAÃƒâ€¡ÃƒÆ’O FINAL: Todos os itens serÃƒÂ£o invalidados e a mesa serÃƒÂ¡ liberada. Deseja prosseguir?")) {
-        const voidReason = "Cancelamento Total (DesistÃƒÂªncia)";
+    // "se o cliente desistiu cancelar mesa com confirmação em múltiplas etapas"
+    const confirmed = await confirmMultiStep([
+      {
+        title: '⚠️ Aviso: Cancelar Conta',
+        message: 'Esta mesa já possui itens que foram enviados para a cozinha.\n\nDeseja realmente CANCELAR toda a conta?'
+      },
+      {
+        title: '❌ Confirmação Final: Invalidar Itens',
+        message: 'Todos os itens pendentes serão invalidados (VOID) e a mesa será liberada imediatamente.'
+      }
+    ]);
+
+    if (confirmed) {
+      const voidReason = "Cancelamento Total (Desistência)";
         const itemsToVoid = (order?.items || []).filter(i => i.status !== 'voided');
         
         const updatedItems = (order?.items || []).map(item => ({
@@ -1181,9 +1224,7 @@ export default function App() {
         setSelectedTable(null);
         setCart([]);
         setCurrentView('tables');
-      }
     }
-
   };
 
   const handleQuickCheckout = async () => {
@@ -1298,14 +1339,11 @@ export default function App() {
         const isDistributor = systemMode === 'distributor';
         const shouldSendToKitchen = order.orderType === 'takeaway' && order.status === 'pending' && !isDistributor;
         
-        const updatedItems = order.items.map(item => {
-          if (isDistributor) return { ...item, status: 'delivered' as ItemStatus, sentToKitchen: true };
-          if (shouldSendToKitchen && item.status === 'pending') {
-            return { ...item, status: 'preparing' as ItemStatus, sentToKitchen: true };
-          }
-          return item;
-        });
-
+        const updatedItems = order.items.map(item => ({
+          ...item,
+          status: 'delivered' as ItemStatus,
+          sentToKitchen: true 
+        }));
         const currentPayments = order.payments || [];
         const allPayments = [...currentPayments, ...payments];
         const totalPaidSoFar = allPayments.reduce((sum, p) => sum + (p.amount - (p.change || 0)), 0);
@@ -1976,7 +2014,7 @@ export default function App() {
            </div>
            <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: areaColors.FOH }} />
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Front of House (SalÃ£o)</span>
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Front of House (SalÃƒÂ£o)</span>
            </div>
         </div>
       </div>

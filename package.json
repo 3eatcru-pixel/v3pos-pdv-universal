@@ -8,7 +8,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "audit": "node scripts/audit-project.mjs",
+    "audit:orphans": "node scripts/audit-orphans.mjs",
+    "setup:hooks": "node scripts/setup-hooks.mjs",
+    "pre-commit": "node scripts/pre-commit.mjs",
+    "postinstall": "node scripts/setup-hooks.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
