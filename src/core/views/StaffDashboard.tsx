@@ -14,7 +14,8 @@ import {
   Briefcase,
   ChevronRight,
   History,
-  Target
+  Target,
+  Tag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Enterprise, Shop, Staff, StaffSchedule, Order } from '../../types';
@@ -22,6 +23,8 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../hooks/useCollection';
 import { firebaseService } from '../../services/firebaseService';
+import { accountService } from '../services/accountService';
+import { logger } from '../services/logger';
 
 interface StaffDashboardProps {
   staff: Staff | null;
@@ -55,14 +58,19 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
 
   useEffect(() => {
     let interval: any;
-    if (clockedIn && clockStartTime) {
-      interval = setInterval(() => {
+    const updateTimer = () => {
+      if (clockStartTime) {
         const diff = Date.now() - clockStartTime;
         const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
         const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
         const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
         setElapsedTime(`${h}:${m}:${s}`);
-      }, 1000);
+      }
+    };
+
+    if (clockedIn && clockStartTime) {
+      updateTimer();
+      interval = setInterval(updateTimer, 1000);
     } else {
       setElapsedTime('00:00:00');
     }
@@ -72,26 +80,35 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
   const handleClockToggle = async () => {
     if (!clockedIn) {
       const now = Date.now();
-      setClockedIn(true);
-      setClockStartTime(now);
-      localStorage.setItem(`pos_clock_in_${staff?.id}`, now.toString());
-      
-      // Persistência em Nuvem para Monitoramento do Gerente em tempo real
-      await firebaseService.saveItem('staff_activity', `clock_${staff?.id}`, {
-        staffId: staff?.id,
-        startTime: now,
-        status: 'working',
-        lastUpdate: now
-      });
+      try {
+        setClockedIn(true);
+        setClockStartTime(now);
+        localStorage.setItem(`pos_clock_in_${staff?.id}`, now.toString());
+        
+        await firebaseService.saveItem('staff_activity', `clock_${staff?.id}`, {
+          staffId: staff?.id,
+          startTime: now,
+          status: 'working',
+          lastUpdate: now
+        });
+        logger.info('staff', 'Início de expediente registrado', { staffId: staff?.id });
+      } catch (error) {
+        logger.error('staff', 'Falha ao registrar início de expediente', { error });
+      }
     } else {
-      setClockedIn(false);
-      setClockStartTime(null);
-      localStorage.removeItem(`pos_clock_in_${staff?.id}`);
-      
-      await firebaseService.updateItem('staff_activity', `clock_${staff?.id}`, {
-        status: 'offline',
-        endTime: Date.now()
-      });
+      try {
+        setClockedIn(false);
+        setClockStartTime(null);
+        localStorage.removeItem(`pos_clock_in_${staff?.id}`);
+        
+        await firebaseService.updateItem('staff_activity', `clock_${staff?.id}`, {
+          status: 'offline',
+          endTime: Date.now()
+        });
+        logger.info('staff', 'Encerramento de expediente registrado', { staffId: staff?.id });
+      } catch (error) {
+        logger.error('staff', 'Falha ao registrar encerramento de expediente', { error });
+      }
     }
   };
 
@@ -274,7 +291,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
                        <TrendingUp className="w-4 h-4 text-blue-400" />
                        <span className="text-[9px] font-black uppercase text-slate-500">Vendas</span>
                     </div>
-                    <span className="text-xl font-black tracking-tighter">R$ 12.4k</span>
+                    <span className="text-xl font-black tracking-tighter">{formatCurrency(staffPerformance.totalSales, staffPerformance.totalSales >= 10000)}</span>
                  </div>
                  <div className="p-5 bg-white/5 rounded-3xl border border-white/5">
                     <div className="flex items-center gap-3 mb-2">
@@ -310,9 +327,3 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
     </div>
   );
 };
-
-const Tag: React.FC<{ className?: string }> = ({ className }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-  </svg>
-);

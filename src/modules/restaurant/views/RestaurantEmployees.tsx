@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Users, 
   Search, 
@@ -41,15 +41,6 @@ export const RestaurantEmployees: React.FC = () => {
   const employees = useMemo(() => {
     return staffMembers.filter(s => s.role === 'waiter' || s.role === 'chef' || s.role === 'bartender' || s.role === 'host' || s.role === 'manager');
   }, [staffMembers]);
-
-  const employees: Employee[] = [
-    { id: '1', name: 'Tiago Souza', role: 'waiter', station: 'dining_room', status: 'active', shift: '11:00 - 23:00', tablesHandled: 12 },
-    { id: '2', name: 'Juliana Paes', role: 'chef', station: 'kitchen', status: 'active', shift: '10:00 - 22:00', ordersProcessed: 85 },
-    { id: '3', name: 'Roberto Carlos', role: 'manager', station: 'admin', status: 'active', shift: '09:00 - 18:00' },
-    { id: '4', name: 'Alice Marinho', role: 'bartender', station: 'bar', status: 'break', shift: '16:00 - 02:00', ordersProcessed: 42 },
-    { id: '5', name: 'Marcos Paulo', role: 'waiter', station: 'dining_room', status: 'offline', shift: '11:00 - 23:00', tablesHandled: 0 },
-    { id: '6', name: 'Fabiola Lima', role: 'host', station: 'reception', status: 'active', shift: '18:00 - 00:00' },
-  ];
 
   const getStationIcon = (station: string) => {
     switch (station) {

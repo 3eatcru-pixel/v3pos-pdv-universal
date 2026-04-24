@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
   Search, 
@@ -8,6 +8,8 @@ import {
   Table as TableIcon,
   Filter,
   CheckCircle2,
+  RefreshCw,
+  Camera,
   MoreHorizontal,
   Mail,
   Phone,
@@ -26,7 +28,10 @@ import {
   History,
   Trash2,
   Calendar,
-  MapPin
+  MapPin,
+  HardHat,
+  CheckSquare,
+  Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '../../lib/utils';
@@ -37,6 +42,41 @@ import { accountService } from '../services/accountService';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../hooks/useCollection';
+import { logger } from '../services/logger';
+import { localeEngine } from '../services/LocaleEngine';
+
+const MODULE_CHECKLISTS: Record<string, { id: string; label: string; description: string }[]> = {
+  restaurant: [
+    { id: 'hygiene', label: 'Higiene & Manipulação', description: 'Treinamento de segurança alimentar ANVISA.' },
+    { id: 'uniform', label: 'Entrega de Uniforme', description: 'Kit completo e sapato de segurança.' },
+    { id: 'aso', label: 'ASO Admissional', description: 'Atestado de saúde ocupacional aprovado.' },
+    { id: 'pos_training', label: 'Treinamento de PDV', description: 'Capacitação na operação do sistema e comanda.' },
+  ],
+  construction: [
+    { id: 'epi', label: 'Entrega de EPI (NR-06)', description: 'Capacete, bota, luvas e óculos de proteção.' },
+    { id: 'nr18', label: 'Treinamento NR-18', description: 'Segurança do trabalho na construção civil.' },
+    { id: 'aso', label: 'ASO Admissional', description: 'Exame de aptidão física para obra.' },
+    { id: 'safety_induction', label: 'Integração de Canteiro', description: 'Conhecimento das zonas de risco da obra.' },
+  ],
+  market: [
+    { id: 'inventory', label: 'Gestão de Estoque', description: 'Treinamento de reposição e validade (FIFO).' },
+    { id: 'pos_checkout', label: 'Operação de Frente de Caixa', description: 'Sangria, estorno e meios de pagamento.' },
+    { id: 'customer_service', label: 'Padrão de Atendimento', description: 'Treinamento de fidelização CRM.' },
+    { id: 'aso', label: 'ASO Admissional', description: 'Atestado de saúde ocupacional aprovado.' },
+  ],
+  retail: [
+    { id: 'crm_expert', label: 'CRM & Especialista', description: 'Conhecimento profundo dos produtos e clientes.' },
+    { id: 'pos_admin', label: 'Fluxo de Vendas & Devolução', description: 'Operação completa do terminal de varejo.' },
+    { id: 'loss_prevention', label: 'Prevenção de Perdas', description: 'Segurança patrimonial e conferência.' },
+    { id: 'aso', label: 'ASO Admissional', description: 'Atestado de saúde ocupacional aprovado.' },
+  ],
+  service: [
+    { id: 'scheduling', label: 'Gestão de Agenda', description: 'Operação do motor de recursos e conflitos.' },
+    { id: 'confidentiality', label: 'Acordo de Confidencialidade', description: 'Proteção de dados sensíveis de clientes (LGPD).' },
+    { id: 'service_standards', label: 'Manual de Qualidade', description: 'Padrão de execução técnica do serviço.' },
+    { id: 'aso', label: 'ASO Admissional', description: 'Atestado de saúde ocupacional aprovado.' },
+  ],
+};
 
 interface StaffManagementViewProps {
   module: 'restaurant' | 'market' | 'construction' | 'retail' | 'service';
@@ -55,12 +95,108 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance'>('Resumo');
+  const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance' | 'Folha' | 'Checklist'>('Resumo');
 
   const companyId = accountService.getCurrentCompanyId();
   const selectedShopId = accountService.getSelectedShopId();
   const currentUser = accountService.getCurrentUser();
   const loading = loadingStaff || loadingEvents || loadingRoles;
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const staffPhotoRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedStaff || !companyId) return;
+
+    if (file.type !== 'application/pdf') {
+      alert('Apenas arquivos PDF são permitidos.');
+      return;
+    }
+
+    setIsUploading(true);
+    const filePath = `staff_docs/${companyId}/${selectedStaff.id}/${Date.now()}_${file.name}`;
+
+    try {
+      const result = await firebaseService.uploadFile(filePath, file);
+      if (!result) throw new Error('Upload falhou');
+      
+      const newDoc = {
+        name: file.name,
+        url: result.url,
+        path: result.path,
+        size: (file.size / 1024 / 1024).toFixed(1) + 'MB',
+        date: format(new Date(), 'dd/MM/yyyy'),
+        uploadedAt: Date.now()
+      };
+
+      const updatedDocs = [...((selectedStaff as any).documents || []), newDoc];
+      await firebaseService.saveItem('staff', selectedStaff.id, { 
+        ...selectedStaff, 
+        documents: updatedDocs 
+      });
+      
+      setSelectedStaff(prev => prev ? { ...prev, documents: updatedDocs } : null);
+      logger.info('staff', 'Documento carregado com sucesso', { staffId: selectedStaff.id, fileName: file.name });
+    } catch (error) {
+      logger.error('staff', 'Erro no upload de documento', { error });
+      alert('Falha ao enviar arquivo.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteDocument = async (docToDelete: any) => {
+    if (!selectedStaff || !confirm('Deseja remover este documento?')) return;
+
+    try {
+      await firebaseService.deleteFile(docToDelete.path);
+      const updatedDocs = ((selectedStaff as any).documents || []).filter((d: any) => d.path !== docToDelete.path);
+      
+      await firebaseService.saveItem('staff', selectedStaff.id, { ...selectedStaff, documents: updatedDocs });
+      setSelectedStaff(prev => prev ? { ...prev, documents: updatedDocs } : null);
+      logger.info('staff', 'Documento removido', { staffId: selectedStaff.id });
+    } catch (error) {
+      logger.error('staff', 'Erro ao remover documento', { error });
+    }
+  };
+
+  const { data: hrChecklists } = useCollection<any>('hr_checklists', { enterpriseId: companyId || null });
+
+  const currentChecklist = hrChecklists.find(c => c.staffId === selectedStaff?.id) || {
+    staffId: selectedStaff?.id,
+    items: {}
+  };
+
+  const handleToggleChecklistItem = async (itemId: string) => {
+    if (!selectedStaff || !companyId) return;
+    
+    const docId = `checklist_${selectedStaff.id}`;
+    const items = currentChecklist.items || {};
+    const newItems = { 
+      ...items, 
+      [itemId]: {
+        completed: !items[itemId]?.completed,
+        completedAt: Date.now(),
+        completedBy: currentUser?.name || 'Sistema'
+      }
+    };
+
+    try {
+      await firebaseService.saveItem('hr_checklists', docId, {
+        staffId: selectedStaff.id,
+        enterpriseId: companyId,
+        items: newItems,
+        updatedAt: Date.now()
+      });
+      logger.info('staff', 'Checklist de RH atualizado', { staffId: selectedStaff.id, itemId });
+    } catch (error) {
+      logger.error('staff', 'Erro ao salvar checklist de RH', { error });
+    }
+  };
 
   const handleDeleteStaff = async (id: string) => {
     if (!confirm('Tem certeza que deseja remover este colaborador permanentemente?')) return;
@@ -68,7 +204,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       await firebaseService.deleteItem('staff', id);
       setSelectedStaff(null);
     } catch (err) {
-      console.error('Delete failed:', err);
+      logger.error('staff', 'Falha ao remover colaborador', { staffId: id, error: err });
     }
   };
 
@@ -108,7 +244,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       setIsRoleModalOpen(false);
       setSelectedRole(null);
     } catch (err) {
-      console.error('Save role failed:', err);
+      logger.error('staff', 'Falha ao salvar protocolo de cargo', { error: err });
     }
   };
 
@@ -121,8 +257,20 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
     const formData = new FormData(e.currentTarget);
     const staffId = selectedStaff?.id || `staff-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
     
+    let photoUrl = selectedStaff?.photo || '';
+
+    // Lógica: Se houver uma nova foto no preview para upload
+    if (photoPreview && photoPreview.startsWith('blob:')) {
+      const file = staffPhotoRef.current?.files?.[0];
+      if (file) {
+        const result = await firebaseService.uploadFile(`staff_photos/${companyId}/${staffId}`, file);
+        if (result) photoUrl = result.url;
+      }
+    }
+
     const staffData: Partial<Staff> = {
       name: formData.get('name') as string,
+      photo: photoUrl,
       role: formData.get('role') as any,
       cpf: formData.get('cpf') as string,
       phone: formData.get('phone') as string,
@@ -131,7 +279,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       admissionDate: new Date(formData.get('admissionDate') as string).getTime(),
       active: true,
       enterpriseId: companyId,
-      assignedShopIds: selectedStaff?.assignedShopIds?.length ? selectedStaff.assignedShopIds : [selectedShopId],
+      assignedShopIds: selectedStaff?.assignedShopIds?.length ? selectedStaff.assignedShopIds : [selectedShopId || 'main-shop'],
       bankInfo: {
         bankName: formData.get('bankName') as string,
         agency: formData.get('agency') as string,
@@ -144,7 +292,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       setIsStaffModalOpen(false);
       setSelectedStaff(null);
     } catch (err) {
-      console.error('Save failed:', err);
+      logger.error('staff', 'Falha ao salvar colaborador', { error: err });
     }
   };
 
@@ -511,7 +659,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                <div className="flex-1 overflow-y-auto responsive-padding custom-scrollbar bg-slate-50/30 bottom-safe-area">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-16">
                      <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar">
-                        {['Resumo', 'Contratual', 'Documentação', 'Performance'].map((tab) => (
+                     {['Resumo', 'Contratual', 'Folha', 'Checklist', 'Documentação', 'Performance'].map((tab) => (
                            <button 
                              key={tab} 
                              onClick={() => setActiveTab(tab as any)}
@@ -529,7 +677,95 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                      </button>
                   </div>
 
-                  {activeTab === 'Performance' ? (
+                  {activeTab === 'Folha' && (
+                    <div className="space-y-10 animate-in slide-in-from-right-4 duration-500">
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm">
+                             <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-8 italic">Variáveis & Comissões</h5>
+                             <div className="space-y-6">
+                                <div className="flex justify-between items-center py-4 border-b border-slate-50">
+                                   <span className="text-xs font-bold text-slate-500 italic">Vendas Diretas</span>
+                                   <span className="text-sm font-black text-slate-800">{formatCurrency(850.00)}</span>
+                                </div>
+                                <div className="flex justify-between items-center py-4 border-b border-slate-50">
+                                   <span className="text-xs font-bold text-slate-500 italic">Bônus Meta Batida</span>
+                                   <span className="text-sm font-black text-emerald-600">{formatCurrency(250.00)}</span>
+                                </div>
+                             </div>
+                          </div>
+                          <div className="bg-slate-900 p-10 rounded-[3rem] text-white">
+                             <h5 className="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-8 italic">Total Provisionado</h5>
+                             <p className="text-4xl font-black italic tracking-tighter mb-4">{formatCurrency((selectedStaff.salary || 0) + 1100)}</p>
+                             <div className="flex items-center gap-2 text-slate-400">
+                                <Clock className="w-3 h-3" />
+                                <span className="text-[10px] font-black uppercase tracking-widest">Próximo Pagamento: 05/{format(addDays(new Date(), 30), 'MM')}</span>
+                             </div>
+                          </div>
+                       </div>
+                       
+                       <div className="p-8 bg-blue-50 border border-blue-100 rounded-3xl flex items-center justify-between">
+                          <span className="text-xs font-black text-blue-800 uppercase italic">Exportar Holerite / Recibo de Vencimento</span>
+                          <button className="p-4 bg-white rounded-xl shadow-sm text-blue-600 hover:scale-105 transition-transform"><Download className="w-5 h-5" /></button>
+                       </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'Checklist' && (
+                    <div className="space-y-10 animate-in slide-in-from-right-4 duration-500">
+                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <h4 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Checklist de Conformidade</h4>
+                          <div className="flex items-center gap-3 bg-blue-50 px-6 py-3 rounded-2xl border border-blue-100">
+                             <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Status de Onboarding</span>
+                             <span className="text-2xl font-black text-blue-700 italic tracking-tighter">
+                                {Object.values(currentChecklist.items || {}).filter((i: any) => i.completed).length}/{MODULE_CHECKLISTS[module]?.length || 0}
+                             </span>
+                          </div>
+                       </div>
+
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {MODULE_CHECKLISTS[module]?.map((item) => {
+                             const status = currentChecklist.items?.[item.id] || { completed: false };
+                             return (
+                                <div 
+                                  key={item.id}
+                                  onClick={() => handleToggleChecklistItem(item.id)}
+                                  className={cn(
+                                    "p-8 rounded-[2.5rem] border-2 transition-all cursor-pointer group flex items-start gap-6",
+                                    status.completed ? "bg-emerald-50 border-emerald-500 shadow-lg shadow-emerald-500/5" : "bg-white border-slate-100 hover:border-blue-300 shadow-sm"
+                                  )}
+                                >
+                                   <div className={cn(
+                                     "w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-110",
+                                     status.completed ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600"
+                                   )}>
+                                      {item.id === 'epi' ? <HardHat className="w-7 h-7" /> : <CheckSquare className="w-7 h-7" />}
+                                   </div>
+                                   <div className="flex-1">
+                                      <h5 className={cn("text-lg font-black uppercase italic tracking-tight mb-1", status.completed ? "text-emerald-900" : "text-slate-800")}>{item.label}</h5>
+                                      <p className="text-[11px] font-medium text-slate-500 leading-relaxed italic">{item.description}</p>
+                                      
+                                      {status.completed && (
+                                        <div className="mt-4 flex items-center gap-3 text-[9px] font-black uppercase text-emerald-600 tracking-widest bg-white/50 w-fit px-3 py-1 rounded-lg">
+                                           <CheckCircle2 className="w-3 h-3" />
+                                           Validado em {new Date(status.completedAt).toLocaleDateString()} por {status.completedBy}
+                                        </div>
+                                      )}
+                                   </div>
+                                </div>
+                             );
+                          })}
+                       </div>
+
+                       <div className="p-8 bg-amber-50 border border-amber-100 rounded-3xl flex items-center gap-4">
+                          <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0" />
+                          <p className="text-xs font-bold text-amber-800 italic">
+                             A conclusão destes itens é obrigatória para conformidade com as normas vigentes (NRs, ANVISA e LGPD) aplicáveis ao módulo de {module.toUpperCase()}.
+                          </p>
+                       </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'Performance' && (
                      <div className="space-y-10 animate-in slide-in-from-right-4 duration-500">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                            <h4 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Histórico de Talentos</h4>
@@ -574,7 +810,9 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                            )}
                         </div>
                      </div>
-                  ) : activeTab === 'Contratual' ? (
+                  )}
+                  
+                  {activeTab === 'Contratual' && (
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-10 animate-in slide-in-from-left-4 duration-500">
                         <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-sm space-y-10">
                            <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-widest italic border-b border-slate-50 pb-4">Condições Atuais</h5>
@@ -632,7 +870,9 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                            </div>
                         </div>
                      </div>
-                  ) : activeTab === 'Documentação' ? (
+                  )}
+
+                  {activeTab === 'Documentação' && (
                     <div className="animate-in fade-in zoom-in-95 duration-500">
                        <div className="mb-10 flex items-center justify-between">
                           <h4 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Portfólio de Documentos</h4>
@@ -662,7 +902,9 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                           ))}
                        </div>
                     </div>
-                  ) : (
+                  )}
+
+                  {activeTab === 'Resumo' && (
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-10 animate-in fade-in duration-700">
                         <div className="col-span-2 space-y-10">
                            <div className="bg-white p-12 rounded-[4rem] border border-slate-100 shadow-sm relative overflow-hidden">
@@ -761,6 +1003,34 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                 </div>
 
                 <form onSubmit={handleSaveStaff} className="space-y-10">
+                   {/* Avatar Upload with Preview */}
+                   <div className="flex flex-col items-center justify-center mb-10">
+                      <div 
+                        onClick={() => staffPhotoRef.current?.click()}
+                        className="w-32 h-32 rounded-[3rem] bg-slate-50 border-4 border-white shadow-2xl overflow-hidden cursor-pointer group relative"
+                      >
+                         <img 
+                           src={photoPreview || selectedStaff?.photo || `https://i.pravatar.cc/150?u=${selectedStaff?.id || 'new'}`} 
+                           className="w-full h-full object-cover transition-transform group-hover:scale-110" 
+                           alt="Preview" 
+                         />
+                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Camera className="text-white w-8 h-8" />
+                         </div>
+                      </div>
+                      <input 
+                        type="file" 
+                        ref={staffPhotoRef} 
+                        className="hidden" 
+                        accept="image/*" 
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) setPhotoPreview(URL.createObjectURL(file));
+                        }}
+                      />
+                      <p className="text-[10px] font-black uppercase text-slate-400 mt-4 tracking-widest">Clique para alterar foto</p>
+                   </div>
+
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       <div className="space-y-3">
                          <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Nome de Exibição / Guerra</label>
@@ -777,8 +1047,8 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                          </select>
                       </div>
                       <div className="space-y-3">
-                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Documento (CPF)</label>
-                         <input name="cpf" defaultValue={selectedStaff?.cpf} className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl p-5 font-bold italic focus:border-blue-500 outline-none transition-all" placeholder="000.000.000-00" />
+                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Documento ({localeEngine.settings.identityLabel})</label>
+                         <input name="cpf" defaultValue={selectedStaff?.cpf} className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl p-5 font-bold italic focus:border-blue-500 outline-none transition-all" />
                       </div>
                       <div className="space-y-3">
                          <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Contato WhatsApp</label>

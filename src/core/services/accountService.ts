@@ -2,9 +2,11 @@ import { Company, SupportMessage, User, BusinessMode, Shop } from '../types';
 export type { Company, SupportMessage, User, BusinessMode, Shop };
 import { Order } from '../../types';
 import { meshNetwork } from '../../services/p2pSync';
-import { authService } from '../../auth/authService';
-import { MOCK_SHOPS } from '../../mockData';
+import { format } from 'date-fns';
+import { authService } from '../../auth/authService'; // Moved up for consistency
+import { localeEngine, CountryCode } from './LocaleEngine';
 import { firebaseService } from '../../services/firebaseService';
+import { logger } from './logger';
 
 class AccountService {
   private mapRoleForLegacy(role: string): User['role'] {
@@ -137,6 +139,11 @@ class AccountService {
   }
 
   public async loginAsOwner(company: Company): Promise<boolean> {
+    const user = this.getCurrentUser();
+    if (user?.role === 'dev') {
+      logger.warn('auth', 'Desenvolvedor iniciando impersonação de proprietário', { companyId: company.id });
+      void firebaseService.addAuditLog({ enterpriseId: company.id, shopId: 'global', staffId: user.id, staffName: user.name, action: 'DEV_IMPERSONATION_START', details: `Acesso de manutenção iniciado por ${user.email}` });
+    }
     return authService.impersonateTenant(company.id);
   }
 
@@ -156,6 +163,10 @@ class AccountService {
   }
 
   public async loginAsDev(email: string, password?: string): Promise<boolean> {
+    logger.info('auth', 'Tentativa de login de desenvolvedor', { email });
+    const success = await authService.loginAsDev(email, password);
+    if (success) logger.info('auth', 'Login de desenvolvedor bem-sucedido', { email });
+    return success;
     return authService.loginAsDev(email, password);
   }
 
@@ -250,11 +261,11 @@ class AccountService {
   }
 
   public async getCompanyMetrics(companyId: string) {
-    const orders = await firebaseService.getAllDocs('orders');
-    const staff = await firebaseService.getAllDocs('staff');
+    // Otimização: No futuro, substituir por queries indexadas no banco
+    const companyOrders = (await firebaseService.getAllDocs('orders', companyId)) as Order[];
+    const staffDocs = await firebaseService.getAllDocs('staff', companyId);
     
-    const companyOrders = (orders as Order[]).filter(o => o.enterpriseId === companyId);
-    const companyStaffCount = (staff as any[]).filter(s => s.enterpriseId === companyId).length;
+    const companyStaffCount = staffDocs.length;
     
     const dailyRevenue = companyOrders.reduce((acc, o) => acc + (o.status === 'delivered' ? o.total : 0), 0);
     const activeOrders = companyOrders.filter(o => o.status === 'preparing' || o.status === 'pending').length;
@@ -272,6 +283,11 @@ class AccountService {
   public async getCompanyById(id: string): Promise<Company | null> {
     const tenant = await authService.getTenantById(id);
     if (!tenant) return null;
+
+    // Regionalização: Define o país no motor de localização baseado no cadastro da empresa
+    const countryCode = (tenant as any).countryCode as CountryCode || 'BR';
+    localeEngine.setCountry(countryCode);
+
     return {
       id: tenant.id,
       name: tenant.name,
@@ -287,11 +303,47 @@ class AccountService {
       enabledModules: tenant.enabledModules,
       isPaused: tenant.isPaused,
       owners: [tenant.ownerId],
+      suspensionReason: (tenant as any).suspensionReason,
     };
   }
 
+  /**
+   * Bloqueio Administrativo por violação de termos (Revenda/Cópia)
+   * Apenas acessível por contas de desenvolvedor master definidas nas regras.
+   */
+  public async suspendCompany(companyId: string, reason: string) {
+    const user = this.getCurrentUser();
+    if (user?.role !== 'dev') throw new Error('Acesso negado.');
+
+    await authService.updateTenant(companyId, { 
+      status: 'suspended',
+      suspensionReason: reason,
+      isPaused: true 
+    });
+    
+    logger.error('auth', 'EMPRESA SUSPENSA POR VIOLAÇÃO', { companyId, reason });
+  }
+
+  /**
+   * Reporta uma atividade suspeita ou violação para revisão do desenvolvedor.
+   * NUNCA bloqueia a conta automaticamente.
+   */
+  public async reportViolationToDev(companyId: string, type: 'LICENSE_EXPIRED' | 'FRAUD_DETECTION' | 'UNAUTHORIZED_RESALE', details: string) {
+    const timestamp = Date.now();
+    logger.warn('auth', `ALERTA DE VIOLAÇÃO: ${type}`, { companyId, details });
+
+    await firebaseService.addItem('dev_alerts', {
+      companyId,
+      type,
+      details,
+      timestamp,
+      status: 'pending_review',
+      priority: 'high'
+    });
+  }
+
   public async toggleMaintenance(companyId: string, enabled: boolean) {
-    authService.updateTenant(companyId, { status: enabled ? 'maintenance' : 'active' });
+    await authService.updateTenant(companyId, { status: enabled ? 'maintenance' : 'active' });
     if (enabled) {
       this.createDevNotification(
         companyId,
@@ -336,11 +388,19 @@ class AccountService {
   }
 
   public async loginAsManager(companyId: string) {
+    const user = this.getCurrentUser();
     const ok = await authService.impersonateTenant(companyId);
     if (!ok) {
+      logger.error('auth', 'Falha na impersonação de gerente', { companyId });
       throw new Error('Falha ao abrir sessão de impersonação para esta empresa.');
     }
+    
     const tenant = await authService.getTenantById(companyId);
+    if (user?.role === 'dev') {
+       logger.warn('auth', 'Acesso de manutenção (Manager Mode)', { companyId });
+       void firebaseService.addAuditLog({ enterpriseId: companyId, shopId: 'global', staffId: user.id, staffName: user.name, action: 'DEV_MAINTENANCE_ACCESS', details: `Manutenção ativa via Manager Mode` });
+    }
+
     localStorage.setItem('pos_business_mode', tenant?.businessType || 'restaurant');
     window.location.reload();
   }
@@ -348,16 +408,32 @@ class AccountService {
   public async sendSupportMessage(message: string) {
     const user = this.getCurrentUser();
     if (!user) return;
-    const msg: SupportMessage = {
-      id: `msg-${Date.now()}`,
+    const msg = {
       companyId: user.companyId || '',
       message,
       timestamp: Date.now(),
       status: 'open',
+      userName: user.name,
+      userEmail: user.email
     };
-    const messages = JSON.parse(localStorage.getItem('pos_support_messages') || '[]');
-    messages.push(msg);
-    localStorage.setItem('pos_support_messages', JSON.stringify(messages));
+    await firebaseService.addItem('support_messages', msg);
+  }
+
+  public async replyToSupportMessage(messageId: string, reply: string) {
+    const user = this.getCurrentUser();
+    if (user?.role !== 'dev') throw new Error('Acesso negado.');
+
+    await firebaseService.updateItem('support_messages', messageId, {
+      reply,
+      repliedAt: Date.now(),
+      repliedBy: user.name,
+      status: 'resolved'
+    });
+  }
+
+  public async getAllSupportMessages() {
+    // Como dev, buscamos da coleção centralizada no Firebase em vez do localStorage
+    return firebaseService.getAllDocs('support_messages');
   }
 
   public getSupportMessages(): SupportMessage[] {
@@ -367,10 +443,12 @@ class AccountService {
   public async pauseSystem(companyId: string, pin: string): Promise<boolean> {
     const user = this.getCurrentUser();
     if (!user || (user.role !== 'owner' && user.role !== 'manager' && user.role !== 'dev')) return false;
-    if (pin !== '1234') return false;
 
     const company = await this.getCompanyById(companyId);
     if (!company) return false;
+
+    // Lógica: Valida o PIN contra o accessCode da empresa para autorizar pausa global
+    if (pin !== company.accessCode) return false;
 
     const nextPaused = !Boolean(company.isPaused);
     await authService.updateTenant(companyId, { isPaused: nextPaused });

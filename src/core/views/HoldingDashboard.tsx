@@ -181,7 +181,7 @@ export const HoldingDashboard: React.FC<HoldingDashboardProps> = ({ onSelectEnte
                   <Wallet className="w-6 h-6" />
                   <span className="text-[10px] font-black uppercase tracking-widest bg-white/20 px-3 py-1 rounded-full">Faturamento Hoje</span>
                </div>
-               <h4 className="text-4xl font-black tracking-tighter mb-1 leading-none">{formatCurrency(summary.totalRevenue)}</h4>
+               <h4 className="text-4xl font-black tracking-tighter mb-1 leading-none">{formatCurrency(summary.totalRevenue, summary.totalRevenue >= 10000)}</h4>
                <p className="text-blue-200 text-xs font-bold uppercase tracking-widest">+12.5% em relação a ontem</p>
             </motion.div>
 
@@ -208,7 +208,7 @@ export const HoldingDashboard: React.FC<HoldingDashboardProps> = ({ onSelectEnte
                   <TrendingUp className="w-6 h-6" />
                   <span className="text-[10px] font-black uppercase tracking-widest">Ticket Médio</span>
                </div>
-               <h4 className="text-4xl font-black tracking-tighter mb-1 leading-none">{formatCurrency(84.50)}</h4>
+               <h4 className="text-4xl font-black tracking-tighter mb-1 leading-none">{formatCurrency(84.50, 84.50 >= 10000)}</h4>
                <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Geral Holding</p>
             </div>
          </div>
@@ -265,7 +265,7 @@ export const HoldingDashboard: React.FC<HoldingDashboardProps> = ({ onSelectEnte
                   <div className="grid grid-cols-2 gap-4 mb-8">
                      <div className="p-5 bg-white/5 rounded-3xl border border-white/5 group-hover:border-emerald-500/30 transition-all">
                         <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest block mb-1">Vendas (24h)</span>
-                        <span className="text-xl font-black text-white tracking-tighter">{formatCurrency(metrics.dailyRevenue)}</span>
+                        <span className="text-xl font-black text-white tracking-tighter">{formatCurrency(metrics.dailyRevenue, metrics.dailyRevenue >= 10000)}</span>
                      </div>
                      <div className="p-5 bg-white/5 rounded-3xl border border-white/5 group-hover:border-blue-500/30 transition-all">
                         <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest block mb-1">Unidades</span>

@@ -29,6 +29,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '../../lib/utils';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
+import { InventoryEngine } from '../services/InventoryEngine';
+import { logger } from '../services/logger';
 import { InventoryItem, CustomFieldDefinition } from '../../types';
 
 interface InventoryManagementViewProps {
@@ -75,11 +77,16 @@ export const InventoryManagementView: React.FC<InventoryManagementViewProps> = (
     const item = inventory.find(i => i.id === itemId);
     if (!item) return;
 
-    const newStock = Math.max(0, item.currentStock + delta);
+    // Lógica de proteção: Impedir que ajustes manuais resultem em estoque negativo
+    if (item.currentStock + delta < 0) {
+      logger.warn('inventory', 'Tentativa de ajuste para estoque negativo bloqueada', { itemId });
+      return;
+    }
     try {
-      await firebaseService.saveItem('inventory', itemId, { ...item, currentStock: newStock });
+      // Lógica: Utiliza o motor de inventário para garantir atualização atômica via Transaction
+      await InventoryEngine.manualAdjustment(itemId, delta, 'inventory');
     } catch (error) {
-      console.error('Failed to adjust stock:', error);
+      logger.error('inventory', 'Erro no ajuste manual de estoque', { itemId, error });
     }
   };
 
@@ -199,10 +206,15 @@ export const InventoryManagementView: React.FC<InventoryManagementViewProps> = (
                      </div>
                      <div className="flex flex-col items-end">
                         <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">{item.unit}</span>
-                        <span className={cn(
-                          "text-2xl font-black italic tracking-tighter",
-                          item.currentStock <= item.minStock ? "text-rose-600" : "text-slate-900"
-                        )}>{item.currentStock}</span>
+                        <div className="flex items-baseline gap-2">
+                           {module === 'construction' && item.reservedStock > 0 && (
+                             <span className="text-xs font-black text-amber-500" title="Reservado para entregas">-{item.reservedStock}</span>
+                           )}
+                           <span className={cn(
+                             "text-2xl font-black italic tracking-tighter",
+                             item.currentStock <= item.minStock ? "text-rose-600" : "text-slate-900"
+                           )}>{item.currentStock}</span>
+                        </div>
                      </div>
                   </div>
 
@@ -212,6 +224,12 @@ export const InventoryManagementView: React.FC<InventoryManagementViewProps> = (
                         <Tag className="w-3 h-3" /> {item.category} • <MapPin className="w-3 h-3" /> {item.location || 'Central'}
                      </p>
                   </div>
+
+                  {item.lastRecountDate && (
+                    <div className="flex items-center gap-1.5 text-[8px] font-black uppercase text-slate-400 mt-1">
+                       <Clock className="w-2.5 h-2.5" /> Auditado em {new Date(item.lastRecountDate).toLocaleDateString()}
+                    </div>
+                  )}
 
                   <div className="space-y-4">
                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -227,13 +245,14 @@ export const InventoryManagementView: React.FC<InventoryManagementViewProps> = (
                      
                      <div className="flex gap-2">
                         <button 
-                          onClick={() => handleAdjustStock(item.id, -1)}
-                          className="flex-1 py-3 bg-slate-50 text-slate-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center"
+                          disabled={item.currentStock <= 0}
+                          onClick={(e) => { e.stopPropagation(); handleAdjustStock(item.id, -1); }}
+                          className="flex-1 py-3 bg-slate-50 text-slate-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center disabled:opacity-30"
                         >
                            <MinusCircle className="w-4 h-4" />
                         </button>
                         <button 
-                          onClick={() => handleAdjustStock(item.id, 1)}
+                          onClick={(e) => { e.stopPropagation(); handleAdjustStock(item.id, 1); }}
                           className="flex-1 py-3 bg-slate-50 text-slate-500 rounded-xl hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center"
                         >
                            <PlusCircle className="w-4 h-4" />

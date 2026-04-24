@@ -63,7 +63,7 @@ service cloud.firestore {
              data.id is string && data.id.size() <= 64 &&
              data.enterpriseId is string &&
              data.name is string && data.name.size() <= 100 &&
-             data.role in ['owner', 'manager_foh', 'manager', 'waiter', 'chef', 'regional_manager', 'admin', 'operator'] &&
+             data.role in ['owner', 'manager_foh', 'manager', 'waiter', 'chef', 'regional_manager', 'admin', 'operator', 'dev'] &&
              data.active is boolean &&
              data.pin is string && data.pin.size() <= 8;
     }
@@ -95,7 +95,10 @@ service cloud.firestore {
 
     // Enterprises: Master Gate
     match /enterprises/{entId} {
-      allow get: if isValidId(entId) && isSignedIn();
+      // Bloqueio Global: Se a empresa estiver suspensa, ninguém (exceto admin) lê os dados
+      allow get: if isValidId(entId) && isSignedIn() && (
+        isAdmin() || resource.data.status != 'suspended'
+      );
       allow list: if isAdmin();
       allow create: if isValidId(entId) && isValidEnterprise(incoming());
       allow update: if isValidId(entId) && (isAdmin() || (isOwner(entId) && (

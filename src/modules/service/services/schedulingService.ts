@@ -1,5 +1,6 @@
 import { ServiceAppointment, AppointmentStatus } from '../types';
 import { meshNetwork } from '../../../services/p2pSync';
+import { logger } from '../../../core/services/logger';
 
 class SchedulingService {
   private appointments: ServiceAppointment[] = [];
@@ -106,6 +107,7 @@ class SchedulingService {
 
   public createAppointment(data: Omit<ServiceAppointment, 'id' | 'createdAt'>): ServiceAppointment {
     if (this.checkConflicts(data.enterpriseId, data.providerId, data.resourceIds, data.startTime, data.endTime)) {
+      logger.warn('service', 'Tentativa de agendamento com conflito', { providerId: data.providerId });
       throw new Error('Conflito de horário detectado. Profissional ou recurso já está em uso.');
     }
 
@@ -117,6 +119,7 @@ class SchedulingService {
 
     this.appointments.push(newAppointment);
     this.saveAppointments();
+    logger.info('service', 'Novo agendamento criado', { appointmentId: newAppointment.id });
 
     meshNetwork.broadcast('service:appointment_updated', newAppointment);
 
@@ -125,10 +128,14 @@ class SchedulingService {
 
   public updateAppointmentStatus(id: string, status: AppointmentStatus) {
     const app = this.appointments.find(a => a.id === id);
-    if (!app) throw new Error('Agendamento não encontrado');
+    if (!app) {
+      logger.error('service', 'Falha ao atualizar status: agendamento não encontrado', { appointmentId: id });
+      throw new Error('Agendamento não encontrado');
+    }
 
     app.status = status;
     this.saveAppointments();
+    logger.info('service', `Status do agendamento atualizado para ${status}`, { appointmentId: id });
     
     meshNetwork.broadcast('service:appointment_updated', app);
   }

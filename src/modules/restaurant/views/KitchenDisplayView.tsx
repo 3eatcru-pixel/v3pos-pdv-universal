@@ -10,9 +10,10 @@ import { cn } from '../../../lib/utils';
 import { useCollection } from '../../../hooks/useCollection';
 import { accountService } from '../../../core/services/accountService';
 import { firebaseService } from '../../../services/firebaseService';
-import { Order, Table } from '../../../types';
+import { Order, Table, BusinessConfig } from '../../../types';
 import { RestaurantRoutingEngine } from '../services/RestaurantRoutingEngine';
 import { RestaurantNotificationEngine } from '../services/RestaurantNotificationEngine';
+import { logger } from '../../../core/services/logger';
 
 export const KitchenDisplayView: React.FC = () => {
   const enterpriseId = accountService.getCurrentCompanyId();
@@ -20,6 +21,7 @@ export const KitchenDisplayView: React.FC = () => {
 
   const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: shopId || null });
   const { data: tables } = useCollection<Table>('tables', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: configs } = useCollection<BusinessConfig>('businessConfigs', { enterpriseId: enterpriseId || null });
   
   const [currentTime, setCurrentTime] = useState(Date.now());
 
@@ -29,16 +31,9 @@ export const KitchenDisplayView: React.FC = () => {
   }, []);
 
   const barCategories = ['Bebidas', 'Bar', 'FOH'];
-  const isAllergyGateEnabled = (): boolean => {
-    try {
-      const raw = localStorage.getItem('rm_company_settings');
-      if (!raw) return false;
-      const parsed = JSON.parse(raw) as { requireAllergyDoubleConfirmation?: boolean };
-      return Boolean(parsed.requireAllergyDoubleConfirmation);
-    } catch {
-      return false;
-    }
-  };
+  const config = configs[0];
+  const isAllergyGateEnabled = config?.requireAllergyDoubleConfirmation || false;
+
   const activeOrders = orders
     .map(o => ({
       ...o,
@@ -70,7 +65,7 @@ export const KitchenDisplayView: React.FC = () => {
         item.modifiers?.some((mod) => mod.type === 'allergy') ||
         (item.notes || '').toLowerCase().includes('alerg'),
     );
-    const allergyGateEnabled = isAllergyGateEnabled();
+    const allergyGateEnabled = isAllergyGateEnabled;
 
     if (allergyGateEnabled && hasKitchenAllergy && !order.allergyConfirmation?.waiterConfirmed) {
       await firebaseService.updateItem('orders', orderId, {
@@ -224,18 +219,18 @@ export const KitchenDisplayView: React.FC = () => {
               {order.items.some(i => i.status === 'pending') && (
                 <button 
                   onClick={() => handleAcceptItems(order.id)}
-                  className="w-full bg-slate-900 text-white font-black py-4 rounded-xl hover:bg-slate-800 transition-all text-[10px] uppercase tracking-widest"
-                  title="Aceitar todos os itens pendentes da cozinha"
+                    className="w-full bg-slate-900 text-white font-black py-4 rounded-xl hover:bg-slate-800 transition-all text-[10px] uppercase tracking-widest"
+                    title="Iniciar produção de todos os itens da comanda"
                 >
-                  Aceitar Todos os Itens
+                    Iniciar Produção da Mesa
                 </button>
               )}
               {order.items.some(i => i.status === 'preparing') && (
                 <button 
                   onClick={() => handleMarkItemsReady(order.id)}
-                  className="w-full bg-emerald-500 text-white font-black py-4 rounded-xl hover:bg-emerald-400 transition-all text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-500/20"
+                    className="w-full bg-emerald-500 text-white font-black py-4 rounded-xl hover:bg-emerald-400 transition-all text-[10px] uppercase tracking-widest shadow-lg shadow-emerald-500/20"
                 >
-                  Marcar como Pronto
+                    Liberar para o Salão
                 </button>
               )}
             </div>

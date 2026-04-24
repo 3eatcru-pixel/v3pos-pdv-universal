@@ -14,9 +14,12 @@ import {
   deleteDoc,
   Timestamp,
   writeBatch,
-  runTransaction
+  runTransaction,
+  increment
 } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { db, auth, storage } from '../firebase';
+import { logger } from '../core/services/logger';
 import { authService } from '../auth/authService';
 import { 
   Staff, 
@@ -96,7 +99,7 @@ const handleFirestoreError = (error: any, operationType: FirestoreErrorInfo['ope
       return operationType === 'list' ? [] : null; // Return empty result instead of throwing
     }
 
-    console.error('Firestore Permission Denied:', errorInfo);
+    logger.error('core', 'Acesso negado ao Firestore', { ...errorInfo });
     throw new Error(JSON.stringify(errorInfo));
   }
   throw error;
@@ -135,6 +138,11 @@ const TENANT_SCOPED_COLLECTIONS = new Set([
   'thirdPartySyncJobs',
   'thirdPartyCatalogSyncJobs',
   'thirdPartyProductMappings',
+  'dailySummaries',
+  'forecasts',
+  'hr_checklists',
+  'dev_alerts',
+  'support_messages',
 ]);
 
 function getLocalTenantId(): string | null {
@@ -340,6 +348,93 @@ export const firebaseService = {
       return snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
     } catch (e) {
       return handleFirestoreError(e, 'list', colName);
+    }
+  },
+
+  reserveInventoryStocksAtomic: async (
+    items: { productId: string; quantity: number }[],
+    context: { enterpriseId: string }
+  ) => {
+    try {
+      await runTransaction(db, async (tx) => {
+        for (const item of items) {
+          const ref = doc(db, 'inventory', item.productId);
+          const snap = await tx.get(ref);
+          if (snap.exists()) {
+            const data = snap.data();
+            const currentReserved = Number(data.reservedStock) || 0;
+            tx.update(ref, { 
+              reservedStock: currentReserved + item.quantity,
+              updatedAt: Date.now() 
+            });
+          }
+        }
+      });
+    } catch (e) {
+      handleFirestoreError(e, 'update', 'inventory/reservation');
+    }
+  },
+
+  finalizeDeliveryStockAtomic: async (saleId: string, items: any[]) => {
+    try {
+      await runTransaction(db, async (tx) => {
+        for (const item of items) {
+          const ref = doc(db, 'inventory', item.productId);
+          const snap = await tx.get(ref);
+          if (snap.exists()) {
+            const data = snap.data();
+            const currentStock = Number(data.currentStock) || 0;
+            const currentReserved = Number(data.reservedStock) || 0;
+            tx.update(ref, { 
+              currentStock: Math.max(0, currentStock - item.quantity),
+              reservedStock: Math.max(0, currentReserved - item.quantity),
+              updatedAt: Date.now() 
+            });
+          }
+        }
+      });
+    } catch (e) {
+      handleFirestoreError(e, 'update', `inventory/finalize/${saleId}`);
+    }
+  },
+
+  updateDailySummaryAtomic: async (docId: string, data: { 
+    enterpriseId: string; 
+    shopId: string; 
+    date: string; 
+    amount: number; 
+    cost: number; 
+    hour: number 
+  }) => {
+    try {
+      const ref = doc(db, 'dailySummaries', docId);
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) {
+          tx.set(ref, {
+            ...data,
+            totalSales: data.amount,
+            totalCost: data.cost,
+            orderCount: 1,
+            hourlySales: { [data.hour]: data.amount },
+            updatedAt: Date.now()
+          });
+        } else {
+          const current = snap.data();
+          const hourlySales = { ...(current.hourlySales || {}) };
+          hourlySales[data.hour] = (hourlySales[data.hour] || 0) + data.amount;
+          
+          tx.update(ref, {
+            totalSales: increment(data.amount),
+            totalCost: increment(data.cost),
+            orderCount: increment(1),
+            hourlySales,
+            updatedAt: Date.now()
+          });
+        }
+      });
+    } catch (e) {
+      handleFirestoreError(e, 'update', `dailySummaries/${docId}`);
     }
   },
 
@@ -681,5 +776,25 @@ export const firebaseService = {
     } catch (e) {
       handleFirestoreError(e, 'create', 'auditLogs');
     }
-  }
+  },
+
+  uploadFile: async (path: string, file: File) => {
+    try {
+      const storageRef = ref(storage, path);
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      return { url, path: snapshot.ref.fullPath };
+    } catch (e) {
+      return handleFirestoreError(e, 'write', path);
+    }
+  },
+
+  deleteFile: async (path: string) => {
+    try {
+      const storageRef = ref(storage, path);
+      await deleteObject(storageRef);
+    } catch (e) {
+      handleFirestoreError(e, 'delete', path);
+    }
+  },
 };

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Utensils, ShoppingCart, Briefcase, Hammer, Tag, Check, X, Shield, Layout } from 'lucide-react';
+import { Utensils, ShoppingCart, Briefcase, Hammer, Tag, Check, X, Shield, Layout, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BusinessConfig } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { cn } from '../../lib/utils';
+import { logger } from '../services/logger';
 
+// Interface para o tipo de notificação
 interface ModuleManagementProps {
   enterpriseId: string;
   onClose: () => void;
@@ -14,7 +16,16 @@ export const ModuleManagement: React.FC<ModuleManagementProps> = ({ enterpriseId
   const [config, setConfig] = useState<BusinessConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
+  // Efeito para limpar notificações após um tempo
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+  
   useEffect(() => {
     let unsub = () => {};
     const loadConfig = async () => {
@@ -39,7 +50,7 @@ export const ModuleManagement: React.FC<ModuleManagementProps> = ({ enterpriseId
           setLoading(false);
         });
       } catch (error) {
-        console.error('Error loading business config:', error);
+        logger.error('module_management', 'Error loading business config', { enterpriseId, error });
         setLoading(false);
       }
     };
@@ -58,7 +69,7 @@ export const ModuleManagement: React.FC<ModuleManagementProps> = ({ enterpriseId
 
     // Mandatory: At least one module must be enabled? No, but good practice.
     if (newModules.length === 0) {
-      alert('Selecione pelo menos um módulo de negócio.');
+      setNotification({ type: 'error', message: 'Selecione pelo menos um módulo de negócio.' });
       setSaving(false);
       return;
     }
@@ -68,8 +79,10 @@ export const ModuleManagement: React.FC<ModuleManagementProps> = ({ enterpriseId
         enabledModules: newModules,
         updatedAt: Date.now()
       });
-    } catch (error) {
-      alert('Erro ao atualizar módulos. Verifique suas permissões.');
+      setNotification({ type: 'success', message: `Módulo ${isEnabled ? 'desativado' : 'ativado'}!` });
+    } catch (error: any) {
+      logger.error('module_management', 'Error updating modules', { enterpriseId, moduleId, error: error.message });
+      setNotification({ type: 'error', message: 'Erro ao atualizar módulos. Verifique suas permissões.' });
     } finally {
       setSaving(false);
     }
@@ -86,6 +99,23 @@ export const ModuleManagement: React.FC<ModuleManagementProps> = ({ enterpriseId
   return (
     <div className="fixed inset-0 z-[300] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
       <motion.div 
+        // Notification Toast
+        <AnimatePresence>
+          {notification && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className={cn(
+                "fixed top-10 left-1/2 -translate-x-1/2 z-[500] px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-black text-xs uppercase tracking-widest",
+                notification.type === 'success' ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
+              )}
+            >
+              {notification.type === 'success' ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+              {notification.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="bg-white rounded-[2.5rem] w-full max-w-4xl shadow-2xl overflow-hidden border border-white/20 flex flex-col max-h-[90vh]"

@@ -15,7 +15,8 @@ import {
   Calendar as CalendarIcon,
   Clock,
   History,
-  Truck
+  Truck,
+  AlertCircle
 } from 'lucide-react';
 import { startOfDay } from 'date-fns';
 import { RestaurantDashboard } from './RestaurantDashboard';
@@ -31,10 +32,12 @@ import { PendingOrdersView } from './PendingOrdersView';
 import { StaffScheduleView } from '../../../core/views/StaffScheduleView';
 import { GeneralStaffView } from '../../../core/views/GeneralStaffView';
 import { FinanceManagementView } from '../../../core/views/FinanceManagementView';
+import { AccountingDashboard } from '../../../core/views/AccountingDashboard';
 import { CompanyManagement } from '../../../core/views/CompanyManagement';
 import { OrderManagement } from './OrderManagement';
 import { ThirdPartyOrdersView } from './ThirdPartyOrdersView';
 import { BaseModuleLayout } from '../../../core/components/BaseModuleLayout';
+import { logger } from '../../../core/services/logger';
 import { useCollection } from '../../../hooks/useCollection';
 import { accountService } from '../../../core/services/accountService';
 import { firebaseService } from '../../../services/firebaseService';
@@ -78,6 +81,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
     { id: 'schedule', icon: <CalendarIcon />, label: 'Escala Staff', roles: ['owner', 'manager', 'dev'] },
     { id: 'safety', icon: <ShieldCheck />, label: 'Saúde & Segurança', roles: ['owner', 'manager', 'dev'] },
     { id: 'finance', icon: <DollarSign />, label: 'Financeiro', roles: ['owner', 'manager', 'dev'] },
+    { id: 'accounting', icon: <Landmark />, label: 'Contabilidade', roles: ['owner', 'dev'] },
     { id: 'management', icon: <Database />, label: 'Gestão da Unidade', roles: ['owner', 'dev'] },
   ];
 
@@ -105,7 +109,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
         inventory
       );
     } catch (error) {
-      console.error("Failed to adjust inventory:", error);
+      logger.error('restaurant', 'Falha ao ajustar estoque via layout', { error });
     }
   };
 
@@ -221,7 +225,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
       case 'pending_orders': return <PendingOrdersView onOpenThirdParty={() => setView('third_party_orders')} />;
       case 'third_party_orders': return <ThirdPartyOrdersView />;
       case 'history': return <RestaurantHistoryView />;
-      case 'kitchen': return <KitchenDisplayView type="kitchen" />;
+      case 'kitchen': return <KitchenDisplayView />;
       case 'bar': return <BarDisplayView />;
       case 'menu': return <MenuManagementView />;
       case 'inventory': return <InventoryManagementView module="restaurant" />;
@@ -230,6 +234,7 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
       case 'schedule': return <StaffScheduleView module="restaurant" />;
       case 'safety': return <RestaurantSafetyView />;
       case 'finance': return <FinanceManagementView module="restaurant" shopId={selectedShopId} />;
+      case 'accounting': return <AccountingDashboard />;
       case 'management': return <CompanyManagement />;
       default: return <TableMapView />;
     }

@@ -1,5 +1,6 @@
 import { logger } from './logger';
-import { CartItem } from '../../../useRetailCart';
+import { CartItem } from '../../modules/retail/hooks/useRetailCart';
+import { Product, InventoryItem } from '../../types';
 
 export interface InsumoAdjustment {
   inventoryItemId: string;
@@ -13,7 +14,7 @@ class BOMEngine {
    * Suporta produtos simples (baixa ele mesmo) e compostos (baixa ficha técnica).
    * Agora suporta Insumos Substitutos caso o principal esteja zerado.
    */
-  explodeCartToInsumos(cartItems: CartItem[], allProducts: any[], inventory: any[] = []): InsumoAdjustment[] {
+  explodeCartToInsumos(cartItems: CartItem[], allProducts: Product[], inventory: InventoryItem[] = []): InsumoAdjustment[] {
     const adjustments: InsumoAdjustment[] = [];
 
     cartItems.forEach(cartItem => {
@@ -28,9 +29,9 @@ class BOMEngine {
           
           // Lógica de Substituto: Se o estoque do insumo principal for <= 0 e houver um substituto no cadastro
           const invItem = inventory.find(i => i.id === insumoId);
-          if (invItem && invItem.stock <= 0 && invItem.substituteId) {
+          if (invItem && invItem.currentStock <= 0 && invItem.substituteId) {
             const subItem = inventory.find(i => i.id === invItem.substituteId);
-            if (subItem && subItem.stock > 0) {
+            if (subItem && subItem.currentStock > 0) {
               targetInsumoId = invItem.substituteId;
               logger.warn('inventory', 'Usando insumo substituto devido a falta de estoque', { 
                 original: invItem.name, 

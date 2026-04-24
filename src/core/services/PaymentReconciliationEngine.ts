@@ -5,6 +5,7 @@ export interface PaymentTransaction {
   id: string;
   saleId: string;
   amount: number;
+  shopId: string; // Adicionado shopId para permitir conciliação por loja
   method: 'card' | 'cash' | 'pix' | 'other';
   provider?: string; // ex: 'Stone', 'PagSeguro', 'MercadoPago'
   externalId?: string; // NSU ou ID da transação na maquininha/API
@@ -14,7 +15,7 @@ export interface PaymentTransaction {
 }
 
 class PaymentReconciliationEngine {
-  /**
+  /** 
    * Registra uma tentativa de pagamento vinculando metadados da 'máquina'
    */
   async registerPayment(data: Omit<PaymentTransaction, 'status' | 'timestamp'>) {
@@ -38,11 +39,15 @@ class PaymentReconciliationEngine {
    */
   async reconcileWithProviderReport(externalReport: any[]) {
     const ledger = await firebaseService.getAllDocs('payment_ledger');
+    
+    // Otimização: Criar um mapa para busca O(1) em vez de O(n) dentro do loop
+    const ledgerMap = new Map(ledger.map(l => [l.externalId, l]));
+    
     const results = { matched: 0, missing: 0, totalAmount: 0 };
 
     for (const entry of externalReport) {
       // Procura no nosso banco por NSU ou ID Externo
-      const localMatch = ledger.find(l => l.externalId === entry.nsu || l.externalId === entry.id);
+      const localMatch = ledgerMap.get(entry.nsu) || ledgerMap.get(entry.id);
       
       if (localMatch) {
         await firebaseService.updateItem('payment_ledger', localMatch.id, { 
@@ -64,7 +69,7 @@ class PaymentReconciliationEngine {
    * Gera resumo de fechamento de caixa (X Report)
    */
   async getCashierSummary(shopId: string) {
-    const logs = await firebaseService.getAllDocs('payment_ledger');
+    const logs = (await firebaseService.getAllDocs('payment_ledger')).filter(l => l.shopId === shopId); // Filtra por shopId
     return {
       totalPix: logs.filter(l => l.method === 'pix').reduce((a, b) => a + b.amount, 0),
       totalCard: logs.filter(l => l.method === 'card').reduce((a, b) => a + b.amount, 0),

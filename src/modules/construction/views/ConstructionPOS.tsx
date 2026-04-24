@@ -12,6 +12,7 @@ import { CheckCircle2, AlertCircle, FileText } from 'lucide-react';
 import { cashierEngine, CashierSession } from '../../../core/services/CashierEngine';
 import { paymentReconciliationEngine } from '../../../core/services/PaymentReconciliationEngine';
 import { businessHoursEngine } from '../../../core/services/BusinessHoursEngine';
+import { constructionLogisticsService } from '../services/ConstructionLogisticsService';
 import { RetailPOS } from '../../retail/views/RetailPOS';
 import { useCollection } from '../../../hooks/useCollection';
 import { BusinessConfig, Order } from '../../../types';
@@ -59,10 +60,13 @@ export const ConstructionPOS: React.FC = () => {
       setNotification({ type: 'error', message: 'Adicione itens para continuar' });
       return;
     }
-    if (isDeliveryMode && (!deliveryDate || !address)) {
-      setNotification({ type: 'error', message: 'Preencha a data e endereço de entrega.' });
+
+    const validation = constructionLogisticsService.validateLogistics(isDeliveryMode, deliveryDate, address);
+    if (!validation.isValid) {
+      setNotification({ type: 'error', message: validation.error! });
       return;
     }
+
     if (loadingConfigs) return; // Wait for configs to load
 
     if (!cashierSession && config?.enforceCashier) {
@@ -84,14 +88,17 @@ export const ConstructionPOS: React.FC = () => {
       module: 'construction',
       onSuccess: async (payments) => {
         try {
-          const saleId = `construction_sale_${Date.now()}`;
+          // Lógica: Geração de ID com entropia para evitar colisões em sync P2P
+          const saleId = `cs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
           for (const p of payments) {
             if (p.transactionId) {
+              const transactionId = `tr_${saleId}_${p.method}`;
               await paymentReconciliationEngine.registerPayment({
-                id: `tr_${Date.now()}`,
+                id: transactionId,
                 saleId: saleId,
                 amount: p.amount,
+                shopId: shopId!,
                 method: p.method as any,
                 externalId: p.transactionId,
                 provider: p.cardBrand || 'LogisticsMachine'
@@ -99,17 +106,13 @@ export const ConstructionPOS: React.FC = () => {
             }
           }
 
-          const logisticsData = isDeliveryMode ? {
-            type: 'scheduled_delivery',
-            status: 'pending_logistics',
-            scheduledFor: deliveryDate,
-            address: address
-          } : { type: 'immediate_pickup', status: 'delivered' };
+          const logisticsData = constructionLogisticsService.prepareLogistics(isDeliveryMode, deliveryDate, address);
 
           const saleData = {
             id: saleId,
             items: cart.map(item => ({
               productId: item.id, name: item.name, quantity: item.quantity, unitPrice: item.price,
+              cost: item.cost, // Essencial para o cálculo de CMV no DRE
               variation: item.variation, totalPrice: item.price * item.quantity,
               unitType: item.unitType, metadata: item.metadata, notes: item.notes,
               staffId: currentUser?.id
@@ -128,6 +131,9 @@ export const ConstructionPOS: React.FC = () => {
 
           await retailService.processSale(saleData); // Reutiliza o retailService para processar a venda
           
+          // Notifica expedição se for entrega agendada
+          void constructionLogisticsService.notifyExpedition(saleId, logisticsData);
+
           // Unificação: Vincula venda ao caixa para conferência de saldo
           if (cashierSession) {
             void cashierEngine.addTransactionToSession(cashierSession.id, total, saleId);
@@ -188,13 +194,13 @@ export const ConstructionPOS: React.FC = () => {
             onClick={() => setIsDeliveryMode(false)}
             className={cn("px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all", !isDeliveryMode ? "bg-amber-500 text-white shadow-md" : "text-slate-400")}
           >
-            Retirada Loja
+            Pronta Entrega / Balcão
           </button>
           <button 
             onClick={() => setIsDeliveryMode(true)}
             className={cn("px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all", isDeliveryMode ? "bg-amber-500 text-white shadow-md" : "text-slate-400")}
           >
-            Entrega Obra
+            Agendar Frete / Obra
           </button>
         </div>
       </div>
@@ -240,9 +246,12 @@ export const ConstructionPOS: React.FC = () => {
 
               <div className="p-4 bg-amber-50 rounded-2xl flex items-start gap-3">
                 <ClipboardList className="w-5 h-5 text-amber-500 shrink-0" />
-                <p className="text-[10px] text-amber-700 font-bold leading-relaxed">
-                  O estoque será reservado no sistema e o romaneio de carga será enviado automaticamente para a expedição.
-                </p>
+                <div>
+                  <p className="text-[10px] text-amber-700 font-black uppercase mb-1">Reserva de Mercadoria</p>
+                  <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
+                    Os itens serão bloqueados para venda. O romaneio de carga será enviado para a expedição do pátio.
+                  </p>
+                </div>
               </div>
             </motion.div>
           )}

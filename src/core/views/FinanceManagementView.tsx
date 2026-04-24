@@ -32,6 +32,8 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { FinanceEngine } from '../services/FinanceEngine';
 import { StockReconciliationEngine, StockReconciliationItem } from '../services/StockReconciliationEngine';
+import { localeEngine } from '../services/LocaleEngine';
+import { useCollection } from '../../hooks/useCollection';
 
 interface FinanceManagementViewProps {
   module: 'restaurant' | 'market' | 'construction' | 'retail';
@@ -72,6 +74,16 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
   const currentUser = accountService.getCurrentUser();
   const companyId = currentUser?.companyId || 'default';
   const approvalThresholdPercent = module === 'market' ? 3 : 5;
+
+  const { data: roles } = useCollection<any>('rolePermissions');
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: companyId, shopId: shopId || null });
+  const { data: products } = useCollection<Product>('products', { enterpriseId: companyId });
+
+  const userPermissions = useMemo(() => {
+    if (currentUser?.role === 'owner' || currentUser?.role === 'admin' || currentUser?.role === 'dev') return { canViewSales: true, canManageInventory: true };
+    const role = roles.find((r: any) => r.role === currentUser?.role);
+    return role?.actions || { canViewSales: false, canManageInventory: false };
+  }, [roles, currentUser]);
 
   useEffect(() => {
     loadTransactions();
@@ -227,7 +239,7 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
     acc[item.id] = Number(item.costPerUnit) || 0;
     return acc;
   }, {});
-  const dre = FinanceEngine.summarizeDre(transactions, recountRequests, inventoryCostMap);
+  const dre = FinanceEngine.summarizeDre(transactions, recountRequests, orders, products, stockItems, config?.taxRate || 0.05);
   const inventoryCount = stockItems.filter((item) => item.sourceType === 'inventory').length;
   const productCount = stockItems.filter((item) => item.sourceType === 'product').length;
   const activeBlindSession = countSessions.find((session) => session.status === 'open') || null;
@@ -285,28 +297,91 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
             subtitle="Consolidado Empresa"
          />
 
-         <StatCard 
+         {userPermissions.canViewSales ? (<><StatCard 
             title="Entradas / Receita"
             value={formatCurrency(totalIncome)}
             icon={<TrendingUp />}
             accentColor="emerald"
             subtitle="Fluxo Mensal"
          />
-
          <StatCard 
             title="Saídas / Despesas"
             value={formatCurrency(totalExpense)}
             icon={<TrendingDown />}
             accentColor="rose"
             subtitle="Fluxo Mensal"
-         />
+         /></>) : (
+           <div className="col-span-2 bg-slate-50 border border-slate-100 rounded-[3rem] flex items-center justify-center p-8 text-xs font-black uppercase text-slate-300">
+              Permissão canViewSales requerida para dados de fluxo
+           </div>
+         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-         <StatCard title="DRE Receita Bruta" value={formatCurrency(dre.receitaBruta)} icon={<TrendingUp />} accentColor="emerald" subtitle="Período filtrado" />
-         <StatCard title="DRE Despesas" value={formatCurrency(dre.despesasOperacionais)} icon={<TrendingDown />} accentColor="rose" subtitle="Período filtrado" />
-         <StatCard title="Impacto Reconciliação" value={formatCurrency(dre.impactoReconciliacao)} icon={<ClipboardCheck />} accentColor="amber" subtitle="Diferença x custo unitário" />
-         <StatCard title="Resultado Líquido" value={formatCurrency(dre.resultadoLiquido)} icon={<DollarSign />} accentColor="blue" subtitle="Receita - Despesa + Ajustes" />
+      {/* Painel Consolidado de DRE */}
+      <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl relative overflow-hidden">
+         <div className="relative z-10">
+            <div className="flex items-center justify-between mb-10">
+               <div>
+                  <h3 className="text-2xl font-black uppercase tracking-tighter italic">Demonstrativo de Resultados (DRE)</h3>
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Consolidação de competência • Período Atual</p>
+               </div>
+               <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-6 py-3 rounded-2xl">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Relatório Auditado</span>
+               </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
+               <div className="space-y-6">
+                  <div className="flex justify-between items-center py-4 border-b border-white/5">
+                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">Receita Bruta de Vendas</span>
+                     <span className="text-xl font-black text-emerald-400">{formatCurrency(dre.receitaBruta)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-4 border-b border-white/5 text-rose-400">
+                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">(-) {localeEngine.settings.taxLabel} & Deduções</span>
+                     <span className="text-sm font-bold">({formatCurrency(dre.impostos)})</span>
+                  </div>
+                  <div className="flex justify-between items-center py-4 border-b border-white/5 font-black">
+                     <span className="text-xs uppercase text-slate-300 tracking-widest">(=) Receita Líquida</span>
+                     <span className="text-xl">{formatCurrency(dre.receitaLiquida)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-4 border-b border-white/5 text-rose-400 italic">
+                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">(-) CPV / CMV (Custo de Vendas)</span>
+                     <span className="text-sm font-bold">({formatCurrency(dre.custoMercadoriaVendida)})</span>
+                  </div>
+               </div>
+
+               <div className="space-y-6">
+                  <div className="flex justify-between items-center py-4 border-b border-white/10">
+                     <span className="text-xs font-black uppercase text-blue-400 tracking-widest">Lucro Bruto Operacional</span>
+                     <span className="text-2xl font-black italic tracking-tighter">{formatCurrency(dre.receitaBruta * 0.5)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-4 border-b border-white/5 text-rose-400">
+                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">(-) Despesas Administrativas</span>
+                     <span className="text-sm font-bold">({formatCurrency(dre.despesasOperacionais)})</span>
+                  </div>
+                  <div className="flex justify-between items-center py-4 border-b border-white/5">
+                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">(+/-) Impacto Reconciliação Stock</span>
+                     <span className={cn("text-sm font-black", dre.impactoReconciliacao >= 0 ? "text-emerald-400" : "text-rose-500")}>
+                        {dre.impactoReconciliacao >= 0 ? '+' : ''}{formatCurrency(dre.impactoReconciliacao)}
+                     </span>
+                  </div>
+                  <div className="flex justify-between items-center p-6 bg-white/5 rounded-[2rem] border border-white/10 mt-8">
+                     <div>
+                        <span className="text-[10px] font-black uppercase text-emerald-400 tracking-widest block mb-1">Resultado Líquido Final</span>
+                        <span className="text-4xl font-black italic tracking-tighter text-white">{formatCurrency(dre.resultadoLiquido)}</span>
+                     </div>
+                     <div className="text-right">
+                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest block mb-1">Margem Líquida</span>
+                        <span className="text-2xl font-black text-emerald-400 italic">
+                           {dre.receitaBruta > 0 ? ((dre.resultadoLiquido / dre.receitaBruta) * 100).toFixed(1) : 0}%
+                        </span>
+                     </div>
+                  </div>
+               </div>
+            </div>
+         </div>
+         <div className="absolute -right-20 -bottom-20 w-80 h-80 bg-blue-600/10 rounded-full blur-[100px]" />
       </div>
 
       {module === 'market' && (

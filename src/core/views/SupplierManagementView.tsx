@@ -272,7 +272,7 @@ export const SupplierManagementView: React.FC<SupplierManagementViewProps> = ({ 
                             <div className="space-y-10">
                                <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden">
                                   <h5 className="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-4">Volume Compra (ANUAL)</h5>
-                                  <p className="text-4xl font-black italic tracking-tighter">R$ 145.420,00</p>
+                                  <p className="text-4xl font-black italic tracking-tighter">{formatCurrency(145420)}</p>
                                   <p className="text-[9px] font-medium text-slate-400 mt-2 italic capitalize">Frequência: Semanal (Bebidas)</p>
                                </div>
                                

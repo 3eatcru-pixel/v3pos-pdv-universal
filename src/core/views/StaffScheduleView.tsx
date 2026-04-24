@@ -28,6 +28,7 @@ import { ptBR } from 'date-fns/locale';
 import { Shift, Staff } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
+import { logger } from '../services/logger';
 import { useCollection } from '../../hooks/useCollection';
 import { cn } from '../../lib/utils';
 
@@ -145,8 +146,9 @@ export const StaffScheduleView: React.FC<StaffScheduleViewProps> = ({ module }) 
       }
       setIsModalOpen(false);
       setEditingShift(null);
+      logger.info('staff', 'Escala de turno salva', { staffId: shiftData.staffId, area: shiftData.area });
     } catch (error) {
-      console.error('Error saving shift:', error);
+      logger.error('staff', 'Erro ao salvar escala de turno', { error });
     }
   };
 

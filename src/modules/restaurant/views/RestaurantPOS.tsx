@@ -9,10 +9,11 @@ import { accountService } from '../../../core/services/accountService';
 import { motion, AnimatePresence } from 'motion/react';
 import { logger } from '../../../core/services/logger';
 import { useCollection } from '../../../hooks/useCollection';
-import { Product, Order, BusinessConfig } from '../../../types';
+import { Product, Order, BusinessConfig, Table } from '../../../types';
 import { cashierEngine, CashierSession } from '../../../core/services/CashierEngine';
 import { paymentReconciliationEngine } from '../../../core/services/PaymentReconciliationEngine';
 import { retailService } from '../../retail/services/retailService';
+import { businessHoursEngine } from '../../../core/services/BusinessHoursEngine'; // Correção de casing
 
 export const RestaurantPOS: React.FC = () => {
   const [selectedTable, setSelectedTable] = useState<string>('');
@@ -27,6 +28,7 @@ export const RestaurantPOS: React.FC = () => {
 
   const { data: products } = useCollection<Product>('products', { enterpriseId: enterpriseId || null, shopId: shopId || null });
   const { data: allOrders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: tables } = useCollection<Table>('tables', { enterpriseId: enterpriseId || null, shopId: shopId || null });
   const { data: businessConfigs, loading: loadingConfigs } = useCollection<BusinessConfig>('businessConfigs', { enterpriseId: enterpriseId || null });
 
   // Notification useEffect
@@ -106,7 +108,8 @@ export const RestaurantPOS: React.FC = () => {
     });
 
     // Atualiza status localmente para evitar reenvio
-    pendingItems.forEach(item => updateItemStatus(item.id, 'production', item.variation, item.notes));
+    // Lógica: 'preparing' é o status padrão esperado pelo KDS/Bar e motor de notificações
+    pendingItems.forEach(item => updateItemStatus(item.id, 'preparing', item.variation, item.notes));
 
     logger.info('restaurant', 'Pedido enviado à produção', { table: selectedTable, isTakeaway, takeawayNumber });
     setNotification({ type: 'success', message: isTakeaway ? `Pedido #${takeawayNumber} na cozinha!` : 'Pedido enviado!' });
@@ -144,15 +147,17 @@ export const RestaurantPOS: React.FC = () => {
       module: 'restaurant',
       onSuccess: async (payments) => {
         try {
-          const saleId = `res_${Date.now()}`;
+          const saleId = `res_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
           // Registro para Reconciliação Bancária Unificada
           for (const p of payments) {
             if (p.transactionId || p.method !== 'cash') {
+              const transactionId = `tr_${saleId}_${p.method}_${Math.random().toString(36).substr(2, 4)}`; // ID mais robusto
               await paymentReconciliationEngine.registerPayment({
-                id: `tr_${Date.now()}`,
+                id: transactionId,
                 saleId: saleId,
                 amount: p.amount,
+                shopId: shopId!, // Passa o shopId para a transação de pagamento
                 method: p.method as any,
                 externalId: p.transactionId || 'MANUAL',
                 provider: p.cardBrand || 'RestaurantPOS'
@@ -247,21 +252,47 @@ export const RestaurantPOS: React.FC = () => {
           </div>
           
           {!isTakeaway && (
-            <div className="grid grid-cols-8 gap-2">
-              {['01', '02', '03', '04', '05', '06', '07', '08'].map(table => (
-                <button
-                  key={table}
-                  onClick={() => setSelectedTable(table)}
-                  className={cn(
-                    "h-10 w-10 rounded-xl font-black transition-all border-2 text-[10px]",
-                    selectedTable === table 
-                      ? "bg-orange-500 border-orange-500 text-white shadow-lg" 
-                      : "bg-slate-50 border-transparent text-slate-400 hover:border-slate-200"
-                  )}
-                >
-                  {table}
-                </button>
-              ))}
+            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-4 max-w-full overflow-x-auto p-2">
+              {tables.sort((a, b) => a.number - b.number).map(table => {
+                const tableNo = table.number.toString().padStart(2, '0');
+                const isSelected = selectedTable === tableNo;
+                
+                // Lógica: Verifica se há pedidos ativos para esta mesa
+                const activeOrder = allOrders?.find(o => 
+                  o.tableId === tableNo && 
+                  ['pending', 'preparing', 'ready'].includes(o.status)
+                );
+                const isOccupied = !!activeOrder;
+
+                return (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    key={table.id}
+                    onClick={() => setSelectedTable(tableNo)}
+                    className={cn(
+                      "relative h-16 w-16 rounded-2xl font-black transition-all border-4 flex flex-col items-center justify-center gap-1 shadow-sm",
+                      isSelected 
+                        ? "bg-orange-500 border-orange-300 text-white shadow-orange-500/20 scale-110 z-10" 
+                        : isOccupied
+                          ? "bg-slate-800 border-slate-700 text-orange-400"
+                          : "bg-white border-slate-100 text-slate-400 hover:border-orange-200"
+                    )}
+                  >
+                    <span className="text-[10px] leading-none uppercase opacity-60">Mesa</span>
+                    <span className="text-lg leading-none tracking-tighter italic">{tableNo}</span>
+                    
+                    {/* Indicador visual de ocupação/consumo */}
+                    {isOccupied && !isSelected && (
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full border-2 border-white animate-pulse" />
+                    )}
+                    
+                    {/* Sombra de profundidade para parecer um móvel */}
+                    <div className="absolute inset-x-2 bottom-1 h-1 bg-black/10 rounded-full blur-[2px]" />
+                  </motion.button>
+                );
+              })}
+              {tables.length === 0 && <p className="text-[10px] text-slate-400 italic">Nenhuma mesa configurada</p>}
             </div>
           )}
         </div>
@@ -309,9 +340,16 @@ export const RestaurantPOS: React.FC = () => {
            {cart.map((item, i) => (
              <div key={i} className="flex justify-between items-start border-b border-white/10 pb-4 group">
                 <div>
-                  <p className="text-xs font-black uppercase">{item.name}</p>
+                  <div className="flex items-center gap-2">
+                    <div className={cn(
+                      "w-2 h-2 rounded-full",
+                      item.status === 'pending' ? "bg-red-500 animate-pulse" :
+                      item.status === 'preparing' ? "bg-amber-400" : "bg-emerald-500"
+                    )} />
+                    <p className="text-xs font-black uppercase">{item.name}</p>
+                  </div>
                   {item.notes && <p className="text-[9px] text-orange-300 italic">*{item.notes}</p>}
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-2">
                      <button onClick={() => updateCartQuantity(item.id, -1)} className="text-white/40 hover:text-white"><Minus className="w-3 h-3" /></button>
                      <span className="text-[10px] font-black">{item.quantity}</span>
                      <button onClick={() => updateCartQuantity(item.id, 1)} className="text-white/40 hover:text-white"><Plus className="w-3 h-3" /></button>
@@ -327,7 +365,7 @@ export const RestaurantPOS: React.FC = () => {
 
         <div className="space-y-3">
           <button 
-            onClick={handleSendToProduction}
+            onClick={handleSendToKitchen}
             className="w-full py-4 bg-white text-slate-900 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-orange-400 hover:text-white transition-all"
           >
             <Send className="w-4 h-4" /> Cozinha / Bar

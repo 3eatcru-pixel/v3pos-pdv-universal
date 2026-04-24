@@ -1,101 +1,79 @@
-import { firebaseService } from '../../services/firebaseService';
-import type { RecountRequest, Transaction } from '../../types';
-
-export interface CreateTransactionInput {
-  enterpriseId: string;
-  shopId: string | null;
-  module: Transaction['module'];
-  staffId: string;
-  staffName: string;
-  type: Transaction['type'];
-  amount: number;
-  category: string;
-  description: string;
-  date?: string;
-}
-
-export interface FinanceSummary {
-  totalIncome: number;
-  totalExpense: number;
-  balance: number;
-}
-
-export interface DreSummary {
-  receitaBruta: number;
-  despesasOperacionais: number;
-  impactoReconciliacao: number;
-  resultadoLiquido: number;
-}
+import { Transaction, RecountRequest, Order, Product } from '../../types';
+import { bomEngine } from './BOMEngine';
+import { StockReconciliationItem } from './StockReconciliationEngine';
 
 export class FinanceEngine {
-  static async listTransactions(enterpriseId: string, shopId: string | null): Promise<Transaction[]> {
-    const data = await firebaseService.getAllDocs('transactions', enterpriseId, shopId);
-    return (data as Transaction[]).sort((a, b) => b.timestamp - a.timestamp);
+  static summarize(transactions: Transaction[]) {
+    const totalIncome = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+    const totalExpense = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+    return { totalIncome, totalExpense, balance: totalIncome - totalExpense };
   }
 
-  static buildTransactionPayload(input: CreateTransactionInput): Transaction {
-    return {
-      id: `trans-${Math.random().toString(36).slice(2, 11)}`,
-      enterpriseId: input.enterpriseId,
-      shopId: input.shopId || undefined,
-      type: input.type,
-      amount: Math.max(0, input.amount),
-      category: input.category.trim(),
-      description: input.description.trim(),
-      timestamp: input.date ? new Date(input.date).getTime() : Date.now(),
-      status: 'completed',
-      module: input.module,
-      paymentMethod: 'other',
-      staffId: input.staffId,
-      staffName: input.staffName,
-    };
-  }
-
-  static async createTransaction(input: CreateTransactionInput): Promise<Transaction> {
-    const payload = this.buildTransactionPayload(input);
-    await firebaseService.saveItem('transactions', payload.id, payload);
-    return payload;
-  }
-
-  static summarize(transactions: Transaction[]): FinanceSummary {
-    const totalIncome = transactions.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-    const totalExpense = transactions.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-    return {
-      totalIncome,
-      totalExpense,
-      balance: totalIncome - totalExpense,
-    };
-  }
-
-  static summarizeDre(transactions: Transaction[], recountRequests: RecountRequest[], inventoryCostMap: Record<string, number>): DreSummary {
-    const receitaBruta = transactions.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-    const despesasOperacionais = transactions.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-    const impactoReconciliacao = recountRequests.reduce((sum, recount) => {
-      if (typeof recount.varianceValue === 'number') {
-        return sum + recount.varianceValue;
-      }
-      const cost = typeof recount.costPerUnit === 'number' ? recount.costPerUnit : (inventoryCostMap[recount.itemId] ?? 0);
-      const diff = recount.newStock - recount.previousStock;
-      return sum + diff * cost;
-    }, 0);
-
-    return {
-      receitaBruta,
-      despesasOperacionais,
-      impactoReconciliacao,
-      resultadoLiquido: receitaBruta - despesasOperacionais + impactoReconciliacao,
-    };
-  }
-
-  static filterTransactions(transactions: Transaction[], filterType: 'all' | 'income' | 'expense', searchTerm: string): Transaction[] {
-    const normalizedTerm = searchTerm.trim().toLowerCase();
-    return transactions.filter((t) => {
-      const matchesSearch =
-        normalizedTerm.length === 0 ||
-        t.description.toLowerCase().includes(normalizedTerm) ||
-        t.category.toLowerCase().includes(normalizedTerm);
-      const matchesType = filterType === 'all' || t.type === filterType;
-      return matchesSearch && matchesType;
+  static filterTransactions(transactions: Transaction[], type: 'all' | 'income' | 'expense', term: string) {
+    return transactions.filter(t => {
+      const matchesType = type === 'all' || t.type === type;
+      const matchesTerm = t.description.toLowerCase().includes(term.toLowerCase()) || t.category.toLowerCase().includes(term.toLowerCase());
+      return matchesType && matchesTerm;
     });
+  }
+
+  /**
+   * Calcula o DRE consolidado cruzando vendas, ficha técnica (BOM) e perdas de estoque.
+   */
+  static summarizeDre(
+    transactions: Transaction[], 
+    recounts: RecountRequest[], 
+    orders: Order[], 
+    products: Product[], 
+    inventory: StockReconciliationItem[],
+    taxRate: number = 0.05
+  ) {
+    // 1. Receita Bruta (Apenas entradas categorizadas como venda ou serviço)
+    const receitaBruta = transactions
+      .filter(t => t.type === 'income')
+      .reduce((acc, t) => acc + t.amount, 0);
+
+    // 2. Despesas Operacionais (Fixas e Variáveis Administrativas)
+    const despesasOperacionais = transactions
+      .filter(t => t.type === 'expense')
+      .reduce((acc, t) => acc + t.amount, 0);
+
+    // 3. CMV Real: Explodimos cada pedido entregue via BOM para somar o custo dos insumos consumidos
+    const custoMercadoriaVendida = orders
+      .filter(o => o.status === 'delivered')
+      .reduce((acc, order) => {
+        const adjustments = bomEngine.explodeCartToInsumos(
+          order.items.map(i => ({ ...i, id: i.productId })),
+          products,
+          inventory as any
+        );
+        
+        const costOfOrder = adjustments.reduce((sum, adj) => {
+          const item = inventory.find(i => i.id === adj.inventoryItemId);
+          return sum + (adj.quantityToDeduct * (item?.costPerUnit || 0));
+        }, 0);
+
+        return acc + costOfOrder;
+      }, 0);
+
+    // 4. Impacto de Reconciliação (Quebras/Perdas identificadas em contagens)
+    const impactoReconciliacao = recounts.reduce((acc, r) => acc + (r.varianceValue || 0), 0);
+
+    // 5. Impostos e Deduções
+    const impostos = receitaBruta * taxRate;
+    const receitaLiquida = receitaBruta - impostos;
+
+    // 5. Resultado Líquido Final
+    const resultadoLiquido = receitaLiquida - despesasOperacionais - custoMercadoriaVendida + impactoReconciliacao;
+
+    return { 
+      receitaBruta, 
+      impostos, 
+      receitaLiquida, 
+      despesasOperacionais, 
+      custoMercadoriaVendida, 
+      impactoReconciliacao, 
+      resultadoLiquido 
+    };
   }
 }

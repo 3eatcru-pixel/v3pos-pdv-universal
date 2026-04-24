@@ -27,11 +27,11 @@ class CoreSyncService {
           [{ productId, quantity }],
           { enterpriseId: this.companyId }
         );
-        logger.log('core', 'STOCK_SYNC_CLOUD_SUCCESS', { productId, quantity });
-      } catch (err) {
-        logger.log('core', 'STOCK_SYNC_CLOUD_FAILED', { productId, quantity, error: err });
+        logger.info('core', 'STOCK_SYNC_CLOUD_SUCCESS', { productId, quantity });
+      } catch (error) {
+        logger.error('core', 'STOCK_SYNC_CLOUD_FAILED', { productId, quantity, error });
       }
-
+      
       // P2P Mesh Sync
       meshNetwork.emitEvent('STOCK_UPDATE', { 
         productId, 
@@ -51,8 +51,8 @@ class CoreSyncService {
       // Cloud Sync
       try {
         await firebaseService.saveItem('products', product.id, product);
-      } catch (err) {
-        console.error('Failed to sync product to cloud', err);
+      } catch (error) {
+        logger.error('core', 'Failed to sync product to cloud', { productId: product.id, error });
       }
     });
 
@@ -64,8 +64,8 @@ class CoreSyncService {
       
       try {
         await firebaseService.saveItem('sales', sale.id, sale);
-      } catch (err) {
-        console.error('Failed to sync sale to cloud', err);
+      } catch (error) {
+        logger.error('core', 'Failed to sync sale to cloud', { saleId: sale.id, error });
       }
     });
   }

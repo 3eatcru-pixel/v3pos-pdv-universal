@@ -13,7 +13,7 @@ export class InventoryEngine {
    * Supports complex compositions (combos/kits) and yield factors.
    */
   static async adjustStockRecursive(
-    items: { id: string; quantity: number; composition?: any }[],
+    items: { id: string; quantity: number; name?: string; composition?: any }[],
     multiplier: number, // 1 for deduction, -1 for return
     enterpriseId: string,
     shopId: string,
@@ -28,11 +28,17 @@ export class InventoryEngine {
           resolveItem(comp, qty * (comp.quantity || 1));
         });
       } else {
+        // Auditoria: Ignorar itens marcados como serviço ou sem controle de estoque
+        if (item.type === 'service' || item.trackStock === false) {
+          logger.debug('core', 'Ignorando ajuste de estoque para item não estocável', { name: item.name });
+          return;
+        }
+
         // Try to find in inventory first (Ingredients)
         const invItem = inventory.find(i => 
           i.id === item.inventoryItemId || 
           i.id === item.id || 
-          i.name.toLowerCase() === item.name.toLowerCase()
+          (item.name && i.name.toLowerCase() === item.name.toLowerCase())
         );
 
         if (invItem) {
@@ -103,11 +109,37 @@ export class InventoryEngine {
           });
         });
 
-        logger.log('core', 'INVENTORY_ADJUSTMENT_SUCCESS', { count: adjustments.length });
+        logger.info('core', 'INVENTORY_ADJUSTMENT_SUCCESS', { count: adjustments.length });
       } catch (error) {
-        logger.log('core', 'INVENTORY_ADJUSTMENT_FAILED', { error });
+        logger.error('core', 'INVENTORY_ADJUSTMENT_FAILED', { error });
         throw error;
       }
+    }
+  }
+
+  /**
+   * Realiza um ajuste manual direto no item de inventário ou produto.
+   * Utiliza transação para garantir que o cálculo seja baseado no valor mais recente do servidor.
+   */
+  static async manualAdjustment(itemId: string, delta: number, collection: 'inventory' | 'products' = 'inventory') {
+    try {
+      await firebaseService.runTransaction(async (tx) => {
+        const ref = firebaseService.getDocRef(collection, itemId);
+        const snap = await tx.get(ref);
+        
+        if (snap.exists()) {
+          const data = snap.data();
+          const field = collection === 'inventory' ? 'currentStock' : 'stock';
+          const current = Number(data[field]) || 0;
+          const next = Math.max(0, current + delta);
+          
+          tx.update(ref, { [field]: next, updatedAt: Date.now() });
+        }
+      });
+      logger.info('core', 'MANUAL_INVENTORY_ADJUSTMENT_SUCCESS', { itemId, delta });
+    } catch (error) {
+      logger.error('core', 'MANUAL_INVENTORY_ADJUSTMENT_FAILED', { itemId, error });
+      throw error;
     }
   }
 }

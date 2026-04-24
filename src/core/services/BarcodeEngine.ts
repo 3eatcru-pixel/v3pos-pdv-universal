@@ -13,7 +13,8 @@ export class BarcodeEngine {
     const normalized = raw.replace(/\s+/g, '');
 
     // GS1 Digital Link (e.g. https://.../01/09506000134352)
-    const digitalLinkMatch = normalized.match(/\/01\/(\d{14})/);
+    // Auditoria: Expandido para capturar GTIN, Lote e Validade conforme padrão GS1 2025
+    const digitalLinkMatch = normalized.match(/\/01\/(\d{14})(?:\/10\/([^\/]+))?(?:\/17\/(\d{6}))?/);
     if (digitalLinkMatch) {
       return {
         raw,
@@ -60,4 +61,3 @@ export class BarcodeEngine {
     });
   }
 }
-
