@@ -504,11 +504,36 @@ export interface RecountRequest {
   shopId: string;
   itemId: string;
   itemName: string;
+  itemSourceType?: 'inventory' | 'product';
   previousStock: number;
   newStock: number;
+  adjustmentPercent?: number;
+  approvalRequired?: boolean;
+  approvedById?: string;
+  approvedByName?: string;
+  sessionId?: string;
+  costPerUnit?: number;
+  varianceValue?: number;
   comment: string;
   date: number;
   status: 'pending' | 'applied' | 'rejected';
+}
+
+export interface StockCountSession {
+  id: string;
+  enterpriseId: string;
+  shopId: string;
+  module: 'restaurant' | 'market' | 'construction' | 'retail';
+  mode: 'blind';
+  status: 'open' | 'closed';
+  openedAt: number;
+  openedById: string;
+  openedByName: string;
+  openSignature: string;
+  closedAt?: number;
+  closedById?: string;
+  closedByName?: string;
+  closeSignature?: string;
 }
 
 export interface InventoryItem {

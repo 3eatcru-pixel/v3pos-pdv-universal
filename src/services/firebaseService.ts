@@ -118,6 +118,7 @@ const TENANT_SCOPED_COLLECTIONS = new Set([
   'incidentReports',
   'notifications',
   'recountRequests',
+  'stockCountSessions',
   'businessConfigs',
   'staffSchedules',
   'rolePermissions',
