@@ -18,7 +18,10 @@ import {
   X,
   Wifi,
   WifiOff,
-  RefreshCw
+  RefreshCw,
+  FileText,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { firebaseService } from '../../../services/firebaseService';
@@ -28,19 +31,26 @@ import { retailService, RetailSyncStatus } from '../services/retailService';
 import { accountService } from '../../../core/services/accountService';
 import { BarcodeEngine } from '../../../core/services/BarcodeEngine';
 import { StockReconciliationEngine } from '../../../core/services/StockReconciliationEngine';
-
-interface CartItem {
-  id: string;
-  name: string;
-  price: number;
-  quantity: number;
-  variation?: string;
-}
+import { useRetailCart } from '../hooks/useRetailCart';
+import { logger } from '../../../core/services/logger';
+import { fiscalService } from '../../../core/services/fiscalService';
+import { paymentReconciliationEngine } from '../../../core/services/PaymentReconciliationEngine';
+import { cashierEngine, CashierSession } from '../../../core/services/CashierEngine';
+import { businessHoursEngine } from '../../../core/services/BusinessHoursEngine';
+import { BusinessConfig } from '../../../types';
+import { useCollection } from '../../../hooks/useCollection';
 
 type PaymentMethod = 'card' | 'cash' | 'pix';
 
-export const RetailPOS: React.FC = () => {
-  const [cart, setCart] = useState<CartItem[]>([]);
+interface RetailPOSProps {
+  externalAddToCart?: (product: any) => void;
+  hideCart?: boolean;
+}
+
+export const RetailPOS: React.FC<RetailPOSProps> = ({ externalAddToCart, hideCart = false }) => {
+  const { data: businessConfigs, loading: loadingConfigs } = useCollection<BusinessConfig>('businessConfigs', { enterpriseId: accountService.getCurrentCompanyId() || null });
+  const config = businessConfigs[0];
+  const { cart, subtotal, tax, total, handleAddToCart, removeFromCart, updateCartQuantity, clearCart } = useRetailCart(config?.taxRate || 0.05);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isQuickStockOpen, setIsQuickStockOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<RetailSyncStatus>({
@@ -55,6 +65,7 @@ export const RetailPOS: React.FC = () => {
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [selectedReconProductId, setSelectedReconProductId] = useState('');
   const [countedStockInput, setCountedStockInput] = useState('');
   const [reconcileComment, setReconcileComment] = useState('');
@@ -64,15 +75,16 @@ export const RetailPOS: React.FC = () => {
   const [returnSaleId, setReturnSaleId] = useState('');
   const [returnReason, setReturnReason] = useState('');
   const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
+  const [returnSuccessData, setReturnSuccessData] = useState<any>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [cashierSession, setCashierSession] = useState<CashierSession | null>(null);
+  const [isOpeningCashier, setIsOpeningCashier] = useState(false);
+  const [openingBalanceInput, setOpeningBalanceInput] = useState('0');
   const [returnSignature, setReturnSignature] = useState('');
   const currentUser = accountService.getCurrentUser();
   const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
   const shopId = accountService.getSelectedShopId();
   
-  const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-  const tax = subtotal * 0.05;
-  const total = subtotal + tax;
-
   useEffect(() => {
     if (!enterpriseId || !shopId) {
       setProducts([]);
@@ -86,6 +98,43 @@ export const RetailPOS: React.FC = () => {
 
     return () => unsub();
   }, [enterpriseId, shopId]);
+
+  const config = businessConfigs[0];
+
+  // Lógica de Orçamentos (Unificada para Construção/Varejo)
+  const handleSaveQuote = async () => {
+    if (cart.length === 0) return;
+    try {
+      const quoteId = `quote_${Date.now()}`;
+      const quoteData = {
+        id: quoteId,
+        items: cart,
+        total,
+        status: 'draft',
+        enterpriseId,
+        shopId,
+        staffId: currentUser?.id,
+        expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000) // 7 dias
+      };
+      await retailService.processSale({ ...quoteData, isQuote: true });
+      logger.info('retail', 'Orçamento salvo', { quoteId });
+      setNotification({ type: 'success', message: 'Orçamento salvo com sucesso!' });
+      clearCart();
+    } catch (err) {
+      logger.error('retail', 'Erro ao salvar orçamento', { err });
+      setNotification({ type: 'error', message: 'Falha ao salvar orçamento.' });
+    }
+  };
+
+  useEffect(() => {
+    const checkCashier = async () => {
+      if (shopId && currentUser) {
+        const session = await cashierEngine.getActiveSession(shopId, currentUser.id);
+        setCashierSession(session);
+      }
+    };
+    checkCashier();
+  }, [shopId, currentUser]);
 
   useEffect(() => {
     let isMounted = true;
@@ -103,41 +152,94 @@ export const RetailPOS: React.FC = () => {
       setSyncStatus(detail);
     };
 
+    const checkActiveSession = async () => {
+      if (!enterpriseId || !shopId) return;
+      const sessions = await StockReconciliationEngine.listCountSessions(enterpriseId, shopId);
+      const active = sessions.find(s => s.status === 'open');
+      if (isMounted) setActiveSessionId(active?.id || null);
+    };
+
     void loadSyncStatus();
     window.addEventListener('retail:sync-status', onSyncStatus as EventListener);
     const syncPolling = window.setInterval(() => {
       void loadSyncStatus();
     }, 5000);
 
+    void checkActiveSession();
+
     return () => {
       isMounted = false;
       window.removeEventListener('retail:sync-status', onSyncStatus as EventListener);
       window.clearInterval(syncPolling);
     };
-  }, []);
+  }, [enterpriseId, shopId]);
 
-  const handleAddToCart = (product: any) => {
-    const existing = cart.find(i => i.id === product.id);
-    if (existing) {
-      setCart(cart.map(i => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
-    } else {
-      setCart([...cart, { ...product, quantity: 1 }]);
+  const handleOpenCashier = async () => {
+    if (!shopId || !currentUser) return;
+    try {
+      const session = await cashierEngine.openCashier(
+        shopId, 
+        currentUser.id, 
+        currentUser.name || 'Operador', 
+        Number(openingBalanceInput)
+      );
+      setCashierSession(session);
+      setNotification({ type: 'success', message: 'Caixa aberto com sucesso!' });
+    } catch (err) {
+      setNotification({ type: 'error', message: 'Erro ao abrir caixa' });
     }
   };
 
-  const removeFromCart = (id: string) => {
-    setCart(cart.filter(i => i.id !== id));
+  // Lógica de Fechamento de Caixa (X-Report)
+  const handleCloseCashier = async () => {
+    if (!cashierSession) return;
+    const confirmClose = window.confirm("Deseja realmente fechar o caixa e encerrar o turno?");
+    if (!confirmClose) return;
+
+    try {
+      await cashierEngine.closeCashier(cashierSession.id, 0); // O saldo final viria de um input de conferência
+      setCashierSession(null);
+      setNotification({ type: 'success', message: 'Caixa fechado. Turno encerrado.' });
+      logger.info('finance', 'Fechamento de caixa realizado', { sessionId: cashierSession.id });
+    } catch (err) {
+      setNotification({ type: 'error', message: 'Erro ao fechar caixa.' });
+    }
   };
 
-  const updateCartQuantity = (id: string, delta: number) => {
-    setCart(prev => prev
-      .map(item => item.id === id ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item)
-      .filter(item => item.quantity > 0)
-    );
+  const processBalanceLabel = (query: string) => {
+    if (query.startsWith('2') && query.length === 13) {
+      const sku = query.substring(1, 6);
+      const dataPart = query.substring(7, 12);
+      const totalValue = parseInt(dataPart) / 100;
+      const product = products.find(p => p.sku === sku || p.id.includes(sku));
+      if (product && product.unitType === 'kg') {
+        const calculatedQty = parseFloat((totalValue / (product.price || 1)).toFixed(3));
+        return { ...product, calculatedQty, isWeightLabel: true };
+      }
+    }
+    return null;
   };
 
   const handleOpenPayment = () => {
-    if (cart.length === 0) return alert('Carrinho vazio!');
+    if (cart.length === 0) {
+      setNotification({ type: 'error', message: 'O carrinho está vazio.' });
+      return;
+    }
+
+    if (loadingConfigs) return;
+
+    // Regra Opcional: Abertura de Caixa
+    if (!cashierSession && config?.enforceCashier) {
+      setNotification({ type: 'error', message: 'Abra o caixa para vender.' });
+      return;
+    }
+
+    // Unificação: Validação de Horário de Funcionamento
+    const businessStatus = businessHoursEngine.isBusinessOpen(config?.businessHours || []); 
+    if (config?.enforceBusinessHours && !businessStatus.isOpen) {
+      setNotification({ type: 'error', message: businessStatus.reason || 'Estabelecimento fechado.' });
+      return;
+    }
 
     paymentService.requestPaymentUI({
       total: total,
@@ -147,34 +249,63 @@ export const RetailPOS: React.FC = () => {
       module: 'retail',
       onSuccess: async (payments) => {
         try {
-          for (const p of payments) {
-            await paymentService.processPayment({ 
-              amount: p.amount, 
-              method: p.method as any, 
-              module: 'retail' 
-            });
+          const saleId = `sale_${Date.now()}_${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
+
+          // Reconciliação Opcional: Apenas se houver ID de transação ou se o usuário estiver usando o plugin
+          const shouldReconcile = payments.some(p => p.transactionId);
+
+          if (shouldReconcile) {
+            for (const p of payments) {
+              await paymentReconciliationEngine.registerPayment({
+                id: `tr_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                saleId: saleId,
+                amount: p.amount,
+                method: p.method as any,
+                externalId: p.transactionId || 'MANUAL-INPUT',
+                provider: p.cardBrand || 'System'
+              });
+            }
           }
 
           const saleData = {
-            id: `sale_${Date.now()}_${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`,
+            id: saleId,
             items: cart.map((item) => ({
               productId: item.id,
               name: item.name,
               quantity: item.quantity,
               unitPrice: item.price,
+              unitType: item.unitType,
+              metadata: item.metadata,
+              status: item.status,
+              variation: item.variation,
               totalPrice: item.price * item.quantity,
             })),
             subtotal,
             tax,
             total,
+            enterpriseId,
+            shopId,
+            staffId: currentUser?.id,
             paymentMethod: payments.length > 1 ? 'split' : payments[0].method,
             createdAt: new Date().toISOString(),
           };
 
           await retailService.processSale(saleData);
-          setCart([]);
+          
+          // Emissão Fiscal Automática
+          void fiscalService.emitNFCe({
+            saleId: saleData.id,
+            items: saleData.items,
+            total: saleData.total,
+            payments: payments
+          });
+
+          logger.info('retail', 'Venda finalizada', { saleId: saleData.id, total }, currentUser?.id);
+          setNotification({ type: 'success', message: 'Venda realizada com sucesso!' });
+          clearCart();
         } catch (err) {
-          console.error('Error finalizing retail sale:', err);
+          logger.error('retail', 'Erro ao finalizar venda', { error: err }, currentUser?.id);
+          setNotification({ type: 'error', message: 'Erro ao processar venda.' });
           throw err;
         }
       }
@@ -208,6 +339,14 @@ export const RetailPOS: React.FC = () => {
 
   const handleBarcodeSubmit = () => {
     if (!searchQuery.trim()) return;
+    
+    const balanceProduct = processBalanceLabel(searchQuery);
+    if (balanceProduct) {
+      handleAddToCart(balanceProduct, { source: 'scale' }, balanceProduct.calculatedQty);
+      setSearchQuery('');
+      return;
+    }
+
     const parsed = BarcodeEngine.parse(searchQuery);
     const found = products.find((p) => BarcodeEngine.matchesProduct(parsed, p));
     if (found) {
@@ -215,7 +354,6 @@ export const RetailPOS: React.FC = () => {
       setSearchQuery('');
       return;
     }
-    alert('Codigo nao encontrado no cadastro de produtos.');
   };
 
   const handleQuickReturn = () => {
@@ -253,17 +391,22 @@ export const RetailPOS: React.FC = () => {
       }
       const status = await retailService.getSyncQueueStatus();
       setSyncStatus(status);
-      setIsReturnModalOpen(false);
-      setReturnSaleId('');
-      setReturnReason('');
-      setReturnSignature('');
-      alert(`Devolucao registrada com sucesso. Comprovante: ${proofId}`);
+      setReturnSuccessData({ proofId, timestamp: Date.now() });
+      logger.info('retail', 'Devolução processada', { originalSaleId: returnSaleId, proofId }, currentUser?.id);
     } catch (error) {
-      console.error('Erro ao registrar devolucao:', error);
-      alert('Nao foi possivel registrar a devolucao. Verifique o ID da venda.');
+      logger.error('retail', 'Falha na devolução', { error }, currentUser?.id);
+      setNotification({ type: 'error', message: 'ID de venda original não encontrado.' });
     } finally {
       setIsSubmittingReturn(false);
     }
+  };
+
+  const closeReturnModal = () => {
+    setIsReturnModalOpen(false);
+    setReturnSuccessData(null);
+    setReturnSaleId('');
+    setReturnReason('');
+    setReturnSignature('');
   };
 
   const approvalThresholdPercent = 5;
@@ -284,19 +427,15 @@ export const RetailPOS: React.FC = () => {
 
   const handleApplyStockReconciliation = async () => {
     if (!selectedReconProduct) {
-      alert('Selecione um produto para reconciliar.');
       return;
     }
     if (!Number.isFinite(countedStockValue) || countedStockValue < 0) {
-      alert('Informe uma contagem fisica valida.');
       return;
     }
     if (!reconcileComment.trim()) {
-      alert('Informe o motivo da contagem.');
       return;
     }
     if (approvalRequiredPreview && !approverName.trim()) {
-      alert(`Ajuste acima de ${approvalThresholdPercent}% exige aprovador.`);
       return;
     }
 
@@ -304,7 +443,6 @@ export const RetailPOS: React.FC = () => {
     const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
     const shopId = accountService.getSelectedShopId();
     if (!enterpriseId || !shopId) {
-      alert('Contexto de empresa/loja nao encontrado.');
       return;
     }
 
@@ -337,6 +475,7 @@ export const RetailPOS: React.FC = () => {
         approvalThresholdPercent,
         approverId: approvalRequiredPreview ? currentUser?.id || 'manual-approver' : undefined,
         approverName: approvalRequiredPreview ? approverName : undefined,
+        sessionId: activeSessionId || undefined,
       });
 
       setProducts((prev) =>
@@ -345,10 +484,11 @@ export const RetailPOS: React.FC = () => {
       setCountedStockInput('');
       setReconcileComment('');
       setApproverName('');
-      alert('Reconciliacao aplicada com sucesso.');
+      setNotification({ type: 'success', message: 'Estoque atualizado!' });
+      logger.info('inventory', 'Reconciliação aplicada', { productId: selectedReconProduct.id, diff: stockDiff }, currentUser?.id);
     } catch (error) {
-      console.error('Erro ao reconciliar estoque:', error);
-      alert('Nao foi possivel aplicar a reconciliacao.');
+      logger.error('inventory', 'Erro na reconciliação', { error }, currentUser?.id);
+      setNotification({ type: 'error', message: 'Erro ao aplicar ajuste.' });
     } finally {
       setIsReconcilingStock(false);
     }
@@ -356,6 +496,24 @@ export const RetailPOS: React.FC = () => {
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-24 lg:pb-0">
+      {/* Notification Toast */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={cn(
+              "fixed top-10 left-1/2 -translate-x-1/2 z-[500] px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-black text-xs uppercase tracking-widest",
+              notification.type === 'success' ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
+            )}
+          >
+            {notification.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+            {notification.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm px-6 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", syncStatus.connected ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600")}>
@@ -367,6 +525,17 @@ export const RetailPOS: React.FC = () => {
               {syncStatus.connected ? "Conectado em tempo real" : "Offline - fila local ativa"}
             </p>
           </div>
+        </div>
+        <div className="flex items-center gap-3 border-l border-slate-100 pl-6">
+          <div className="text-right">
+            <p className="text-[10px] font-black uppercase text-slate-400">Operador</p>
+            <p className="text-xs font-bold text-slate-800">{currentUser?.name || '---'}</p>
+          </div>
+          {cashierSession && (
+            <button onClick={handleCloseCashier} className="p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all">
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -409,10 +578,10 @@ export const RetailPOS: React.FC = () => {
             <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-2xl">
                <button 
                  onClick={() => setIsQuickStockOpen(true)}
-                 className="p-3 rounded-xl transition-all text-rose-500 hover:bg-white hover:shadow-sm"
-                 title="Gestão de Faltas (86)"
+                 className="p-3 rounded-xl transition-all text-slate-400 hover:text-rose-500 hover:bg-white hover:shadow-sm"
+                 title="Contagem e Ajuste de Estoque (Reconciliação)"
                >
-                 <ShoppingCart className="w-5 h-5 line-through opacity-70" />
+                 <Scan className="w-5 h-5 opacity-70" />
                </button>
                <button 
                  onClick={() => setViewMode('grid')}
@@ -438,7 +607,7 @@ export const RetailPOS: React.FC = () => {
                  <motion.button
                    whileTap={{ scale: 0.95 }}
                    key={p.id}
-                   onClick={() => handleAddToCart(p)}
+                   onClick={() => externalAddToCart ? externalAddToCart(p) : handleAddToCart(p)}
                    className="group bg-slate-50 border border-transparent hover:border-indigo-200 hover:bg-white hover:shadow-xl p-6 rounded-[2rem] text-left transition-all"
                  >
                     <div className="w-full aspect-square bg-white rounded-2xl mb-4 overflow-hidden p-4">
@@ -456,15 +625,16 @@ export const RetailPOS: React.FC = () => {
       </div>
 
       {/* Cart & Checkout Area */}
-      <div className="w-full lg:w-[480px] flex flex-col gap-8">
+      {!hideCart && (
+        <div className="w-full lg:w-[480px] flex flex-col gap-8">
          <div className="flex-1 bg-white rounded-[3rem] border border-slate-100 shadow-sm flex flex-col overflow-hidden">
             <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-indigo-600 text-white">
                <div className="flex items-center gap-3">
                   <div className="p-3 bg-white/20 rounded-xl">
-                    <ShoppingCart className="w-5 h-5 text-white" />
+                    <FileText className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <h3 className="font-black uppercase tracking-widest text-xs">Sacola de Compras</h3>
+                    <h3 className="font-black uppercase tracking-widest text-xs">Itens do Pedido</h3>
                     <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest">{cart.length} ITENS SELECIONADOS</p>
                   </div>
                </div>
@@ -501,13 +671,16 @@ export const RetailPOS: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-4">
                            <div className="text-right">
-                              <p className="font-black text-slate-800 text-xs">{formatCurrency(item.price * item.quantity)}</p>
+                              <p className="font-black text-slate-800 text-xs">
+                                {formatCurrency(item.price * item.quantity)}
+                                {item.unitType !== 'un' && <span className="text-[9px] text-slate-400 ml-1">({item.quantity}{item.unitType})</span>}
+                              </p>
                               <div className="flex items-center gap-2 mt-1">
-                                 <button onClick={() => updateCartQuantity(item.id, -1)} className="w-6 h-6 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">
+                                 <button onClick={() => updateCartQuantity(item.id, -1, item.variation)} className="w-6 h-6 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">
                                     <Minus className="w-3 h-3" />
                                  </button>
                                  <span className="font-black text-xs min-w-[20px] text-center">{item.quantity}</span>
-                                 <button onClick={() => updateCartQuantity(item.id, 1)} className="w-6 h-6 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">
+                                 <button onClick={() => updateCartQuantity(item.id, 1, item.variation)} className="w-6 h-6 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all">
                                     <Plus className="w-3 h-3" />
                                  </button>
                               </div>
@@ -537,14 +710,15 @@ export const RetailPOS: React.FC = () => {
                </div>
 
                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={handleSaveQuote}
+                    disabled={cart.length === 0}
+                    className="py-5 bg-white text-slate-800 border-2 border-slate-100 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-200 transition-all shadow-sm disabled:opacity-50"
+                  >
+                     <FileText className="w-4 h-4 text-indigo-500" /> Orçamento
+                  </button>
                   <button className="py-5 bg-white text-slate-800 border-2 border-slate-100 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-slate-100 transition-all shadow-sm">
                      <User className="w-4 h-4" /> Cliente
-                  </button>
-                  <button
-                    onClick={handleQuickReturn}
-                    className="py-5 bg-white text-slate-800 border-2 border-slate-100 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-slate-100 transition-all shadow-sm"
-                  >
-                     <Ticket className="w-4 h-4" /> Cupom
                   </button>
                </div>
             </div>
@@ -560,6 +734,7 @@ export const RetailPOS: React.FC = () => {
             </button>
           </div>
       </div>
+      )}
 
       <AnimatePresence>
         {isReturnModalOpen && (
@@ -570,65 +745,83 @@ export const RetailPOS: React.FC = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white w-full max-w-xl rounded-[2rem] shadow-2xl p-8"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-black uppercase tracking-tight text-slate-900">Registrar Devolucao</h3>
-                <button onClick={() => setIsReturnModalOpen(false)} className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              {returnSuccessData ? (
+                <div className="text-center py-10">
+                  <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <CheckCircle2 className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-2">Devolução Registrada</h3>
+                  <p className="text-slate-500 font-bold text-sm mb-6">Comprovante: {returnSuccessData.proofId}</p>
+                  <button 
+                    onClick={closeReturnModal}
+                    className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-xs"
+                  >
+                    Concluir e Imprimir
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-black uppercase tracking-tight text-slate-900 italic">Registrar Devolução Auditada</h3>
+                    <button onClick={closeReturnModal} className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-all">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
 
-              <form onSubmit={handleSubmitReturn} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">ID da venda original</label>
-                  <input
-                    value={returnSaleId}
-                    onChange={(e) => setReturnSaleId(e.target.value)}
-                    required
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
-                    placeholder="Ex: sale_171000..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Motivo da devolucao</label>
-                  <textarea
-                    rows={3}
-                    value={returnReason}
-                    onChange={(e) => setReturnReason(e.target.value)}
-                    required
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-300"
-                    placeholder="Ex: defeito, arrependimento, troca"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Assinatura do operador</label>
-                  <input
-                    value={returnSignature}
-                    onChange={(e) => setReturnSignature(e.target.value)}
-                    required
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
-                    placeholder="Nome completo / assinatura"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsReturnModalOpen(false)}
-                    className="py-3 rounded-xl bg-white border border-slate-200 text-slate-600 font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmittingReturn}
-                    className={cn(
-                      "py-3 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all",
-                      isSubmittingReturn ? "bg-slate-400 text-white cursor-not-allowed" : "bg-indigo-600 text-white hover:bg-indigo-700"
-                    )}
-                  >
-                    {isSubmittingReturn ? 'Processando...' : 'Confirmar devolucao'}
-                  </button>
-                </div>
-              </form>
+                  <form onSubmit={handleSubmitReturn} className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">ID da venda original</label>
+                      <input
+                        value={returnSaleId}
+                        onChange={(e) => setReturnSaleId(e.target.value)}
+                        required
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                        placeholder="Ex: sale_171000..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Motivo da devolucao</label>
+                      <textarea
+                        rows={3}
+                        value={returnReason}
+                        onChange={(e) => setReturnReason(e.target.value)}
+                        required
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-300"
+                        placeholder="Ex: defeito, arrependimento, troca"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Assinatura do operador</label>
+                      <input
+                        value={returnSignature}
+                        onChange={(e) => setReturnSignature(e.target.value)}
+                        required
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-300"
+                        placeholder="Nome completo / assinatura"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={closeReturnModal}
+                        className="py-3 rounded-xl bg-white border border-slate-200 text-slate-600 font-black uppercase tracking-widest text-[10px] hover:bg-slate-50 transition-all"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSubmittingReturn}
+                        className={cn(
+                          "py-3 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all",
+                          isSubmittingReturn ? "bg-slate-400 text-white cursor-not-allowed" : "bg-indigo-600 text-white hover:bg-indigo-700"
+                        )}
+                      >
+                        {isSubmittingReturn ? 'Processando...' : 'Processar Devolução e Estornar'}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              )}
             </motion.div>
           </div>
         )}

@@ -19,8 +19,8 @@ export const MenuManagementView: React.FC = () => {
   const selectedShopId = accountService.getSelectedShopId();
   const enterpriseId = accountService.getCurrentCompanyId();
 
-  const { data: products } = useCollection<Product>('products');
-  const { data: inventory } = useCollection<InventoryItem>('inventory');
+  const { data: products } = useCollection<Product>('products', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: inventory } = useCollection<InventoryItem>('inventory', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
 
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);

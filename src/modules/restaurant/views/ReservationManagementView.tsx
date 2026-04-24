@@ -19,7 +19,7 @@ export const ReservationManagementView: React.FC = () => {
   const selectedShopId = accountService.getSelectedShopId();
   const enterpriseId = accountService.getCurrentCompanyId();
 
-  const { data: reservations } = useCollection<Reservation>('reservations');
+  const { data: reservations } = useCollection<Reservation>('reservations', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
 
   const [isReservationModalOpen, setIsReservationModalOpen] = useState(false);
   const [editingReservation, setEditingReservation] = useState<Reservation | null>(null);

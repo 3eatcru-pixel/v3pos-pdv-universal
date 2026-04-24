@@ -49,13 +49,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const currentUser = accountService.getCurrentUser();
   const selectedShopId = accountService.getSelectedShopId();
 
-  const { data: orders } = useCollection<Order>('orders');
-  const { data: tables } = useCollection<Table>('tables');
-  const { data: inventory } = useCollection<InventoryItem>('inventory');
-  const { data: staff } = useCollection<Staff>('staff');
-  const { data: shifts } = useCollection<Shift>('shifts');
-  const { data: incidentReports } = useCollection<IncidentReport>('incidentReports');
-  const { data: reservations } = useCollection<Reservation>('reservations');
+  const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: tables } = useCollection<Table>('tables', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: inventory } = useCollection<InventoryItem>('inventory', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: staff } = useCollection<Staff>('staff', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: shifts } = useCollection<Shift>('shifts', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: incidentReports } = useCollection<IncidentReport>('incidentReports', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: reservations } = useCollection<Reservation>('reservations', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
   const { data: shops } = useCollection<Shop>('shops');
 
   const accessibleShopIds = useMemo(() => {
@@ -75,6 +76,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     
     const totalSalesToday = closedOrdersToday.reduce((acc, o) => acc + o.total, 0);
     const avgTicketToday = closedOrdersToday.length > 0 ? totalSalesToday / closedOrdersToday.length : 0;
+
+    // Cálculo de Labor Cost % (Salários / Vendas Totais)
+    const totalMonthlyPayroll = staff.reduce((acc, s) => acc + (s.salary || 0), 0);
+    const dailyLaborCost = totalMonthlyPayroll / 30;
+    const laborCostPercentage = totalSalesToday > 0 ? (dailyLaborCost / totalSalesToday) * 100 : 0;
+
+    // Cálculo de Table Turn Time Médio (Minutos)
+    const turnTimes = closedOrdersToday
+      .filter(o => o.closedAt && o.startTime)
+      .map(o => (o.closedAt! - o.startTime) / 60000);
+    const avgTableTurnTime = turnTimes.length > 0 
+      ? Math.round(turnTimes.reduce((a, b) => a + b, 0) / turnTimes.length) 
+      : 0;
     
     const totalCostToday = closedOrdersToday.reduce((acc, o) => {
       return acc + (o.items || []).reduce((itemAcc, item) => {
@@ -138,6 +152,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       avgTicketToday,
       profitMargin,
       activeTablesCount,
+      laborCostPercentage,
+      avgTableTurnTime,
       preparingCount,
       totalHours,
       totalMinutes,

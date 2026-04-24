@@ -23,20 +23,24 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../../lib/utils';
 
-interface Employee {
-  id: string;
-  name: string;
-  role: 'waiter' | 'chef' | 'host' | 'bartender' | 'manager';
-  station: 'dining_room' | 'kitchen' | 'bar' | 'reception' | 'admin';
-  status: 'active' | 'break' | 'offline';
-  shift: string;
-  tablesHandled?: number;
-  ordersProcessed?: number;
-}
+import { useCollection } from '../../../hooks/useCollection';
+import { accountService } from '../../../core/services/accountService';
+import { Staff, Order } from '../../../types';
 
 export const RestaurantEmployees: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  const currentUser = accountService.getCurrentUser();
+  const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
+  const shopId = accountService.getSelectedShopId();
+
+  const { data: staffMembers } = useCollection<Staff>('staff', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: shopId || null }); // Used for performance metrics
+
+  const employees = useMemo(() => {
+    return staffMembers.filter(s => s.role === 'waiter' || s.role === 'chef' || s.role === 'bartender' || s.role === 'host' || s.role === 'manager');
+  }, [staffMembers]);
 
   const employees: Employee[] = [
     { id: '1', name: 'Tiago Souza', role: 'waiter', station: 'dining_room', status: 'active', shift: '11:00 - 23:00', tablesHandled: 12 },

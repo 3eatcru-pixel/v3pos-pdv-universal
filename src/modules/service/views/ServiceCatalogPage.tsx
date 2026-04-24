@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 export const ServiceCatalogPage: React.FC = () => {
    const enterpriseId = accountService.getCurrentCompanyId() || '';
    const [services, setServices] = useState(serviceManagementService.getServices(enterpriseId));
+   const shopId = accountService.getSelectedShopId() || '';
    const [showForm, setShowForm] = useState(false);
    const [formData, setFormData] = useState({ name: '', durationMinutes: 30, price: 0, category: '', colorCode: '#3b82f6' });
 
@@ -16,8 +17,9 @@ export const ServiceCatalogPage: React.FC = () => {
          ...formData,
          enterpriseId,
          active: true
+         shopId
       });
-      setServices(serviceManagementService.getServices(enterpriseId));
+      setServices(serviceManagementService.getServices(enterpriseId, shopId));
       setShowForm(false);
       setFormData({ name: '', durationMinutes: 30, price: 0, category: '', colorCode: '#3b82f6' });
    };

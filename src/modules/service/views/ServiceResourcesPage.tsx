@@ -8,6 +8,7 @@ import { cn } from '../../../lib/utils';
 export const ServiceResourcesPage: React.FC = () => {
    const enterpriseId = accountService.getCurrentCompanyId() || '';
    const [resources, setResources] = useState(serviceManagementService.getResources(enterpriseId));
+   const shopId = accountService.getSelectedShopId() || '';
    const [showForm, setShowForm] = useState(false);
    const [formData, setFormData] = useState({ name: '', type: '' });
 
@@ -17,8 +18,9 @@ export const ServiceResourcesPage: React.FC = () => {
          ...formData,
          enterpriseId,
          active: true
+         shopId
       });
-      setResources(serviceManagementService.getResources(enterpriseId));
+      setResources(serviceManagementService.getResources(enterpriseId, shopId));
       setShowForm(false);
       setFormData({ name: '', type: '' });
    };

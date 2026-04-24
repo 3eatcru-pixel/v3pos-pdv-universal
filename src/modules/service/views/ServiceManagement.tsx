@@ -42,11 +42,12 @@ export const ServiceManagement: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const enterpriseId = accountService.getCurrentCompanyId();
+      const enterpriseId = accountService.getCurrentCompanyId(); // Assuming enterpriseId is already set
+      const shopId = accountService.getSelectedShopId(); // Assuming shopId is already set
       const [servicesData, staffData, resourcesData] = await Promise.all([
-        firebaseService.getAllDocs('services', enterpriseId || undefined),
-        firebaseService.getAllDocs('staff', enterpriseId || undefined),
-        firebaseService.getAllDocs('resources', enterpriseId || undefined)
+        firebaseService.getAllDocs('services', enterpriseId || undefined, shopId || undefined),
+        firebaseService.getAllDocs('staff', enterpriseId || undefined, shopId || undefined),
+        firebaseService.getAllDocs('resources', enterpriseId || undefined, shopId || undefined)
       ]);
       setServices(servicesData as ServiceItem[]);
       setStaff((staffData as Staff[]).filter(s => {

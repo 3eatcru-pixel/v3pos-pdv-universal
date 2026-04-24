@@ -130,14 +130,19 @@ export const MarketPOS: React.FC = () => {
       onSuccess: async (payments) => {
         setProcessingSale(true);
         try {
+          const saleId = `market_sale_${Date.now()}`;
+
           for (const p of payments) {
-            await paymentService.processPayment({
+            if (p.transactionId || p.method !== 'cash') {
+              await paymentReconciliationEngine.registerPayment({
+                id: `tr_${Date.now()}`,
+                saleId: saleId,
               amount: p.amount,
-              method: p.method,
-              module: 'market',
-              shopId: sId || undefined,
-              change: p.change || 0
-            });
+                method: p.method as any,
+                externalId: p.transactionId || 'MANUAL',
+                provider: p.cardBrand || 'MarketPOS'
+              });
+            }
           }
 
           const stockItems = cart.map(item => ({
@@ -203,7 +208,25 @@ export const MarketPOS: React.FC = () => {
   }, [cart]);
 
   return (
-    <div className="flex flex-col lg:flex-row gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-24 lg:pb-0">
+    <div className="flex flex-col lg:flex-row gap-10 animate-in fade-in slide-in-from-bottom-4 duration-500 font-sans pb-24 lg:pb-0">      
+      {/* Notification Toast */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className={cn(
+              "fixed top-10 left-1/2 -translate-x-1/2 z-[500] px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-black text-xs uppercase tracking-widest",
+              notification.type === 'success' ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"
+            )}
+          >
+            {notification.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+            {notification.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex-1 flex flex-col gap-8">
          <div className="flex-col gap-8 flex h-[60%]">
             <div className="bg-white border border-slate-100 rounded-[4.5rem] p-4 shadow-sm">

@@ -54,7 +54,10 @@ export const RestaurantSafetyView: React.FC = () => {
   const [newIncident, setNewIncident] = useState<Partial<IncidentReport>>({});
 
   const currentUser = accountService.getCurrentUser();
-  const { data: incidentReports, loading: loadingIncidents } = useCollection<IncidentReport>('incidentReports');
+  const enterpriseId = accountService.getCurrentCompanyId();
+  const shopId = accountService.getSelectedShopId();
+
+  const { data: incidentReports, loading: loadingIncidents } = useCollection<IncidentReport>('incidentReports', { enterpriseId: enterpriseId || null, shopId: shopId || null });
 
   const isManagerOrOwner = currentUser?.role === 'owner' || currentUser?.role === 'manager' || currentUser?.role === 'admin';
   const dayLogs = safetyLogs[safetySelectedDate] || {};

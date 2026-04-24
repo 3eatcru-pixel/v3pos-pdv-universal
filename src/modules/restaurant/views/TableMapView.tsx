@@ -36,9 +36,9 @@ export const TableMapView: React.FC<TableMapViewProps> = ({
   const selectedShopId = accountService.getSelectedShopId();
   const enterpriseId = accountService.getCurrentCompanyId();
 
-  const { data: tables } = useCollection<Table>('tables');
-  const { data: orders } = useCollection<Order>('orders');
-  const { data: staff } = useCollection<Staff>('staff');
+  const { data: tables } = useCollection<Table>('tables', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: staff } = useCollection<Staff>('staff', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
 
   const [tableSearchQuery, setTableSearchQuery] = useState('');
   const [selectedArea, setSelectedArea] = useState('Salão Principal');

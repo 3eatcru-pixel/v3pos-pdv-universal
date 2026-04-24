@@ -17,9 +17,11 @@ import {
   Target
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Enterprise, Shop, Staff, StaffSchedule } from '../../types';
+import { Enterprise, Shop, Staff, StaffSchedule, Order } from '../../types';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useCollection } from '../../hooks/useCollection';
+import { firebaseService } from '../../services/firebaseService';
 
 interface StaffDashboardProps {
   staff: Staff | null;
@@ -27,11 +29,24 @@ interface StaffDashboardProps {
   shops: Shop[];
   schedules: StaffSchedule[];
 }
-
-export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterprise, shops, schedules }) => {
+export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterprise, shops, schedules }) => {  
+  const currentUser = accountService.getCurrentUser();
+  const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
+  const shopId = accountService.getSelectedShopId();
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: shopId || null });
   const [clockedIn, setClockedIn] = useState(() => {
     return localStorage.getItem(`pos_clock_in_${staff?.id}`) !== null;
   });
+
+  // Cálculo de Ganhos Extras (Comissões/Taxa de Serviço)
+  const staffPerformance = useMemo(() => {
+    if (!staff) return { totalTips: 0, salesCount: 0, totalSales: 0 };
+    const myOrders = orders.filter(o => o.staffId === staff.id && o.status === 'delivered');
+    const totalTips = myOrders.reduce((acc, o) => acc + (o.serviceFee || 0), 0);
+    const totalSales = myOrders.reduce((acc, o) => acc + o.total, 0);
+    return { totalTips, salesCount: myOrders.length, totalSales };
+  }, [orders, staff]);
+
   const [clockStartTime, setClockStartTime] = useState<number | null>(() => {
     const saved = localStorage.getItem(`pos_clock_in_${staff?.id}`);
     return saved ? parseInt(saved) : null;
@@ -54,17 +69,29 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
     return () => clearInterval(interval);
   }, [clockedIn, clockStartTime]);
 
-  const handleClockToggle = () => {
+  const handleClockToggle = async () => {
     if (!clockedIn) {
       const now = Date.now();
       setClockedIn(true);
       setClockStartTime(now);
       localStorage.setItem(`pos_clock_in_${staff?.id}`, now.toString());
+      
+      // Persistência em Nuvem para Monitoramento do Gerente em tempo real
+      await firebaseService.saveItem('staff_activity', `clock_${staff?.id}`, {
+        staffId: staff?.id,
+        startTime: now,
+        status: 'working',
+        lastUpdate: now
+      });
     } else {
       setClockedIn(false);
       setClockStartTime(null);
       localStorage.removeItem(`pos_clock_in_${staff?.id}`);
-      // In a real app, generate a post to staffLogs
+      
+      await firebaseService.updateItem('staff_activity', `clock_${staff?.id}`, {
+        status: 'offline',
+        endTime: Date.now()
+      });
     }
   };
 

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+﻿﻿import React, { useEffect, useState } from 'react';
 import {
   TrendingUp,
   Users,
@@ -262,11 +262,11 @@ export const RetailDashboard: React.FC = () => {
           <p className="text-slate-500 font-medium font-sans">Desempenho de vendas, fidelidade e gestao de estoque em tempo real</p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200 transition-all flex items-center gap-2">
-            Relatorio Semanal <ArrowUpRight className="w-4 h-4" />
+          <button className="px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200 transition-all flex items-center gap-2" title="Exportar indicadores de performance da última semana">
+            Relatório de Performance <ArrowUpRight className="w-4 h-4" />
           </button>
           <button className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-indigo-600 transition-all shadow-xl shadow-slate-200">
-            Nova Venda (PDV)
+            Abrir Terminal de Vendas
           </button>
         </div>
       </div>
@@ -427,7 +427,7 @@ export const RetailDashboard: React.FC = () => {
             <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase flex items-center gap-3">
               <Zap className="w-6 h-6 text-indigo-600" /> Vendas Recentes
             </h3>
-            <button className="text-[10px] font-black uppercase text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-xl transition-all">Ver Historico</button>
+            <button className="text-[10px] font-black uppercase text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-xl transition-all">Ver Histórico Completo</button>
           </div>
 
           <div className="space-y-6">

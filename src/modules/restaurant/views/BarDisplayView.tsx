@@ -11,8 +11,10 @@ import { RestaurantNotificationEngine } from '../services/RestaurantNotification
 
 export const BarDisplayView: React.FC = () => {
   const enterpriseId = accountService.getCurrentCompanyId();
-  const { data: orders } = useCollection<Order>('orders');
-  const { data: tables } = useCollection<Table>('tables');
+  const shopId = accountService.getSelectedShopId();
+
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: tables } = useCollection<Table>('tables', { enterpriseId: enterpriseId || null, shopId: shopId || null });
 
   const [currentTime, setCurrentTime] = useState(Date.now());
 

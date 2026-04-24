@@ -20,8 +20,12 @@ import { Order, Table } from '../../../types';
 
 export const RestaurantHistoryView: React.FC = () => {
   const [historyFilter, setHistoryFilter] = useState<'all' | 'open' | 'closed'>('all');
-  const { data: orders } = useCollection<Order>('orders');
-  const { data: tables } = useCollection<Table>('tables');
+
+  const currentUser = accountService.getCurrentUser();
+  const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
+  const shopId = accountService.getSelectedShopId();
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: tables } = useCollection<Table>('tables', { enterpriseId: enterpriseId || null, shopId: shopId || null }); // Tables are usually global or filtered by shopId
 
   const filteredOrders = orders.filter(o => {
     if (historyFilter === 'open') return o.status !== 'delivered';

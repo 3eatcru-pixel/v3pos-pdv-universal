@@ -184,14 +184,14 @@ export const ThirdPartyOrdersView: React.FC = () => {
   const lastAutoSyncRef = useRef<Record<string, number>>({});
   const autoSyncBusyRef = useRef(false);
 
-  const { data: orders } = useCollection<ThirdPartyOrder>('thirdPartyOrders');
-  const { data: configs } = useCollection<ThirdPartyProviderConfig>('thirdPartyProviderConfigs');
-  const { data: syncJobs } = useCollection<ThirdPartySyncJob>('thirdPartySyncJobs');
-  const { data: catalogSyncJobs } = useCollection<ThirdPartyCatalogSyncJob>('thirdPartyCatalogSyncJobs');
-  const { data: productMappings } = useCollection<ThirdPartyProductMapping>('thirdPartyProductMappings');
-  const { data: products } = useCollection<Product>('products');
-  const { data: inventory } = useCollection<InventoryItem>('inventory');
-  const { data: printers } = useCollection<Printer>('printers');
+  const { data: orders } = useCollection<ThirdPartyOrder>('thirdPartyOrders', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: configs } = useCollection<ThirdPartyProviderConfig>('thirdPartyProviderConfigs', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: syncJobs } = useCollection<ThirdPartySyncJob>('thirdPartySyncJobs', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: catalogSyncJobs } = useCollection<ThirdPartyCatalogSyncJob>('thirdPartyCatalogSyncJobs', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: productMappings } = useCollection<ThirdPartyProductMapping>('thirdPartyProductMappings', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: products } = useCollection<Product>('products', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: inventory } = useCollection<InventoryItem>('inventory', { enterpriseId: enterpriseId || null, shopId: shopId || null });
+  const { data: printers } = useCollection<Printer>('printers', { enterpriseId: enterpriseId || null, shopId: shopId || null });
 
   const scopedOrders = useMemo(
     () => orders.filter((o) => o.userId === currentUser?.id).sort((a, b) => b.receivedAt - a.receivedAt),

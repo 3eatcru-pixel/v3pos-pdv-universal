@@ -35,6 +35,7 @@ const TIME_SLOTS = Array.from({ length: 25 }, (_, i) => {
 
 export const ServiceCalendar: React.FC = () => {
   const enterpriseId = accountService.getCurrentCompanyId() || '';
+  const shopId = accountService.getSelectedShopId() || '';
   const [selectedDate, setSelectedDate] = useState(new Date());
   
   const [appointments, setAppointments] = useState<ServiceAppointment[]>([]);
@@ -55,10 +56,10 @@ export const ServiceCalendar: React.FC = () => {
     const endOfDay = new Date(selectedDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    setAppointments(schedulingService.getAppointments(enterpriseId, startOfDay.getTime(), endOfDay.getTime()));
-    setStaff(serviceManagementService.getProviders(enterpriseId));
-    setServices(serviceManagementService.getServices(enterpriseId));
-    setResources(serviceManagementService.getResources(enterpriseId));
+    setAppointments(schedulingService.getAppointments(enterpriseId, shopId, startOfDay.getTime(), endOfDay.getTime()));
+    setStaff(serviceManagementService.getProviders(enterpriseId, shopId));
+    setServices(serviceManagementService.getServices(enterpriseId, shopId));
+    setResources(serviceManagementService.getResources(enterpriseId, shopId));
   };
 
   const getAppointmentsForProfessional = (employeeId: string, time: string) => {
@@ -103,6 +104,7 @@ export const ServiceCalendar: React.FC = () => {
      try {
        schedulingService.createAppointment({
           enterpriseId,
+          shopId,
           clientId: 'cli-demo', // Mock client for simple UI
           providerId: selectedSlot.employeeId,
           serviceId: services[0]?.id || 'srv-demo', 

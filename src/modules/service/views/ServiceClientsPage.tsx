@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 export const ServiceClientsPage: React.FC = () => {
    const enterpriseId = accountService.getCurrentCompanyId() || '';
    const [clients, setClients] = useState(clientService.getClients(enterpriseId));
+   const shopId = accountService.getSelectedShopId() || '';
    const [showForm, setShowForm] = useState(false);
    const [formData, setFormData] = useState({ name: '', phone: '', email: '' });
 
@@ -15,8 +16,9 @@ export const ServiceClientsPage: React.FC = () => {
       clientService.addClient({
          ...formData,
          enterpriseId
+         shopId
       });
-      setClients(clientService.getClients(enterpriseId));
+      setClients(clientService.getClients(enterpriseId, shopId));
       setShowForm(false);
       setFormData({ name: '', phone: '', email: '' });
    };

@@ -39,6 +39,7 @@ import { useCollection } from '../../../hooks/useCollection';
 import { accountService } from '../../../core/services/accountService';
 import { firebaseService } from '../../../services/firebaseService';
 import { InventoryEngine } from '../../../core/services/InventoryEngine';
+import { bomEngine } from '../../../core/services/BOMEngine';
 import { calculateOrderTotals } from '../../../core/utils/OrderCalculator';
 import { RestaurantRoutingEngine } from '../services/RestaurantRoutingEngine';
 import { RestaurantNotificationEngine } from '../services/RestaurantNotificationEngine';
@@ -53,11 +54,11 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
   const selectedShopId = accountService.getSelectedShopId();
   const currentUser = accountService.getCurrentUser();
 
-  const { data: tables } = useCollection<Table>('tables');
-  const { data: products } = useCollection<Product>('products');
-  const { data: orders } = useCollection<Order>('orders');
-  const { data: staff } = useCollection<Staff>('staff');
-  const { data: inventory } = useCollection<InventoryItem>('inventory');
+  const { data: tables } = useCollection<Table>('tables', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: products } = useCollection<Product>('products', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: staff } = useCollection<Staff>('staff', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: inventory } = useCollection<InventoryItem>('inventory', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
 
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
 
@@ -89,8 +90,15 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
 
   const adjustInventory = async (items: OrderItem[], multiplier: number) => {
     try {
+      // Usamos o BOMEngine para descobrir quais insumos baixar baseados na Ficha Técnica
+      const insumos = bomEngine.explodeCartToInsumos(
+        items.map(i => ({ ...i, id: i.productId })), 
+        products,
+        inventory
+      );
+
       await InventoryEngine.adjustStockRecursive(
-        items.map(i => ({ ...i, id: i.productId })),
+        insumos.map(ins => ({ productId: ins.inventoryItemId, quantity: ins.quantityToDeduct } as any)),
         multiplier,
         enterpriseId || 'local-ent',
         selectedShopId || 'shop-1',
@@ -239,4 +247,3 @@ export const RestaurantLayout: React.FC<RestaurantLayoutProps> = ({ defaultView 
     />
   );
 };
-
