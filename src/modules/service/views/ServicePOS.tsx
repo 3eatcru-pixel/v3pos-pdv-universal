@@ -25,20 +25,19 @@ import { BusinessConfig } from '../../../types';
 import { useCollection } from '../../../hooks/useCollection';
 
 export const ServicePOS: React.FC = () => {
-  const { cart, total, handleAddToCart, removeFromCart, clearCart } = useRetailCart();
-  const [professionals, setProfessionals] = useState<any[]>([]);
-  const [services, setServices] = useState<any[]>([]);
-  const [selectedProfessional, setSelectedProfessional] = useState<string>('');
-  const [cashierSession, setCashierSession] = useState<CashierSession | null>(null);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
-
   const currentUser = accountService.getCurrentUser();
   const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
   const shopId = accountService.getSelectedShopId();
 
   const { data: businessConfigs, loading: loadingConfigs } = useCollection<BusinessConfig>('businessConfigs', { enterpriseId: enterpriseId || null });
   const config = businessConfigs[0];
-  const { cart, total, handleAddToCart, removeFromCart, clearCart } = useRetailCart(config?.taxRate || 0.05);
+  const { cart, total, subtotal, tax, handleAddToCart, removeFromCart, clearCart } = useRetailCart(config?.taxRate || 0.05);
+
+  const [professionals, setProfessionals] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>([]);
+  const [selectedProfessional, setSelectedProfessional] = useState<string>('');
+  const [cashierSession, setCashierSession] = useState<CashierSession | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   useEffect(() => {
     if (notification) {
@@ -46,8 +45,6 @@ export const ServicePOS: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [notification]);
-
-  const config = businessConfigs[0];
 
   useEffect(() => {
     const checkCashier = async () => {
@@ -141,6 +138,8 @@ export const ServicePOS: React.FC = () => {
               status: item.status, 
               notes: item.notes,
             })),
+            subtotal,
+            tax,
             total,
             staffId: currentUser?.id,
             payments,
@@ -149,6 +148,11 @@ export const ServicePOS: React.FC = () => {
           };
 
           await retailService.processSale(saleData);
+
+          // Unificação: Vincula venda ao caixa para conferência de saldo
+          if (cashierSession) {
+            void cashierEngine.addTransactionToSession(cashierSession.id, total, saleId);
+          }
 
           // Emissão Fiscal (Serviços no Brasil geralmente usam NFS-e, mas alguns estados permitem NFC-e com itens mistos)
           void fiscalService.emitNFCe({

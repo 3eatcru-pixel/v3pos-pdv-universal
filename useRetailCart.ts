@@ -71,9 +71,17 @@ export const useRetailCart = (taxRate: number = 0.05) => {
     );
   };
 
+  const updateItemStatus = (id: string, status: CartItem['status'], variation?: string, notes?: string) => {
+    setCart(prev => prev.map(item => 
+      (item.id === id && item.variation === variation && item.notes === notes)
+        ? { ...item, status }
+        : item
+    ));
+  };
+
   const clearCart = () => setCart([]);
 
   return {
-    cart, ...totals, handleAddToCart, removeFromCart, updateCartQuantity, clearCart
+    cart, ...totals, handleAddToCart, removeFromCart, updateCartQuantity, updateItemStatus, clearCart
   };
 };

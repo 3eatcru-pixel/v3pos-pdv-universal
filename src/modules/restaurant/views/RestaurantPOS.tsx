@@ -38,7 +38,7 @@ export const RestaurantPOS: React.FC = () => {
   }, [notification]);
 
   const config = businessConfigs[0];
-  const { cart, total, handleAddToCart, clearCart, updateCartQuantity, removeFromCart } = useRetailCart(config?.taxRate || 0.05);
+  const { cart, total, subtotal, tax, handleAddToCart, clearCart, updateCartQuantity, updateItemStatus, removeFromCart } = useRetailCart(config?.taxRate || 0.05);
 
   useEffect(() => {
     const checkCashier = async () => {
@@ -64,8 +64,10 @@ export const RestaurantPOS: React.FC = () => {
       setNotification({ type: 'error', message: 'Selecione uma mesa ou ative Retirada.' });
       return;
     }
-    if (cart.length === 0) {
-      setNotification({ type: 'error', message: 'Adicione itens ao pedido.' });
+
+    const pendingItems = cart.filter(i => i.status === 'pending');
+    if (pendingItems.length === 0) {
+      setNotification({ type: 'error', message: 'Nenhum item novo para enviar à cozinha.' });
       return;
     }
     
@@ -94,7 +96,7 @@ export const RestaurantPOS: React.FC = () => {
 
     await restaurantService.sendToProduction({
       tableId: isTakeaway ? 'takeaway' : selectedTable,
-      items: cart,
+      items: pendingItems, // Enviamos apenas o que ainda não foi produzido
       waiterId: currentUser?.id || 'system',
       timestamp: Date.now(),
       orderType: isTakeaway ? 'takeaway' : 'table',
@@ -102,6 +104,9 @@ export const RestaurantPOS: React.FC = () => {
       enterpriseId: enterpriseId!,
       shopId: shopId!
     });
+
+    // Atualiza status localmente para evitar reenvio
+    pendingItems.forEach(item => updateItemStatus(item.id, 'production', item.variation, item.notes));
 
     logger.info('restaurant', 'Pedido enviado à produção', { table: selectedTable, isTakeaway, takeawayNumber });
     setNotification({ type: 'success', message: isTakeaway ? `Pedido #${takeawayNumber} na cozinha!` : 'Pedido enviado!' });
@@ -170,6 +175,8 @@ export const RestaurantPOS: React.FC = () => {
               staffId: currentUser?.id // Unificado para staffId
             })),
             total,
+            tax,
+            subtotal,
             payments,
             module: 'restaurant',
             createdAt: new Date().toISOString(),
@@ -180,11 +187,6 @@ export const RestaurantPOS: React.FC = () => {
           // Processa a venda no sistema de retail (para baixa de estoque e relatórios unificados)
           await retailService.processSale(saleData);
           
-          // Vincula venda ao caixa para conferência de saldo
-          if (cashierSession) {
-            void cashierEngine.addTransactionToSession(cashierSession.id, total, saleId);
-          }
-
           // Emissão Fiscal
           void fiscalService.emitNFCe({
             saleId: saleId,

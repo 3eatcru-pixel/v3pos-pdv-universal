@@ -25,7 +25,7 @@ export const ConstructionPOS: React.FC = () => {
   const shopId = accountService.getSelectedShopId();
   const { data: businessConfigs, loading: loadingConfigs } = useCollection<BusinessConfig>('businessConfigs', { enterpriseId: enterpriseId || null });
   const config = businessConfigs[0]; // Assuming only one config per enterprise
-  const { cart, total, handleAddToCart, clearCart } = useRetailCart(config?.taxRate || 0.05); // Pass taxRate to useRetailCart
+  const { cart, total, subtotal, tax, handleAddToCart, clearCart } = useRetailCart(config?.taxRate || 0.05);
   const [isDeliveryMode, setIsDeliveryMode] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState('');
   const [address, setAddress] = useState('');
@@ -114,6 +114,8 @@ export const ConstructionPOS: React.FC = () => {
               unitType: item.unitType, metadata: item.metadata, notes: item.notes,
               staffId: currentUser?.id
             })),
+            subtotal,
+            tax,
             total,
             enterpriseId,
             shopId,

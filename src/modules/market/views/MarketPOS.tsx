@@ -27,12 +27,11 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '../../../lib/utils';
 import { BarcodeScanner } from '../components/BarcodeScanner';
-import { Product, Transaction } from '../../../types';
 import { firebaseService } from '../../../services/firebaseService';
 import { paymentService } from '../../../services/paymentService';
 import { accountService } from '../../../core/services/accountService';
 import { InventoryEngine } from '../../../core/services/InventoryEngine';
-import { InventoryItem, BusinessConfig, Product, Order } from '../../../types';
+import { InventoryItem, BusinessConfig, Product, Order, Transaction } from '../../../types';
 import { useRetailCart } from '../../retail/hooks/useRetailCart';
 import { useCollection } from '../../../hooks/useCollection';
 import { cashierEngine, CashierSession } from '../../../core/services/CashierEngine';
@@ -107,7 +106,7 @@ export const MarketPOS: React.FC = () => {
         const calculatedQty = parseFloat((totalValue / unitPrice).toFixed(3));
         return { ...product, calculatedQty, isWeightLabel: true };
       }
-  };
+    }
     return null;
   };
 
@@ -138,11 +137,11 @@ export const MarketPOS: React.FC = () => {
           const saleId = `market_sale_${Date.now()}`;
 
           for (const p of payments) {
-            if (p.transactionId || p.method !== 'cash') {
+            if (p.transactionId || (p.method !== 'cash' && p.method !== 'other')) {
               await paymentReconciliationEngine.registerPayment({
                 id: `tr_${Date.now()}_${Math.random().toString(36).slice(2)}`,
                 saleId: saleId,
-              amount: p.amount,
+                amount: p.amount,
                 method: p.method as any,
                 externalId: p.transactionId || 'MANUAL',
                 provider: p.cardBrand || 'MarketPOS'
@@ -169,8 +168,10 @@ export const MarketPOS: React.FC = () => {
               unitPrice: item.price,
               totalPrice: item.price * item.quantity,
               unitType: item.unitType,
+              staffId: currentUser?.id
             })),
             subtotal,
+            tax,
             total,
             payments,
             enterpriseId,
@@ -334,7 +335,7 @@ export const MarketPOS: React.FC = () => {
                </div>
             </div>
             <button 
-              onClick={() => setCart([])}
+              onClick={() => clearCart()}
               className="p-4 bg-white/5 hover:bg-white/10 rounded-2xl transition-all border border-white/10 group"
             >
                <Trash2 className="w-5 h-5 text-white group-hover:text-rose-400" />
@@ -361,20 +362,20 @@ export const MarketPOS: React.FC = () => {
                           <span className="text-[10px] font-black text-slate-300">00{idx + 1}</span>
                           <div>
                              <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight">{item.name}</h4>
-                             <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">{item.barcode} • {item.quantity}{item.unit} x {formatCurrency(item.price)}</p>
+                             <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">Item {idx + 1} • {item.quantity}{item.unitType || 'un'} x {formatCurrency(item.price)}</p>
                           </div>
                        </div>
                        <div className="text-right">
                           <p className="text-lg font-black text-slate-900 italic tracking-tighter">{formatCurrency(item.price * item.quantity)}</p>
                           <div className="flex items-center gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                              <button 
-                                onClick={() => updateQuantity(item.id, - (item.unit === 'kg' ? 0.1 : 1))}
+                                onClick={() => updateCartQuantity(item.id, -1, item.variation, item.notes)}
                                 className="p-1.5 bg-slate-50 rounded-lg text-slate-400 hover:text-rose-500 transition-colors"
                               >
                                 <Minus className="w-3.5 h-3.5" />
                               </button>
                               <button 
-                                onClick={() => updateQuantity(item.id, (item.unit === 'kg' ? 0.1 : 1))}
+                                onClick={() => updateCartQuantity(item.id, 1, item.variation, item.notes)}
                                 className="p-1.5 bg-slate-50 rounded-lg text-slate-400 hover:text-emerald-500 transition-colors"
                               >
                                 <Plus className="w-3.5 h-3.5" />
@@ -451,16 +452,12 @@ export const MarketPOS: React.FC = () => {
                     <button
                       key={p.id}
                       onClick={async () => {
-                        const user = accountService.getCurrentUser();
-                        const entId = user?.companyId || accountService.getCurrentCompanyId() || null;
-                        const sId = localStorage.getItem('rm_selected_shop_id') || null;
                         const nextActive = !p.active;
                         await firebaseService.updateItem('products', p.id, {
                           active: nextActive,
-                          enterpriseId: entId,
-                          shopId: sId,
+                          enterpriseId,
+                          shopId,
                         });
-                        setProducts(products.map(prod => prod.id === p.id ? { ...prod, active: nextActive } : prod));
                       }}
                       className={cn(
                         "p-6 rounded-3xl border-2 text-left transition-all duration-300 flex flex-col items-start gap-4 ring-offset-2",
