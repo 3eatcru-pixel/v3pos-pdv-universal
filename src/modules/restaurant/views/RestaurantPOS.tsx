@@ -15,7 +15,6 @@ import { paymentReconciliationEngine } from '../../../core/services/PaymentRecon
 import { retailService } from '../../retail/services/retailService';
 
 export const RestaurantPOS: React.FC = () => {
-  const { cart, total, handleAddToCart, clearCart, updateCartQuantity, removeFromCart } = useRetailCart();
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isTakeaway, setIsTakeaway] = useState(false);
@@ -181,6 +180,11 @@ export const RestaurantPOS: React.FC = () => {
           // Processa a venda no sistema de retail (para baixa de estoque e relatórios unificados)
           await retailService.processSale(saleData);
           
+          // Vincula venda ao caixa para conferência de saldo
+          if (cashierSession) {
+            void cashierEngine.addTransactionToSession(cashierSession.id, total, saleId);
+          }
+
           // Emissão Fiscal
           void fiscalService.emitNFCe({
             saleId: saleId,

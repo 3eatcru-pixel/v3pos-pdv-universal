@@ -37,6 +37,8 @@ export const ServicePOS: React.FC = () => {
   const shopId = accountService.getSelectedShopId();
 
   const { data: businessConfigs, loading: loadingConfigs } = useCollection<BusinessConfig>('businessConfigs', { enterpriseId: enterpriseId || null });
+  const config = businessConfigs[0];
+  const { cart, total, handleAddToCart, removeFromCart, clearCart } = useRetailCart(config?.taxRate || 0.05);
 
   useEffect(() => {
     if (notification) {
@@ -133,7 +135,11 @@ export const ServicePOS: React.FC = () => {
               unitPrice: item.price,
               variation: item.variation,
               totalPrice: item.price * item.quantity,
-              unitType: item.unitType, metadata: item.metadata, professionalId: item.professionalId, status: item.status, notes: item.notes,
+              unitType: item.unitType, 
+              metadata: item.metadata, 
+              staffId: currentUser?.id, 
+              status: item.status, 
+              notes: item.notes,
             })),
             total,
             staffId: currentUser?.id,

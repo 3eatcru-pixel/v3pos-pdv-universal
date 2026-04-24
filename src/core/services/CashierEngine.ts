@@ -13,6 +13,7 @@ export interface CashierSession {
   expectedBalance?: number;
   status: 'open' | 'closed';
   transactions: any[];
+  totalSales?: number;
 }
 
 class CashierEngine {
@@ -29,12 +30,33 @@ class CashierEngine {
       openingTime: Date.now(),
       openingBalance: balance,
       status: 'open',
-      transactions: []
+      transactions: [],
+      totalSales: 0
     };
 
     await firebaseService.saveItem('cashier_sessions', sessionId, session);
     logger.info('finance', 'Caixa aberto', { sessionId, balance });
     return session;
+  }
+
+  /**
+   * Registra uma venda na sessão de caixa ativa
+   */
+  async addTransactionToSession(sessionId: string, amount: number, transactionId: string) {
+    const session = await firebaseService.getDoc('cashier_sessions', sessionId) as CashierSession;
+    if (!session) return;
+
+    const updatedTransactions = [...(session.transactions || []), {
+      id: transactionId,
+      amount,
+      timestamp: Date.now()
+    }];
+
+    await firebaseService.updateItem('cashier_sessions', sessionId, {
+      transactions: updatedTransactions,
+      totalSales: (session.totalSales || 0) + amount,
+      expectedBalance: (session.openingBalance || 0) + (session.totalSales || 0) + amount
+    });
   }
 
   /**

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ShoppingCart, 
   Search, 
@@ -31,95 +31,100 @@ import { Product, Transaction } from '../../../types';
 import { firebaseService } from '../../../services/firebaseService';
 import { paymentService } from '../../../services/paymentService';
 import { accountService } from '../../../core/services/accountService';
-import { marketService } from '../services/marketService';
 import { InventoryEngine } from '../../../core/services/InventoryEngine';
-import { InventoryItem } from '../../../types';
-
-interface POSItem extends Product {
-  quantity: number;
-}
+import { InventoryItem, BusinessConfig, Product, Order } from '../../../types';
+import { useRetailCart } from '../../retail/hooks/useRetailCart';
+import { useCollection } from '../../../hooks/useCollection';
+import { cashierEngine, CashierSession } from '../../../core/services/CashierEngine';
+import { businessHoursEngine } from '../../../core/services/BusinessHoursEngine';
+import { paymentReconciliationEngine } from '../../../core/services/PaymentReconciliationEngine';
+import { fiscalService } from '../../../core/services/fiscalService';
+import { logger } from '../../../core/services/logger';
+import { retailService } from '../../retail/services/retailService';
+import { bomEngine } from '../../../core/services/BOMEngine';
 
 export const MarketPOS: React.FC = () => {
-  const [cart, setCart] = useState<POSItem[]>([]);
+  const currentUser = accountService.getCurrentUser();
+  const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
+  const shopId = accountService.getSelectedShopId();
+
+  const { data: businessConfigs, loading: loadingConfigs } = useCollection<BusinessConfig>('businessConfigs', { enterpriseId: enterpriseId || null });
+  const config = businessConfigs[0];
+
+  const { cart, subtotal, tax, total, handleAddToCart, removeFromCart, updateCartQuantity, clearCart } = useRetailCart(config?.taxRate || 0.05);
   const [lastScanned, setLastScanned] = useState<string | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
   const [processingSale, setProcessingSale] = useState(false);
   const [isQuickStockOpen, setIsQuickStockOpen] = useState(false);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [cashierSession, setCashierSession] = useState<CashierSession | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-  const total = subtotal; 
+  const { data: products } = useCollection<Product>('products', { enterpriseId: enterpriseId || null, shopId: shopId || null });
 
   useEffect(() => {
-    const user = accountService.getCurrentUser();
-    const entId = user?.companyId || accountService.getCurrentCompanyId() || 'default';
-    const sId = localStorage.getItem('rm_selected_shop_id') || 'default';
-
-    const unsub = firebaseService.subscribeCollection('products', entId, sId, (data) => {
-      setProducts(data as Product[]);
-      setLoading(false);
-    });
-
-    const unsubInv = firebaseService.subscribeCollection('inventory', entId, sId, (data) => {
-      setInventory(data as InventoryItem[]);
-    });
-
-    return () => {
-      unsub();
-      unsubInv();
+    const checkCashier = async () => {
+      if (shopId && currentUser) {
+        const session = await cashierEngine.getActiveSession(shopId, currentUser.id);
+        setCashierSession(session);
+      }
     };
-  }, []);
+    checkCashier();
+  }, [shopId, currentUser]);
+
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   const handleScan = (barcode: string) => {
     setLastScanned(barcode);
+    
+    const balanceProduct = processBalanceLabel(barcode);
+    if (balanceProduct) {
+       handleAddToCart(balanceProduct, { source: 'scale' }, balanceProduct.calculatedQty);
+       return;
+    }
+
     const product = products.find(p => p.barcode === barcode);
     if (product) {
-       addItemToCart(product);
-    }
-  };
-
-  const requestWeightForProduct = (product: Product): number | null => {
-    const input = window.prompt(`Informe o peso em kg para ${product.name}:`, '0.500');
-    if (!input) return null;
-    const parsed = parseFloat(input.replace(',', '.'));
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      alert('Peso inválido. Insira um valor válido maior que zero.');
-      return null;
-    }
-    return Number(parsed.toFixed(3));
-  };
-
-  const addItemToCart = (product: Product) => {
-    const quantity = product.unit === 'kg'
-      ? requestWeightForProduct(product)
-      : 1;
-
-    if (quantity === null) return;
-
-    const existing = cart.find(i => i.id === product.id);
-    if (existing) {
-      setCart(cart.map(i => i.id === product.id ? { ...i, quantity: i.quantity + quantity } : i));
+       handleAddToCart(product);
     } else {
-      setCart([...cart, { ...product, quantity }]);
+       setNotification({ type: 'error', message: 'Produto não cadastrado.' });
     }
   };
 
-  const updateQuantity = (id: string, delta: number) => {
-    setCart(prev => prev.map(item => {
-      if (item.id === id) {
-        const newQty = Math.max(0.001, item.quantity + delta);
-        return { ...item, quantity: newQty };
+  const processBalanceLabel = (query: string) => {
+    if (query.startsWith('2') && query.length === 13) {
+      const sku = query.substring(1, 6);
+      const dataPart = query.substring(7, 12);
+      const totalValue = parseInt(dataPart) / 100;
+      const product = products.find(p => p.sku === sku || p.id.includes(sku));
+      if (product && product.unitType === 'kg') {
+        const unitPrice = product.price || 1;
+        const calculatedQty = parseFloat((totalValue / unitPrice).toFixed(3));
+        return { ...product, calculatedQty, isWeightLabel: true };
       }
-      return item;
-    }).filter(item => item.quantity > 0));
+  };
+    return null;
   };
 
   const handleOpenPayment = () => {
-    const user = accountService.getCurrentUser();
-    const entId = user?.companyId || accountService.getCurrentCompanyId() || null;
-    const sId = localStorage.getItem('rm_selected_shop_id') || null;
+    if (cart.length === 0) return;
+    if (loadingConfigs) return;
+
+    if (!cashierSession && config?.enforceCashier) {
+      setNotification({ type: 'error', message: 'Abra o caixa para operar o mercado.' });
+      return;
+    }
+
+    const businessStatus = businessHoursEngine.isBusinessOpen(config?.businessHours || []);
+    if (config?.enforceBusinessHours && !businessStatus.isOpen) {
+      setNotification({ type: 'error', message: businessStatus.reason || 'Mercado fechado.' });
+      return;
+    }
 
     paymentService.requestPaymentUI({
       total: total,
@@ -135,7 +140,7 @@ export const MarketPOS: React.FC = () => {
           for (const p of payments) {
             if (p.transactionId || p.method !== 'cash') {
               await paymentReconciliationEngine.registerPayment({
-                id: `tr_${Date.now()}`,
+                id: `tr_${Date.now()}_${Math.random().toString(36).slice(2)}`,
                 saleId: saleId,
               amount: p.amount,
                 method: p.method as any,
@@ -145,54 +150,54 @@ export const MarketPOS: React.FC = () => {
             }
           }
 
-          const stockItems = cart.map(item => ({
-            id: item.id,
-            quantity: item.quantity,
-            composition: (item as any).composition
-          }));
-
+          const insumos = bomEngine.explodeCartToInsumos(cart, products, inventory);
+          
           await InventoryEngine.adjustStockRecursive(
-            stockItems,
-            1, // 1 for deduction
-            entId || 'default',
-            sId || 'default',
+            insumos.map(ins => ({ productId: ins.inventoryItemId, quantity: ins.quantityToDeduct } as any)),
+            1, 
+            enterpriseId || 'default',
+            shopId || 'default',
             inventory
           );
 
-          // Audit Log
-          await firebaseService.addAuditLog({
-            enterpriseId: entId || 'default',
-            shopId: sId || 'default',
-            staffId: user?.id || 'system',
-            staffName: user?.name || 'Caixa',
-            action: 'SALE_COMPLETED',
-            details: `Venda de ${cart.length} itens finalizada. Total: ${formatCurrency(total)}`,
-            referenceId: `MK-${Date.now()}`
-          });
-
           const saleData = {
-            id: `market_sale_${Date.now()}`,
+            id: saleId,
             items: cart.map(item => ({
               productId: item.id,
               name: item.name,
               quantity: item.quantity,
               unitPrice: item.price,
               totalPrice: item.price * item.quantity,
-              unit: item.unit,
+              unitType: item.unitType,
             })),
             subtotal,
             total,
             payments,
-            enterpriseId: entId,
-            shopId: sId,
-            createdAt: Date.now(),
+            enterpriseId,
+            shopId,
+            staffId: currentUser?.id,
+            createdAt: new Date().toISOString(),
             module: 'market'
           };
 
-          await marketService.processSale(saleData);
-          setCart([]);
+          await retailService.processSale(saleData);
+          
+          if (cashierSession) {
+            void cashierEngine.addTransactionToSession(cashierSession.id, total, saleId);
+          }
+
+          void fiscalService.emitNFCe({
+            saleId,
+            items: saleData.items,
+            total,
+            payments
+          });
+          
+          setNotification({ type: 'success', message: 'Venda finalizada com sucesso!' });
+          clearCart();
         } catch (err) {
-          console.error('Error finalizing market sale:', err);
+          logger.error('market', 'Erro ao finalizar venda', { err });
+          setNotification({ type: 'error', message: 'Falha ao processar venda.' });
           throw err;
         } finally {
           setProcessingSale(false);

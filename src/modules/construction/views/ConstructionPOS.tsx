@@ -125,6 +125,12 @@ export const ConstructionPOS: React.FC = () => {
           };
 
           await retailService.processSale(saleData); // Reutiliza o retailService para processar a venda
+          
+          // Unificação: Vincula venda ao caixa para conferência de saldo
+          if (cashierSession) {
+            void cashierEngine.addTransactionToSession(cashierSession.id, total, saleId);
+          }
+
           void fiscalService.emitNFCe({
             saleId: saleData.id,
             items: saleData.items,

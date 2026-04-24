@@ -99,8 +99,6 @@ export const RetailPOS: React.FC<RetailPOSProps> = ({ externalAddToCart, hideCar
     return () => unsub();
   }, [enterpriseId, shopId]);
 
-  const config = businessConfigs[0];
-
   // Lógica de Orçamentos (Unificada para Construção/Varejo)
   const handleSaveQuote = async () => {
     if (cart.length === 0) return;
@@ -292,6 +290,11 @@ export const RetailPOS: React.FC<RetailPOSProps> = ({ externalAddToCart, hideCar
 
           await retailService.processSale(saleData);
           
+          // Unificação: Vincula venda ao caixa para conferência de saldo
+          if (cashierSession) {
+            void cashierEngine.addTransactionToSession(cashierSession.id, total, saleId);
+          }
+
           // Emissão Fiscal Automática
           void fiscalService.emitNFCe({
             saleId: saleData.id,
