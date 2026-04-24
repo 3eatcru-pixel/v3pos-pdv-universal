@@ -428,6 +428,14 @@ export interface Order {
   sourceProvider?: ThirdPartyProvider;
   sourceExternalOrderId?: string;
   acceptedByStaffId?: string;
+  allergyConfirmation?: {
+    waiterConfirmed?: boolean;
+    kitchenConfirmed?: boolean;
+    barConfirmed?: boolean;
+    waiterConfirmedAt?: number;
+    kitchenConfirmedAt?: number;
+    barConfirmedAt?: number;
+  };
 }
 
 export interface Transaction {
@@ -552,6 +560,7 @@ export interface CompanySettings {
   cnpj?: string;
   address?: string;
   logo?: string;
+  requireAllergyDoubleConfirmation?: boolean;
 }
 
 export interface DeviceLink {
