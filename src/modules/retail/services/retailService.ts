@@ -5,6 +5,8 @@ import { logger } from '../../../core/services/logger';
 import { saleRepository } from '../../../core/storage/repositories/saleRepository';
 import { productRepository } from '../../../core/storage/repositories/productRepository';
 import { Sale, SaleItem } from '../../../core/storage/types';
+import { accountService } from '../../../core/services/accountService';
+import { FinanceEngine } from '../../../core/services/FinanceEngine';
 
 export interface RetailVariation {
   sku: string;
@@ -127,6 +129,7 @@ class RetailService {
 
     await productRepository.applySaleItems(sale.items);
     this.logProductUpdates(sale.items, 'local_process');
+    await this.tryRegisterRetailFinanceTransaction(sale, 'sale');
 
     if (meshNetwork.isConnectedToLocalMesh) {
       this.lastSyncAttemptAt = Date.now();
@@ -204,6 +207,7 @@ class RetailService {
 
     await saleRepository.create(returnSale);
     await productRepository.revertSaleItems(returnSale.items);
+    await this.tryRegisterRetailFinanceTransaction(returnSale, 'return');
 
     if (meshNetwork.isConnectedToLocalMesh) {
       this.lastSyncAttemptAt = Date.now();
@@ -221,6 +225,54 @@ class RetailService {
 
     this.emitSaleUpdateEvent('local', returnSale.id);
     return returnSale;
+  }
+
+  private async tryRegisterRetailFinanceTransaction(sale: Sale, kind: 'sale' | 'return') {
+    const currentUser = accountService.getCurrentUser();
+    const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
+    const shopId = accountService.getSelectedShopId();
+    if (!enterpriseId) {
+      logger.log('retail', 'FINANCE_TRANSACTION_SKIPPED', {
+        reason: 'missing_enterprise_id',
+        saleId: sale.id,
+        kind,
+      });
+      return;
+    }
+
+    const amount = Math.abs(Number(sale.total || 0));
+    const type = kind === 'sale' ? 'income' : 'expense';
+    const category = kind === 'sale' ? 'Venda de Produtos' : 'Devolucoes / Estornos';
+    const description = kind === 'sale'
+      ? `Venda varejo ${sale.id}`
+      : `Devolucao varejo ${sale.id} ref ${sale.originalSaleId || 'sem_ref'}`;
+
+    try {
+      await FinanceEngine.createTransaction({
+        enterpriseId,
+        shopId,
+        module: 'retail',
+        staffId: currentUser?.id || 'retail-system',
+        staffName: currentUser?.name || 'Retail System',
+        type,
+        amount,
+        category,
+        description,
+        date: sale.createdAt?.slice(0, 10),
+      });
+      logger.log('retail', 'FINANCE_TRANSACTION_CREATED', {
+        saleId: sale.id,
+        kind,
+        type,
+        amount,
+      });
+    } catch (error) {
+      logger.log('retail', 'FINANCE_TRANSACTION_FAILED', {
+        saleId: sale.id,
+        kind,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private startUnsyncedRetryLoop() {

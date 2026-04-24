@@ -39,7 +39,7 @@ import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../hooks/useCollection';
 
 interface StaffManagementViewProps {
-  module: 'restaurant' | 'market' | 'construction' | 'retail';
+  module: 'restaurant' | 'market' | 'construction' | 'retail' | 'service';
 }
 
 export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module }) => {
@@ -58,6 +58,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance'>('Resumo');
 
   const companyId = accountService.getCurrentCompanyId();
+  const selectedShopId = accountService.getSelectedShopId();
   const currentUser = accountService.getCurrentUser();
   const loading = loadingStaff || loadingEvents || loadingRoles;
 
@@ -73,6 +74,10 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
 
   const handleSaveRole = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!companyId) {
+      alert('Contexto de empresa nao encontrado.');
+      return;
+    }
     const formData = new FormData(e.currentTarget);
     const roleId = formData.get('role') as string;
     
@@ -109,8 +114,12 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
 
   const handleSaveStaff = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!companyId || !selectedShopId) {
+      alert('Contexto de empresa/loja nao encontrado.');
+      return;
+    }
     const formData = new FormData(e.currentTarget);
-    const staffId = selectedStaff?.id || `staff-${Math.random().toString(36).substr(2, 9)}`;
+    const staffId = selectedStaff?.id || `staff-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
     
     const staffData: Partial<Staff> = {
       name: formData.get('name') as string,
@@ -122,7 +131,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       admissionDate: new Date(formData.get('admissionDate') as string).getTime(),
       active: true,
       enterpriseId: companyId,
-      assignedShopIds: ['main-shop'],
+      assignedShopIds: selectedStaff?.assignedShopIds?.length ? selectedStaff.assignedShopIds : [selectedShopId],
       bankInfo: {
         bankName: formData.get('bankName') as string,
         agency: formData.get('agency') as string,
@@ -141,9 +150,9 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
 
   const handleAddPerformanceEvent = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!selectedStaff) return;
+    if (!selectedStaff || !companyId) return;
     const formData = new FormData(e.currentTarget);
-    const eventId = `perf-${Math.random().toString(36).substr(2, 9)}`;
+    const eventId = `perf-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
     
     const event: PerformanceEvent = {
       id: eventId,

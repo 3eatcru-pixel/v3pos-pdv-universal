@@ -177,6 +177,8 @@ export class StockReconciliationEngine {
       approvalRequired,
       approvedById: approvalRequired ? (input.approverId || 'manual-approver') : undefined,
       approvedByName: approvalRequired ? input.approverName?.trim() : undefined,
+      staffId: input.staffId,
+      staffName: input.staffName,
       sessionId: input.sessionId,
       costPerUnit,
       varianceValue,

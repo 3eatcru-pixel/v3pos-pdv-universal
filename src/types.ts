@@ -153,10 +153,13 @@ export interface Reservation {
 export interface Shift {
   id: string;
   shopId: string;
+  enterpriseId?: string;
   staffId: string;
   startTime: number; // timestamp
   endTime: number; // timestamp
-  area: 'FOH' | 'BOH';
+  area: string;
+  module?: 'restaurant' | 'market' | 'construction' | 'retail' | 'service' | string;
+  status?: 'planned' | 'confirmed' | 'missing' | 'completed';
 }
 
 export interface Product extends CoreProduct {
@@ -511,6 +514,8 @@ export interface RecountRequest {
   approvalRequired?: boolean;
   approvedById?: string;
   approvedByName?: string;
+  staffId?: string;
+  staffName?: string;
   sessionId?: string;
   costPerUnit?: number;
   varianceValue?: number;
