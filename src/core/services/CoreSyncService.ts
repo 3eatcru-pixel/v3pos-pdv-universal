@@ -2,6 +2,7 @@ import { coreEventBus } from '../events/CoreEventBus';
 import { meshNetwork } from '../../services/p2pSync';
 import { firebaseService } from '../../services/firebaseService';
 import { logger } from '../services/logger';
+import { InventoryEngine } from './InventoryEngine';
 import { accountService } from '../services/accountService';
 
 /**
@@ -18,14 +19,17 @@ class CoreSyncService {
 
   private setupListeners() {
     // 1. Sync Stock Decrements
-    coreEventBus.on('product:stock_decremented', async ({ productId, quantity }) => {
+    coreEventBus.on('product:stock_decremented', async ({ productId, quantity, saleId }) => {
       if (!this.companyId) return;
 
       // Cloud Sync (Atomic)
+      const shopId = accountService.getSelectedShopId() || 'global'; // Assumindo que o shopId está disponível
+      const inventoryItems = await firebaseService.getAllDocs('inventory', this.companyId, shopId); // Buscar inventário para resolução de substitutos
       try {
-        await firebaseService.decrementProductStocksAtomic(
-          [{ productId, quantity }],
-          { enterpriseId: this.companyId }
+        await InventoryEngine.adjustStockRecursive(
+          [{ id: productId, quantity: quantity, name: 'unknown' }], // Passar item no formato esperado
+          1, // Multiplier 1 para deduzir
+          this.companyId, shopId, inventoryItems as any
         );
         logger.info('core', 'STOCK_SYNC_CLOUD_SUCCESS', { productId, quantity });
       } catch (error) {
@@ -34,6 +38,7 @@ class CoreSyncService {
       
       // P2P Mesh Sync
       meshNetwork.emitEvent('STOCK_UPDATE', { 
+        eventId: saleId || `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         productId, 
         quantity, 
         companyId: this.companyId,

@@ -47,7 +47,7 @@ export class OrderEngine {
     // 1. Return Inventory if it was already deducted
     if (item.sentToKitchen || item.status === 'delivered') {
       await InventoryEngine.adjustStockRecursive(
-        [item],
+        [{ id: item.productId, quantity: item.quantity, name: item.name }], // Passar item no formato esperado
         -1, // Return to stock
         context.enterpriseId,
         context.shopId,

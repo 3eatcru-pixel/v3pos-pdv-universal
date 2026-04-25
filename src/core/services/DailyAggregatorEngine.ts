@@ -4,6 +4,7 @@ import { Order } from '../../types';
 import { format } from 'date-fns';
 import { logger } from './logger';
 import { accountService } from './accountService';
+import { CommunicationEngine } from './CommunicationEngine';
 
 /**
  * Motor de Agregação Diária (BFF Pattern)
@@ -21,7 +22,8 @@ export class DailyAggregatorEngine {
       
       // Cálculo de custo total da venda para margem
       const saleCost = items.reduce((acc, item) => {
-        return acc + (Number(item.unitCost || item.cost || 0) * (item.quantity || 1));
+        const cost = Number(item.unitCost || item.cost || 0);
+        return acc + (isNaN(cost) ? 0 : cost * (item.quantity || 1));
       }, 0);
 
       await firebaseService.updateDailySummaryAtomic(docId, {
@@ -38,7 +40,7 @@ export class DailyAggregatorEngine {
       logger.error('core', 'Falha ao atualizar agregador diário', { error });
       
       // Alerta o suporte sobre a falha crítica no agregador de dados (BFF)
-      void accountService.reportViolationToDev(sale.shopId, 'FRAUD_DETECTION', `Falha no agregador: ${error?.message}`);
+      logger.error('core', `SYSTEM_FAULT no agregador: ${error?.message}`, { shopId: sale.shopId });
     }
   }
 
@@ -49,26 +51,32 @@ export class DailyAggregatorEngine {
   static async validateDailyIntegrity(enterpriseId: string, shopId: string, dateStr: string): Promise<boolean> {
     try {
       const docId = `summary_${shopId}_${dateStr}`;
-      const summaries = await firebaseService.getAllDocs('dailySummaries', enterpriseId, shopId);
-      const summary = summaries.find(s => s.id === docId);
+      
+      // Otimização: Busca direta pelo documento de resumo via query ou getDoc
+      const summary = await firebaseService.getDoc('dailySummaries', docId) as any;
 
       if (!summary) {
         logger.warn('core', 'Validação de integridade abortada: Resumo não encontrado', { docId });
         return false;
       }
 
-      const allOrders = (await firebaseService.getAllDocs('orders', enterpriseId, shopId)) as Order[];
-      
-      const dailyOrders = allOrders.filter(o => {
-        if (!o.closedAt || o.status !== 'delivered') return false;
-        return format(new Date(o.closedAt), 'yyyy-MM-dd') === dateStr;
-      });
+      // AUDITORIA: getAllDocs deve ser substituído por query com filtro de data (closedAt >= startDate)
+      // conforme o sistema cresce para evitar download desnecessário de gigabytes de dados.
+      // Otimização de Auditoria: Busca apenas pedidos do dia específico via query indexada (closedAt)
+      const dailyOrders = (await firebaseService.getDocsByQuery('orders', [
+        { field: 'enterpriseId', op: '==', value: enterpriseId },
+        { field: 'shopId', op: '==', value: shopId },
+        { field: 'status', op: '==', value: 'delivered' },
+        { field: 'closedAt', op: '>=', value: new Date(dateStr).getTime() },
+        { field: 'closedAt', op: '<', value: new Date(dateStr).getTime() + (24 * 60 * 60 * 1000) }
+      ])) as Order[];
 
       const actualTotal = dailyOrders.reduce((acc, o) => acc + o.total, 0);
       const actualCount = dailyOrders.length;
       const actualCost = dailyOrders.reduce((acc, o) => {
         return acc + (o.items || []).reduce((itemAcc, item) => {
-          return itemAcc + (Number((item as any).unitCost || (item as any).cost || 0) * (item.quantity || 1));
+          const cost = Number((item as any).unitCost || (item as any).cost || 0);
+          return itemAcc + (isNaN(cost) ? 0 : cost * (item.quantity || 1));
         }, 0);
       }, 0);
 
@@ -79,8 +87,15 @@ export class DailyAggregatorEngine {
 
       if (isDivergent) {
         const msg = `DIVERGÊNCIA BFF (${dateStr}): Vendas Real: R$ ${actualTotal.toFixed(2)} vs BFF: R$ ${summary.totalSales?.toFixed(2)}. Qtd: ${actualCount} vs ${summary.orderCount}.`;
-        logger.error('core', 'Divergência de dados detectada no resumo diário', { shopId, dateStr, actualTotal, summaryTotal: summary.totalSales });
-        void accountService.sendSupportMessage(msg);
+        
+        await CommunicationEngine.sendMessage({
+          enterpriseId,
+          userId: (await accountService.getCompanyById(enterpriseId))?.ownerId || '',
+          title: '🚨 DIVERGÊNCIA FINANCEIRA (BFF)',
+          content: msg,
+          type: 'critical'
+        });
+
         return false;
       } else {
         logger.info('core', 'Integridade do resumo diário validada com sucesso', { shopId, dateStr });
@@ -98,15 +113,26 @@ export class DailyAggregatorEngine {
    * Usado para corrigir divergências detectadas na auditoria.
    */
   static async repairDailySummary(enterpriseId: string, shopId: string, dateStr: string) {
+    const user = accountService.getCurrentUser();
+    if (user?.role !== 'dev' && user?.role !== 'owner') {
+      logger.error('security', 'Tentativa não autorizada de reparo financeiro', { user: user?.name });
+      throw new Error('Acesso negado: Apenas administradores podem reparar resumos financeiros.');
+    }
+
     try {
       const docId = `summary_${shopId}_${dateStr}`;
       logger.warn('core', 'Iniciando reparo de integridade do resumo diário', { docId });
+      
+      void firebaseService.addAuditLog({ enterpriseId, shopId, staffId: user.id, staffName: user.name, action: 'FINANCIAL_REPAIR', details: `Reparo manual do resumo diário para a data ${dateStr}` });
 
-      const allOrders = (await firebaseService.getAllDocs('orders', enterpriseId, shopId)) as Order[];
-      const dailyOrders = allOrders.filter(o => {
-        if (!o.closedAt || o.status !== 'delivered') return false;
-        return format(new Date(o.closedAt), 'yyyy-MM-dd') === dateStr;
-      });
+      // Otimização de Auditoria: Busca apenas pedidos do dia específico via query indexada (closedAt)
+      const dailyOrders = (await firebaseService.getDocsByQuery('orders', [
+        { field: 'enterpriseId', op: '==', value: enterpriseId },
+        { field: 'shopId', op: '==', value: shopId },
+        { field: 'status', op: '==', value: 'delivered' },
+        { field: 'closedAt', op: '>=', value: new Date(dateStr).getTime() },
+        { field: 'closedAt', op: '<', value: new Date(dateStr).getTime() + (24 * 60 * 60 * 1000) }
+      ])) as Order[];
 
       const hourlySales: Record<number, number> = {};
       let totalSales = 0;
@@ -117,9 +143,11 @@ export class DailyAggregatorEngine {
         const hour = new Date(o.closedAt!).getHours();
         hourlySales[hour] = (hourlySales[hour] || 0) + o.total;
         
-        totalCost += (o.items || []).reduce((itemAcc, item) => {
-          return itemAcc + (Number((item as any).unitCost || (item as any).cost || 0) * (item.quantity || 1));
+        const orderCost = (o.items || []).reduce((itemAcc, item) => {
+          const cost = Number((item as any).unitCost || (item as any).cost || 0);
+          return itemAcc + (isNaN(cost) ? 0 : cost * (item.quantity || 1));
         }, 0);
+        totalCost += orderCost;
       });
 
       const repairedData = {

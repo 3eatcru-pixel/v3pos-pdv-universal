@@ -1,6 +1,7 @@
 export type CountryCode = 'BR' | 'PT' | 'US' | 'GB';
 
 export interface RegionalSettings {
+  currencySymbol: string;
   currency: string;
   locale: string;
   taxLabel: string;

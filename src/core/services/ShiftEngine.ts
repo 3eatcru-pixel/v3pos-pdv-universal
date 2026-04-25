@@ -1,4 +1,5 @@
 import { firebaseService } from '../../services/firebaseService';
+import { logger } from './logger';
 import type { Shift } from '../../types';
 
 interface SaveShiftParams {
@@ -9,13 +10,50 @@ interface SaveShiftParams {
   area: string;
   startTime: number;
   endTime: number;
-  module?: 'restaurant' | 'market' | 'construction' | 'retail' | 'service' | string;
+  module?: 'restaurant' | 'market' | 'construction' | 'retail' | 'service' | 'pharmacy' | 'autoparts' | string;
   status?: 'planned' | 'confirmed' | 'missing' | 'completed';
+  businessModel?: 'commission' | 'rental' | 'hybrid' | 'freelancer';
 }
 
 export class ShiftEngine {
+  /**
+   * Valida integridade da escala: evita sobreposição de horários para o mesmo colaborador.
+   */
+  static async validateShiftConflict(enterpriseId: string, staffId: string, start: number, end: number, shiftId?: string): Promise<boolean> {
+    // Otimização: Busca apenas shifts do colaborador e dentro de um período relevante
+    const shifts = await firebaseService.getDocsByQuery('shifts', [
+      { field: 'enterpriseId', op: '==', value: enterpriseId },
+      { field: 'staffId', op: '==', value: staffId },
+      { field: 'startTime', op: '<', value: end }, // Shifts que começam antes do fim da nova escala
+      { field: 'endTime', op: '>', value: start }  // Shifts que terminam depois do início da nova escala
+    ]) as Shift[];
+
+    const hasConflict = shifts.some(s => 
+      s.id !== shiftId &&
+      (start < s.endTime && end > s.startTime) // Lógica correta para sobreposição de intervalos
+    );
+
+    return !hasConflict;
+  }
+
   static async saveShift(params: SaveShiftParams): Promise<Shift> {
-    const shiftId = params.editingShift?.id || `shift-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
+    const isValid = await this.validateShiftConflict(
+      params.enterpriseId || 'default', 
+      params.staffId, 
+      params.startTime, 
+      params.endTime, 
+      params.editingShift?.id
+    );
+
+    if (!isValid) {
+      logger.warn('hr', 'Tentativa de escala em conflito de horário bloqueada', { staffId: params.staffId });
+      throw new Error('shift_conflict_detected');
+    }
+
+    const entropy = Math.random().toString(36).slice(2, 7);
+    const safeId = `shift-${Date.now()}-${entropy}`;
+    
+    const shiftId = params.editingShift?.id || safeId;
     const resolvedShopId = params.selectedShopId || params.editingShift?.shopId;
     if (!resolvedShopId) {
       throw new Error('shop_context_missing');
@@ -29,7 +67,7 @@ export class ShiftEngine {
       startTime: params.startTime,
       endTime: params.endTime,
       module: params.module || params.editingShift?.module,
-      status: params.status || params.editingShift?.status || 'planned',
+      status: params.status || params.editingShift?.status || (['rental', 'freelancer'].includes(params.businessModel!) ? 'confirmed' : 'planned'),
     };
 
     await firebaseService.saveItem('shifts', shiftId, shiftData);
@@ -40,4 +78,3 @@ export class ShiftEngine {
     await firebaseService.deleteItem('shifts', shiftId);
   }
 }
-

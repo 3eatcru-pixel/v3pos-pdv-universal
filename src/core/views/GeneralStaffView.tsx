@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Users, 
   Search, 
@@ -39,6 +39,8 @@ import { StatCard } from '../components/CommonUI';
 import { Staff, PerformanceEvent, RolePermissions, View } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
+import { HREngine } from '../services/HREngine';
+import { CommunicationEngine } from '../services/CommunicationEngine';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../hooks/useCollection';
@@ -76,17 +78,36 @@ const MODULE_CHECKLISTS: Record<string, { id: string; label: string; description
     { id: 'service_standards', label: 'Manual de Qualidade', description: 'Padrão de execução técnica do serviço.' },
     { id: 'aso', label: 'ASO Admissional', description: 'Atestado de saúde ocupacional aprovado.' },
   ],
+  pharmacy: [
+    { id: 'sngpc_training', label: 'SNGPC & Controlados', description: 'Treinamento em escrituração de medicamentos controlados.' },
+    { id: 'anvisa_standards', label: 'Normas ANVISA', description: 'Boas práticas de dispensação e armazenamento.' },
+    { id: 'pbm_operation', label: 'Operação de PBM', description: 'Uso de autorizadores de convênios e descontos de laboratório.' },
+    { id: 'thermometry', label: 'Controle de Temperatura', description: 'Monitoramento de geladeiras e ambiente (Termohigrômetro).' },
+  ],
+  autoparts: [
+    { id: 'epc_catalog', label: 'Catálogos Eletrônicos', description: 'Domínio de softwares de busca de peças (EPC/Montadoras).' },
+    { id: 'bin_location', label: 'Endereçamento de Estoque', description: 'Lógica de corredores, prateleiras e gavetas do almoxarifado.' },
+    { id: 'core_returns', label: 'Logística Reversa', description: 'Política de troca e devolução de carcaças/itens usados.' },
+    { id: 'technical_parts', label: 'Nomenclatura Técnica', description: 'Capacitação em identificação de componentes mecânicos e elétricos.' },
+  ],
 };
 
 interface StaffManagementViewProps {
-  module: 'restaurant' | 'market' | 'construction' | 'retail' | 'service';
+  module: 'restaurant' | 'market' | 'construction' | 'retail' | 'service' | 'pharmacy' | 'autoparts';
 }
+
+const generateSafeId = (prefix: string) => {
+  return `${prefix}-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
+};
 
 export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module }) => {
   const [activeMainTab, setActiveMainTab] = useState<'members' | 'roles'>('members');
-  const { data: staff, loading: loadingStaff } = useCollection<Staff>('staff');
-  const { data: performanceEvents, loading: loadingEvents } = useCollection<PerformanceEvent>('performance_events');
-  const { data: roles, loading: loadingRoles } = useCollection<RolePermissions>('rolePermissions');
+  const companyId = accountService.getCurrentCompanyId() || 'default';
+  
+  // Forçamos a busca no nível da Empresa (Enterprise) para centralização total
+  const { data: staff, loading: loadingStaff } = useCollection<Staff>('staff', { enterpriseId: companyId });
+  const { data: performanceEvents, loading: loadingEvents } = useCollection<PerformanceEvent>('performance_events', { enterpriseId: companyId });
+  const { data: roles, loading: loadingRoles } = useCollection<RolePermissions>('rolePermissions', { enterpriseId: companyId });
 
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -95,9 +116,9 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance' | 'Folha' | 'Checklist'>('Resumo');
+  const [selectedBusinessModel, setSelectedBusinessModel] = useState<'commission' | 'rental' | 'hybrid' | 'freelancer'>('commission');
+  const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance' | 'Folha' | 'Checklist' | 'Escalas'>('Resumo');
 
-  const companyId = accountService.getCurrentCompanyId();
   const selectedShopId = accountService.getSelectedShopId();
   const currentUser = accountService.getCurrentUser();
   const loading = loadingStaff || loadingEvents || loadingRoles;
@@ -173,38 +194,29 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
 
   const handleToggleChecklistItem = async (itemId: string) => {
     if (!selectedStaff || !companyId) return;
-    
-    const docId = `checklist_${selectedStaff.id}`;
-    const items = currentChecklist.items || {};
-    const newItems = { 
-      ...items, 
-      [itemId]: {
-        completed: !items[itemId]?.completed,
-        completedAt: Date.now(),
-        completedBy: currentUser?.name || 'Sistema'
-      }
-    };
-
     try {
-      await firebaseService.saveItem('hr_checklists', docId, {
-        staffId: selectedStaff.id,
-        enterpriseId: companyId,
-        items: newItems,
-        updatedAt: Date.now()
-      });
+      await HREngine.updateChecklist(
+        companyId, 
+        selectedStaff.id, 
+        itemId, 
+        currentUser?.name || 'Sistema'
+      );
       logger.info('staff', 'Checklist de RH atualizado', { staffId: selectedStaff.id, itemId });
     } catch (error) {
       logger.error('staff', 'Erro ao salvar checklist de RH', { error });
     }
   };
 
-  const handleDeleteStaff = async (id: string) => {
-    if (!confirm('Tem certeza que deseja remover este colaborador permanentemente?')) return;
+  const handleTerminateStaff = async (id: string) => {
+    const reason = prompt('Motivo do desligamento/inatividade:');
+    if (!reason) return;
+    
     try {
-      await firebaseService.deleteItem('staff', id);
+      await HREngine.terminateStaff(companyId, id, reason, currentUser?.name || 'Admin');
       setSelectedStaff(null);
+      alert('Colaborador desligado com sucesso. O histórico foi preservado.');
     } catch (err) {
-      logger.error('staff', 'Falha ao remover colaborador', { staffId: id, error: err });
+      logger.error('staff', 'Falha no offboarding', { staffId: id });
     }
   };
 
@@ -255,22 +267,11 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       return;
     }
     const formData = new FormData(e.currentTarget);
-    const staffId = selectedStaff?.id || `staff-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
-    
-    let photoUrl = selectedStaff?.photo || '';
-
-    // Lógica: Se houver uma nova foto no preview para upload
-    if (photoPreview && photoPreview.startsWith('blob:')) {
-      const file = staffPhotoRef.current?.files?.[0];
-      if (file) {
-        const result = await firebaseService.uploadFile(`staff_photos/${companyId}/${staffId}`, file);
-        if (result) photoUrl = result.url;
-      }
-    }
+    const photoFile = staffPhotoRef.current?.files?.[0];
 
     const staffData: Partial<Staff> = {
+      id: selectedStaff?.id,
       name: formData.get('name') as string,
-      photo: photoUrl,
       role: formData.get('role') as any,
       cpf: formData.get('cpf') as string,
       phone: formData.get('phone') as string,
@@ -279,16 +280,22 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       admissionDate: new Date(formData.get('admissionDate') as string).getTime(),
       active: true,
       enterpriseId: companyId,
+      businessModel: selectedBusinessModel,
       assignedShopIds: selectedStaff?.assignedShopIds?.length ? selectedStaff.assignedShopIds : [selectedShopId || 'main-shop'],
       bankInfo: {
         bankName: formData.get('bankName') as string,
         agency: formData.get('agency') as string,
         account: formData.get('account') as string,
+      },
+      serviceConfig: {
+        serviceRate: parseFloat(formData.get('serviceRate') as string || '50'),
+        productRate: parseFloat(formData.get('productRate') as string || '10'),
+        rentalFee: parseFloat(formData.get('rentalFee') as string || '0')
       }
     };
 
     try {
-      await firebaseService.saveItem('staff', staffId, { ...selectedStaff, ...staffData, id: staffId });
+      await HREngine.saveStaff(companyId, staffData, photoFile);
       setIsStaffModalOpen(false);
       setSelectedStaff(null);
     } catch (err) {
@@ -300,35 +307,29 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
     e.preventDefault();
     if (!selectedStaff || !companyId) return;
     const formData = new FormData(e.currentTarget);
-    const eventId = `perf-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
-    
-    const event: PerformanceEvent = {
-      id: eventId,
+
+    try {
+      await HREngine.recordPerformance(companyId, { // HREngine ainda é responsável por performance
       staffId: selectedStaff.id,
-      enterpriseId: companyId,
       type: formData.get('type') as any,
       title: formData.get('title') as string,
       description: formData.get('description') as string,
       points: parseInt(formData.get('points') as string),
-      timestamp: Date.now(),
       createdBy: currentUser?.name || 'Sistema'
-    };
-
-    try {
-      await firebaseService.saveItem('performance_events', eventId, event);
-      const currentScore = selectedStaff.performanceScore || 100;
-      const newScore = currentScore + event.points;
-      await firebaseService.saveItem('staff', selectedStaff.id, { ...selectedStaff, performanceScore: newScore });
+      });
+      
       setIsEventModalOpen(false);
-      setSelectedStaff(prev => prev ? { ...prev, performanceScore: newScore } : null);
     } catch (err) {
       console.error('Event save failed:', err);
     }
   };
 
 
-  const staffEvents = performanceEvents.filter(e => e.staffId === selectedStaff?.id).sort((a,b) => b.timestamp - a.timestamp);
-  const totalPayroll = staff.reduce((acc, curr) => acc + (curr.salary || 0), 0);
+  const staffEvents = useMemo(() => 
+    performanceEvents.filter(e => e.staffId === selectedStaff?.id).sort((a,b) => b.timestamp - a.timestamp),
+    [performanceEvents, selectedStaff]
+  );
+  const totalPayroll = useMemo(() => staff.reduce((acc, curr) => acc + (curr.salary || 0), 0), [staff]);
 
   const filteredStaff = staff.filter(s => 
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -640,11 +641,11 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                      >
                         Editar Cadastro
                      </button>
-                     <button 
-                       onClick={() => handleDeleteStaff(selectedStaff.id)}
+                     <button
+                       onClick={() => handleTerminateStaff(selectedStaff.id)}
                        className="w-full py-5 bg-rose-500/10 text-rose-500 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest hover:bg-rose-500 hover:text-white transition-all active:scale-95 border border-rose-500/20"
                      >
-                        Remover Colaborador
+                        Desligar / Inativar
                      </button>
                      <button 
                        onClick={() => setIsEventModalOpen(true)}
@@ -659,7 +660,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                <div className="flex-1 overflow-y-auto responsive-padding custom-scrollbar bg-slate-50/30 bottom-safe-area">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-16">
                      <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar">
-                     {['Resumo', 'Contratual', 'Folha', 'Checklist', 'Documentação', 'Performance'].map((tab) => (
+                     {['Resumo', 'Contratual', 'Escalas', 'Folha', 'Checklist', 'Documentação', 'Performance', 'Carreira'].map((tab) => (
                            <button 
                              key={tab} 
                              onClick={() => setActiveTab(tab as any)}
@@ -676,6 +677,56 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                         <X className="w-6 h-6 group-hover:rotate-90 transition-transform" />
                      </button>
                   </div>
+
+                  {activeTab === 'Escalas' && (
+                    <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+                       <div className="flex items-center justify-between">
+                          <h4 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Agenda do Colaborador</h4>
+                          <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 px-3 py-1 rounded-lg">Ciclo Semanal</span>
+                       </div>
+                       <div className="bg-white p-12 rounded-[3rem] border-2 border-dashed border-slate-100 text-center">
+                          <Calendar className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest leading-relaxed">
+                             A gestão detalhada de horários está disponível no <br/> 
+                             <span className="text-blue-500">Módulo de Escalas Global</span> do sistema.
+                          </p>
+                       </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'Carreira' && (
+                    <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
+                       <div className="flex items-center justify-between">
+                          <h4 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Linha do Tempo de Carreira</h4>
+                          <button className="px-6 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all">Promover Agora</button>
+                       </div>
+                       
+                       <div className="space-y-4">
+                          {((selectedStaff as any).promotionHistory || []).length > 0 ? (selectedStaff as any).promotionHistory.map((h: any, idx: number) => (
+                             <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-100 flex items-center justify-between group hover:border-blue-500 transition-all">
+                                <div className="flex items-center gap-4">
+                                   <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+                                      <Award className="w-5 h-5" />
+                                   </div>
+                                   <div>
+                                      <p className="text-xs font-black text-slate-800 uppercase tracking-tight">{h.fromRole} <ArrowRight className="inline w-3 h-3 mx-1" /> {h.toRole}</p>
+                                      <p className="text-[10px] text-slate-400 font-bold uppercase">{format(h.date, 'dd MMM yyyy')}</p>
+                                   </div>
+                                </div>
+                                <div className="text-right">
+                                   <p className="text-sm font-black text-emerald-600">{formatCurrency(h.toSalary)}</p>
+                                   <p className="text-[8px] font-bold text-slate-300 uppercase">Aprovado por {h.approvedBy}</p>
+                                </div>
+                             </div>
+                          )) : (
+                             <div className="py-20 text-center opacity-30">
+                                <Target className="w-12 h-12 mx-auto text-slate-300 mb-4" />
+                                <p className="text-[10px] font-black uppercase tracking-widest">Aguardando primeira movimentação de carreira.</p>
+                             </div>
+                          )}
+                       </div>
+                    </div>
+                  )}
 
                   {activeTab === 'Folha' && (
                     <div className="space-y-10 animate-in slide-in-from-right-4 duration-500">
@@ -1047,7 +1098,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                          </select>
                       </div>
                       <div className="space-y-3">
-                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Documento ({localeEngine.settings.identityLabel})</label>
+                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">{localeEngine.settings.identityLabel}</label>
                          <input name="cpf" defaultValue={selectedStaff?.cpf} className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl p-5 font-bold italic focus:border-blue-500 outline-none transition-all" />
                       </div>
                       <div className="space-y-3">

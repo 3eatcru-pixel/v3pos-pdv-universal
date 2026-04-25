@@ -36,7 +36,7 @@ import { localeEngine } from '../services/LocaleEngine';
 import { useCollection } from '../../hooks/useCollection';
 
 interface FinanceManagementViewProps {
-  module: 'restaurant' | 'market' | 'construction' | 'retail';
+  module: 'restaurant' | 'market' | 'construction' | 'retail' | 'pharmacy' | 'autoparts' | 'service';
   shopId: string | null;
 }
 
@@ -74,10 +74,16 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
   const currentUser = accountService.getCurrentUser();
   const companyId = currentUser?.companyId || 'default';
   const approvalThresholdPercent = module === 'market' ? 3 : 5;
+  
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime();
 
   const { data: roles } = useCollection<any>('rolePermissions');
-  const { data: orders } = useCollection<Order>('orders', { enterpriseId: companyId, shopId: shopId || null });
-  const { data: products } = useCollection<Product>('products', { enterpriseId: companyId });
+  const { data: orders } = useCollection<Order>('orders', { enterpriseId: companyId, shopId: shopId || null, dateRange: { field: 'closedAt', start: startOfMonth, end: endOfMonth } });
+  const { data: products } = useCollection<Product>('products', { enterpriseId: companyId, dateRange: { field: 'updatedAt', start: startOfMonth, end: endOfMonth } }); // Products might not need date range, but for consistency
+
+  const config = useMemo(() => ({ taxRate: 0.05 }), []); // Exemplo de config vinda de contexto no futuro
 
   const userPermissions = useMemo(() => {
     if (currentUser?.role === 'owner' || currentUser?.role === 'admin' || currentUser?.role === 'dev') return { canViewSales: true, canManageInventory: true };
@@ -239,7 +245,12 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
     acc[item.id] = Number(item.costPerUnit) || 0;
     return acc;
   }, {});
-  const dre = FinanceEngine.summarizeDre(transactions, recountRequests, orders, products, stockItems, config?.taxRate || 0.05);
+
+  const dre = useMemo(() => 
+    FinanceEngine.summarizeDre(transactions, recountRequests, orders, products, stockItems, config?.taxRate || 0.05),
+    [transactions, recountRequests, orders, products, stockItems, config.taxRate]
+  );
+
   const inventoryCount = stockItems.filter((item) => item.sourceType === 'inventory').length;
   const productCount = stockItems.filter((item) => item.sourceType === 'product').length;
   const activeBlindSession = countSessions.find((session) => session.status === 'open') || null;
@@ -354,7 +365,7 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
                <div className="space-y-6">
                   <div className="flex justify-between items-center py-4 border-b border-white/10">
                      <span className="text-xs font-black uppercase text-blue-400 tracking-widest">Lucro Bruto Operacional</span>
-                     <span className="text-2xl font-black italic tracking-tighter">{formatCurrency(dre.receitaBruta * 0.5)}</span>
+                     <span className="text-2xl font-black italic tracking-tighter">{formatCurrency(dre.receitaBruta - dre.custoMercadoriaVendida)}</span>
                   </div>
                   <div className="flex justify-between items-center py-4 border-b border-white/5 text-rose-400">
                      <span className="text-xs font-black uppercase text-slate-400 tracking-widest">(-) Despesas Administrativas</span>

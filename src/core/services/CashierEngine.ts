@@ -81,8 +81,12 @@ class CashierEngine {
    * Verifica se existe um caixa aberto para a unidade
    */
   async getActiveSession(shopId: string, userId: string): Promise<CashierSession | null> {
-    const sessions = await firebaseService.getAllDocs('cashier_sessions');
-    return sessions.find(s => s.shopId === shopId && s.userId === userId && s.status === 'open') || null;
+    const sessions = await firebaseService.getDocsByQuery('cashier_sessions', [
+      { field: 'shopId', op: '==', value: shopId },
+      { field: 'userId', op: '==', value: userId },
+      { field: 'status', op: '==', value: 'open' }
+    ]) as CashierSession[];
+    return sessions[0] || null;
   }
 }
 

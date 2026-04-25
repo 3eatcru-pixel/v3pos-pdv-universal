@@ -44,14 +44,19 @@ interface CloseCountSessionInput {
 
 export class StockReconciliationEngine {
   static async listInventory(enterpriseId: string, shopId: string | null): Promise<InventoryItem[]> {
-    const data = await firebaseService.getAllDocs('inventory', enterpriseId, shopId);
+    const queryConditions = [{ field: 'enterpriseId', op: '==', value: enterpriseId }];
+    if (shopId) queryConditions.push({ field: 'shopId', op: '==', value: shopId });
+    const data = await firebaseService.getDocsByQuery('inventory', queryConditions);
     return (data as InventoryItem[]).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   }
 
   static async listStockItems(enterpriseId: string, shopId: string | null): Promise<StockReconciliationItem[]> {
+    const queryConditions = [{ field: 'enterpriseId', op: '==', value: enterpriseId }];
+    if (shopId) queryConditions.push({ field: 'shopId', op: '==', value: shopId });
+
     const [inventory, products] = await Promise.all([
-      firebaseService.getAllDocs('inventory', enterpriseId, shopId),
-      firebaseService.getAllDocs('products', enterpriseId, shopId),
+      firebaseService.getDocsByQuery('inventory', queryConditions),
+      firebaseService.getDocsByQuery('products', queryConditions),
     ]);
 
     const inventoryItems = (inventory as InventoryItem[]).map((item) => ({
@@ -86,12 +91,16 @@ export class StockReconciliationEngine {
   }
 
   static async listRecountRequests(enterpriseId: string, shopId: string | null): Promise<RecountRequest[]> {
-    const data = await firebaseService.getAllDocs('recountRequests', enterpriseId, shopId);
+    const queryConditions = [{ field: 'enterpriseId', op: '==', value: enterpriseId }];
+    if (shopId) queryConditions.push({ field: 'shopId', op: '==', value: shopId });
+    const data = await firebaseService.getDocsByQuery('recountRequests', queryConditions);
     return (data as RecountRequest[]).sort((a, b) => b.date - a.date);
   }
 
   static async listCountSessions(enterpriseId: string, shopId: string | null): Promise<StockCountSession[]> {
-    const data = await firebaseService.getAllDocs('stockCountSessions', enterpriseId, shopId);
+    const queryConditions = [{ field: 'enterpriseId', op: '==', value: enterpriseId }];
+    if (shopId) queryConditions.push({ field: 'shopId', op: '==', value: shopId });
+    const data = await firebaseService.getDocsByQuery('stockCountSessions', queryConditions);
     return (data as StockCountSession[]).sort((a, b) => b.openedAt - a.openedAt);
   }
 
@@ -224,4 +233,3 @@ export class StockReconciliationEngine {
     return recountRequest;
   }
 }
-

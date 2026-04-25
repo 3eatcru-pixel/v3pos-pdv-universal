@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Settings, 
   LogOut, 
@@ -12,12 +12,17 @@ import {
   Smartphone,
   Globe,
   Database,
-  LayoutGrid
+  LayoutGrid,
+  MessageSquare,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { accountService } from '../services/accountService';
 import { cn } from '../../lib/utils';
+import { useCollection } from '../../hooks/useCollection';
 import { ModuleManagement } from '../views/ModuleManagement';
+import { UserInboxView } from '../views/UserInboxView'; // Importar UserInboxView
+import { CommunicationEngine, InternalMessage } from '../services/CommunicationEngine';
 
 interface GlobalSettingsProps {
   context?: string;
@@ -25,6 +30,7 @@ interface GlobalSettingsProps {
 
 export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
   const [isModulesOpen, setIsModulesOpen] = useState(false);
   const [step, setStep] = useState<'menu' | 'confirm' | 'pin'>('menu');
   const [pin, setPin] = useState('');
@@ -35,6 +41,20 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
   const user = accountService.getCurrentUser();
   const companyId = user?.companyId || '';
   const canAdmin = user?.role === 'owner' || user?.role === 'manager' || user?.role === 'dev';
+
+  const [inboxFilterType, setInboxFilterType] = useState<'all' | 'info' | 'warning' | 'critical'>('all');
+  const [inboxFilterPeriod, setInboxFilterPeriod] = useState<'all' | '7d' | '30d'>('all');
+
+  const { data: inboxMessages } = useCollection<InternalMessage>('user_inbox', { 
+    enterpriseId: companyId || null,
+    userId: user?.id, // Restringe a busca ao usuário logado por segurança
+    ...(inboxFilterType !== 'all' && { type: inboxFilterType }),
+    ...(inboxFilterPeriod !== 'all' && { period: inboxFilterPeriod }) // Firebase query for period needs to be implemented in firebaseService
+  });
+
+  const unreadCount = useMemo(() => 
+    inboxMessages.filter((m: any) => !m.read).length, 
+  [inboxMessages]);
 
   useEffect(() => {
     let mounted = true;
@@ -90,11 +110,16 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
         )}
         <button 
           onClick={() => setIsOpen(true)}
-          className="bg-white/90 backdrop-blur-md border border-slate-200 p-4 rounded-2xl text-slate-600 hover:bg-white hover:text-blue-600 transition-all shadow-sm group active:scale-95"
+          className="relative bg-white/90 backdrop-blur-md border border-slate-200 p-4 rounded-2xl text-slate-600 hover:bg-white hover:text-blue-600 transition-all shadow-sm group active:scale-95"
           title="Configurações Globais"
           aria-label="Abrir Configurações"
         >
           <Settings className="w-6 h-6 group-hover:rotate-90 transition-transform" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 w-6 h-6 bg-rose-500 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white shadow-lg animate-bounce">
+              {unreadCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -133,6 +158,54 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                   </div>
 
                     <div className="p-10 space-y-8">
+                       {inboxMessages.length > 0 && (
+                         <div className="space-y-4">
+                            <div className="flex items-center justify-between px-2">
+                               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Comunicações</span>
+                               <div className="flex gap-2">
+                                  <select 
+                                    value={inboxFilterType}
+                                    onChange={(e) => setInboxFilterType(e.target.value as any)}
+                                    className="text-[8px] font-black uppercase bg-slate-100 border-none rounded-md px-2 py-1 outline-none text-slate-600 focus:ring-1 focus:ring-blue-500"
+                                  >
+                                     <option value="all">Todos</option>
+                                     <option value="info">Info</option>
+                                     <option value="warning">Aviso</option>
+                                     <option value="critical">Crítico</option>
+                                  </select>
+                                  <select 
+                                    value={inboxFilterPeriod}
+                                    onChange={(e) => setInboxFilterPeriod(e.target.value as any)}
+                                    className="text-[8px] font-black uppercase bg-slate-100 border-none rounded-md px-2 py-1 outline-none text-slate-600 focus:ring-1 focus:ring-blue-500"
+                                  >
+                                     <option value="all">Data</option>
+                                     <option value="7d">7 dias</option>
+                                     <option value="30d">30 dias</option>
+                                  </select>
+                               </div>
+                            </div>
+                            <button 
+                              onClick={() => { setIsInboxOpen(true); setIsOpen(false); }}
+                              className="w-full flex items-center justify-between p-5 bg-blue-50 rounded-[1.5rem] border border-blue-100 hover:bg-white hover:border-blue-200 transition-all group"
+                            >
+                                <div className="flex items-center gap-4">
+                                  <div className="p-3 bg-blue-500 text-white rounded-xl shadow-lg">
+                                    <MessageSquare className="w-5 h-5" />
+                                  </div>
+                                  <div className="text-left">
+                                    <h4 className="font-black text-slate-800 text-sm">Mensagens Internas</h4>
+                                    <p className="text-[10px] text-blue-600 font-bold uppercase">
+                                      {unreadCount > 0 
+                                        ? `${unreadCount} não lidas` 
+                                        : `${inboxMessages.length} mensagens`}
+                                    </p>
+                                  </div>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-blue-300" />
+                            </button>
+                         </div>
+                       )}
+
                        {user?.role === 'dev' && (
                          <div className="space-y-4">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2">Configuração Global (DEV)</span>
@@ -314,6 +387,18 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
               <AnimatePresence>
         {isModulesOpen && user && (
           <ModuleManagement enterpriseId={user.companyId} onClose={() => setIsModulesOpen(false)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isInboxOpen && user && (
+          <UserInboxView 
+            enterpriseId={user.companyId} 
+            userId={user.id} 
+            userName={user.name} // Passa o nome do usuário para a view
+            messages={inboxMessages} 
+            onClose={() => setIsInboxOpen(false)} 
+          />
         )}
       </AnimatePresence>
 

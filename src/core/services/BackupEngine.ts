@@ -1,5 +1,6 @@
 import { firebaseService } from '../../services/firebaseService';
 
+// Adicionado para tipagem consistente
 interface BackupDataset {
   shops: unknown[];
   products: unknown[];

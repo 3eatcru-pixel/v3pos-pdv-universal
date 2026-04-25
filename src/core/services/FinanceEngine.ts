@@ -1,6 +1,7 @@
 import { Transaction, RecountRequest, Order, Product } from '../../types';
 import { bomEngine } from './BOMEngine';
 import { StockReconciliationItem } from './StockReconciliationEngine';
+import { InventoryEngine } from './InventoryEngine';
 
 export class FinanceEngine {
   static summarize(transactions: Transaction[]) {
@@ -42,14 +43,15 @@ export class FinanceEngine {
     const custoMercadoriaVendida = orders
       .filter(o => o.status === 'delivered')
       .reduce((acc, order) => {
+        const currentInventory = InventoryEngine.listInventory(order.enterpriseId, order.shopId); // Obter inventário atualizado
         const adjustments = bomEngine.explodeCartToInsumos(
-          order.items.map(i => ({ ...i, id: i.productId })),
+          order.items.map(i => ({ ...i, id: i.productId })), // Mapear para o formato esperado
           products,
-          inventory as any
+          currentInventory as any // Passar o inventário para resolução de substitutos
         );
         
         const costOfOrder = adjustments.reduce((sum, adj) => {
-          const item = inventory.find(i => i.id === adj.inventoryItemId);
+          const item = (currentInventory as any[]).find(i => i.id === adj.inventoryItemId); // Buscar item no inventário
           return sum + (adj.quantityToDeduct * (item?.costPerUnit || 0));
         }, 0);
 

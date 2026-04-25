@@ -1,7 +1,16 @@
 import { InventoryItem, Product } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { coreEventBus } from '../events/CoreEventBus';
+import { bomEngine } from './BOMEngine'; // Importar BOMEngine para explodir composição
 import { logger } from './logger';
+
+export interface StockBatch {
+  id: string;
+  batchNumber: string;
+  expiryDate: number;
+  quantity: number;
+  receivedAt: number;
+}
 
 /**
  * Universal Inventory Engine
@@ -13,87 +22,104 @@ export class InventoryEngine {
    * Supports complex compositions (combos/kits) and yield factors.
    */
   static async adjustStockRecursive(
-    items: { id: string; quantity: number; name?: string; composition?: any }[],
+    items: { id: string; quantity: number; name?: string; composition?: any; modifiers?: any[] }[],
     multiplier: number, // 1 for deduction, -1 for return
     enterpriseId: string,
     shopId: string,
     inventory: InventoryItem[]
   ) {
-    const adjustments: { id: string; amount: number; type: 'inventory' | 'product' }[] = [];
+    // Usar BOMEngine para explodir a composição e resolver substitutos
+    const explodedItems = bomEngine.explodeCartToInsumos(
+      items.map(i => ({ id: i.id || (i as any).productId, quantity: i.quantity, name: i.name, composition: i.composition, modifiers: i.modifiers })),
+      [], // products não é necessário aqui, BOMEngine já tem acesso ou deveria receber
+      inventory
+    );
 
-    const resolveItem = (item: any, qty: number) => {
-      // If the item has a composition (Combo/Kit/Recipe), resolve its ingredients
-      if (item.composition && item.composition.length > 0) {
-        item.composition.forEach((comp: any) => {
-          resolveItem(comp, qty * (comp.quantity || 1));
-        });
+    const adjustments: { id: string; amount: number; type: 'inventory' | 'product' }[] = explodedItems.map(adj => {
+      // Determinar se é um insumo ou produto final
+      const isInventoryItem = inventory.some(inv => inv.id === adj.inventoryItemId);
+      return {
+        id: adj.inventoryItemId,
+        amount: adj.quantityToDeduct * multiplier,
+        type: isInventoryItem ? 'inventory' : 'product' // Assumindo que se não é inventory, é product
+      };
+    });
+
+    // Consolidar ajustes para o caso de múltiplos itens do carrinho usarem o mesmo insumo
+    const consolidatedAdjustments: { [key: string]: { id: string; amount: number; type: 'inventory' | 'product' } } = {};
+    adjustments.forEach(adj => {
+      const key = `${adj.type}-${adj.id}`;
+      if (consolidatedAdjustments[key]) {
+        consolidatedAdjustments[key].amount += adj.amount;
       } else {
-        // Auditoria: Ignorar itens marcados como serviço ou sem controle de estoque
-        if (item.type === 'service' || item.trackStock === false) {
-          logger.debug('core', 'Ignorando ajuste de estoque para item não estocável', { name: item.name });
-          return;
-        }
-
-        // Try to find in inventory first (Ingredients)
-        const invItem = inventory.find(i => 
-          i.id === item.inventoryItemId || 
-          i.id === item.id || 
-          (item.name && i.name.toLowerCase() === item.name.toLowerCase())
-        );
-
-        if (invItem) {
-          const yieldFactor = invItem.yieldFactor || 1;
-          const totalAdjustment = (qty * multiplier) / yieldFactor;
-          
-          const existing = adjustments.find(a => a.id === invItem.id && a.type === 'inventory');
-          if (existing) {
-            existing.amount += totalAdjustment;
-          } else {
-            adjustments.push({ id: invItem.id, amount: totalAdjustment, type: 'inventory' });
-          }
-        } else {
-          // Fallback to direct Product stock (Retail/Market)
-          const existing = adjustments.find(a => a.id === item.id && a.type === 'product');
-          if (existing) {
-            existing.amount += qty * multiplier;
-          } else {
-            adjustments.push({ id: item.id, amount: qty * multiplier, type: 'product' });
-          }
-        }
-
-        // Modifiers can affect stock usage:
-        // - extra: consumes additional stock
-        // - remove: reduces stock usage of linked ingredient
-        if (Array.isArray(item.modifiers) && item.modifiers.length > 0) {
-          item.modifiers.forEach((mod: any) => {
-            if (!mod?.inventoryItemId) return;
-            if (mod.type === 'allergy') return; // informational only
-            const modifierSign = mod.type === 'remove' ? -1 : 1;
-            const modifierQty = qty * modifierSign;
-            const modifierItem = { id: mod.inventoryItemId, quantity: modifierQty, composition: [] };
-            resolveItem(modifierItem, modifierQty);
-          });
-        }
+        consolidatedAdjustments[key] = { ...adj };
       }
-    };
+    });
 
-    items.forEach(item => resolveItem(item, item.quantity));
+    const finalAdjustments = Object.values(consolidatedAdjustments);
 
-    if (adjustments.length > 0) {
+    if (finalAdjustments.length > 0) {
       try {
         await firebaseService.runTransaction(async (tx) => {
-          for (const adj of adjustments) {
+          for (const adj of finalAdjustments) {
             const collectionName = adj.type === 'inventory' ? 'inventory' : 'products';
             const ref = firebaseService.getDocRef(collectionName, adj.id);
             const snap = await tx.get(ref);
             
             if (snap.exists()) {
               const data = snap.data();
-              const currentStock = Number(adj.type === 'inventory' ? data.currentStock : data.stock) || 0;
-              const nextStock = Math.max(0, currentStock - adj.amount);
+              const stockField = adj.type === 'inventory' ? 'currentStock' : 'stock';
+              const reservedField = adj.type === 'inventory' ? 'reservedStock' : 'reserved';
+              const currentTotal = Number(data[stockField]) || 0;
+              const currentReserved = Number(data[reservedField]) || 0;
+              let batches: StockBatch[] = data.batches || [];
+              
+              if (adj.amount > 0) {
+                // DEDUÇÃO: Lógica FEFO (First Expired First Out)
+                if (currentTotal < adj.amount) {
+                  logger.warn('core', 'Estoque insuficiente para ajuste atômico', { id: adj.id, currentTotal, requested: adj.amount });
+                }
+
+                let remainingToDeduct = adj.amount;
+                // Ordena por data de validade (mais próxima primeiro)
+                batches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
+                
+                for (const batch of batches) {
+                  if (remainingToDeduct <= 0) break;
+                  const deduct = Math.min(batch.quantity, remainingToDeduct);
+                  batch.quantity -= deduct;
+                  remainingToDeduct -= deduct;
+                }
+              } else if (adj.amount < 0) {
+                // ADIÇÃO (Retorno): Incrementa no lote com maior validade ou cria um novo
+                const addQty = Math.abs(adj.amount);
+                if (batches.length > 0) {
+                  const sortedByExpiryDesc = [...batches].sort((a, b) => b.expiryDate - a.expiryDate);
+                  sortedByExpiryDesc[0].quantity += addQty;
+                  batches = sortedByExpiryDesc;
+                } else {
+                  batches.push({
+                    id: `batch-${Date.now()}`,
+                    batchNumber: 'GENERIC-STOCK',
+                    expiryDate: Date.now() + (365 * 24 * 60 * 60 * 1000), // +1 ano default
+                    quantity: addQty,
+                    receivedAt: Date.now()
+                  });
+                }
+              } else if (multiplier === 0) {
+                // RESERVA: Incrementa o saldo reservado sem mexer no estoque físico
+                tx.update(ref, { 
+                  [reservedField]: currentReserved + adj.quantityToDeduct,
+                  updatedAt: Date.now() 
+                });
+                continue; // Processa o próximo item da transação
+              }
+
+              const nextTotal = Math.max(0, currentTotal - adj.amount);
               
               tx.update(ref, { 
-                [adj.type === 'inventory' ? 'currentStock' : 'stock']: nextStock,
+                [stockField]: nextTotal,
+                batches,
                 updatedAt: Date.now() 
               });
             }
@@ -101,7 +127,7 @@ export class InventoryEngine {
         });
         
         // Notify the rest of the system via Event Bus
-        adjustments.forEach(adj => {
+        finalAdjustments.forEach(adj => {
           coreEventBus.emit('inventory:updated', { 
             id: adj.id, 
             type: adj.type,
@@ -109,11 +135,56 @@ export class InventoryEngine {
           });
         });
 
-        logger.info('core', 'INVENTORY_ADJUSTMENT_SUCCESS', { count: adjustments.length });
+        logger.info('core', 'INVENTORY_ADJUSTMENT_SUCCESS', { count: finalAdjustments.length });
       } catch (error) {
         logger.error('core', 'INVENTORY_ADJUSTMENT_FAILED', { error });
         throw error;
       }
+    }
+  }
+
+  /**
+   * Converte uma reserva em venda efetiva.
+   * Abate o reservedStock e o currentStock (via FEFO).
+   */
+  static async releaseReservationToSale(enterpriseId: string, itemId: string, quantity: number, collection: 'inventory' | 'products' = 'inventory') {
+    try {
+      await firebaseService.runTransaction(async (tx) => {
+        const ref = firebaseService.getDocRef(collection, itemId);
+        const snap = await tx.get(ref);
+        
+        if (snap.exists()) {
+          const data = snap.data();
+          const stockField = collection === 'inventory' ? 'currentStock' : 'stock';
+          const reservedField = collection === 'inventory' ? 'reservedStock' : 'reserved';
+          
+          const currentTotal = Number(data[stockField]) || 0;
+          const currentReserved = Number(data[reservedField]) || 0;
+          let batches: StockBatch[] = data.batches || [];
+
+          // 1. Abate reserva
+          const nextReserved = Math.max(0, currentReserved - quantity);
+          
+          // 2. Abate estoque físico via FEFO
+          let remaining = quantity;
+          batches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
+          for (const batch of batches) {
+            if (remaining <= 0) break;
+            const deduct = Math.min(batch.quantity, remaining);
+            batch.quantity -= deduct;
+            remaining -= deduct;
+          }
+
+          tx.update(ref, { 
+            [stockField]: Math.max(0, currentTotal - quantity),
+            [reservedField]: nextReserved,
+            batches,
+            updatedAt: Date.now() 
+          });
+        }
+      });
+    } catch (error) {
+      logger.error('core', 'Falha ao converter reserva em venda', { itemId, error });
     }
   }
 
@@ -130,10 +201,43 @@ export class InventoryEngine {
         if (snap.exists()) {
           const data = snap.data();
           const field = collection === 'inventory' ? 'currentStock' : 'stock';
-          const current = Number(data[field]) || 0;
-          const next = Math.max(0, current + delta);
+          const currentTotal = Number(data[field]) || 0;
+          let batches: StockBatch[] = data.batches || [];
+
+          if (delta < 0) {
+            // DEDUÇÃO MANUAL: Lógica FEFO
+            let remainingToDeduct = Math.abs(delta);
+            batches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
+            for (const batch of batches) {
+              if (remainingToDeduct <= 0) break;
+              const deduct = Math.min(batch.quantity, remainingToDeduct);
+              batch.quantity -= deduct;
+              remainingToDeduct -= deduct;
+            }
+          } else if (delta > 0) {
+            // ADIÇÃO MANUAL: Adiciona ao lote de maior validade ou cria genérico
+            if (batches.length > 0) {
+              const sortedByExpiryDesc = [...batches].sort((a, b) => b.expiryDate - a.expiryDate);
+              sortedByExpiryDesc[0].quantity += delta;
+              batches = sortedByExpiryDesc;
+            } else {
+              batches.push({
+                id: `batch-manual-${Date.now()}`,
+                batchNumber: 'MANUAL-ADJ',
+                expiryDate: Date.now() + (365 * 24 * 60 * 60 * 1000),
+                quantity: delta,
+                receivedAt: Date.now()
+              });
+            }
+          }
+
+          const nextTotal = Math.max(0, currentTotal + delta);
           
-          tx.update(ref, { [field]: next, updatedAt: Date.now() });
+          tx.update(ref, { 
+            [field]: nextTotal, 
+            batches,
+            updatedAt: Date.now() 
+          });
         }
       });
       logger.info('core', 'MANUAL_INVENTORY_ADJUSTMENT_SUCCESS', { itemId, delta });

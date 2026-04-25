@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FileText, Download, ShieldCheck, TrendingUp, Landmark, Calculator, Receipt, AlertCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn, formatCurrency } from '../../lib/utils';
@@ -6,11 +6,38 @@ import { useCollection } from '../../hooks/useCollection';
 import { accountService } from '../services/accountService';
 import { localeEngine } from '../services/LocaleEngine';
 import { StatCard } from '../components/CommonUI';
+import { FiscalSAFTGenerator } from './FiscalSAFTGenerator';
 
 export const AccountingDashboard: React.FC = () => {
   const enterpriseId = accountService.getCurrentCompanyId();
-  const { data: summaries } = useCollection<any>('dailySummaries', { enterpriseId });
-  const { data: transactions } = useCollection<any>('transactions', { enterpriseId });
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime();
+
+  const { data: summaries } = useCollection<any>('dailySummaries', { enterpriseId, dateRange: { field: 'date', start: startOfMonth, end: endOfMonth } });
+  const { data: transactions } = useCollection<any>('transactions', { enterpriseId, dateRange: { field: 'timestamp', start: startOfMonth, end: endOfMonth } });
+
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportSAFT = async () => {
+    if (!enterpriseId) return;
+    setIsExporting(true);
+    
+    // Regra Fiscal: O SAFT-PT deve ser gerado para o mês completo de competência.
+    const now = new Date();
+    const month = now.getMonth(); 
+    const year = now.getFullYear();
+    
+    try {
+      const xml = await FiscalSAFTGenerator.generateSAFT(enterpriseId, month, year);
+      const filename = `SAFT_PT_${year}_${String(month + 1).padStart(2, '0')}.xml`;
+      FiscalSAFTGenerator.downloadFile(xml, filename);
+    } catch (error) {
+      alert('Erro ao gerar arquivo SAFT. Verifique se o NIF da empresa e os dados dos produtos estão corretos.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const accountingMetrics = useMemo(() => {
     const totalRevenue = summaries.reduce((acc, s) => acc + (s.totalSales || 0), 0);
@@ -35,8 +62,15 @@ export const AccountingDashboard: React.FC = () => {
           <p className="text-slate-500 font-medium italic">Consolidação contábil, tributária e fechamento de competência.</p>
         </div>
         <div className="flex gap-4">
-          <button className="px-8 py-4 bg-white border border-slate-200 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition-all flex items-center gap-3">
-            <FileText className="w-4 h-4" /> Exportar SAFT/XML
+          <button 
+            onClick={handleExportSAFT}
+            disabled={isExporting}
+            className={cn(
+              "px-8 py-4 bg-white border border-slate-200 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition-all flex items-center gap-3 shadow-sm",
+              isExporting && "opacity-50 cursor-wait"
+            )}
+          >
+            <FileText className="w-4 h-4" /> {isExporting ? 'Gerando...' : 'Exportar SAFT/XML'}
           </button>
           <button className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-black transition-all shadow-xl flex items-center gap-3">
             <Calculator className="w-4 h-4" /> Conciliação Bancária

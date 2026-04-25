@@ -2,33 +2,59 @@ import { CoreProduct, CoreSale } from '../types';
 import { logger } from './logger';
 import { firebaseService } from '../../services/firebaseService';
 import { DailyAggregatorEngine } from './DailyAggregatorEngine';
+import { coreEventBus } from '../events/CoreEventBus';
+import { InventoryEngine } from './InventoryEngine';
+import { BookingDepositEngine } from './BookingDepositEngine';
 
 class SalesService {
-  async processSale(sale: CoreSale, items: any[]) {
-    logger.info('core', 'Processing real sale', { saleId: sale.id, total: sale.total });
+  async processSale(sale: CoreSale, items: any[], depositId?: string) {
+    logger.info('core', 'Processing real sale', { saleId: sale.id, total: sale.total, depositId });
     
     // Save to Firebase
     try {
-      await firebaseService.saveItem('orders', sale.id, {
-        ...sale,
-        items,
-        status: 'delivered',
-        startTime: Date.now(),
-        closedAt: Date.now()
+      await firebaseService.runTransaction(async (tx) => {
+        // 1. Salva o pedido de forma atômica
+        const orderRef = firebaseService.getDocRef('orders', sale.id);
+        tx.set(orderRef, {
+          ...sale,
+          items,
+          status: 'delivered',
+          startTime: Date.now(),
+          closedAt: Date.now(),
+          depositId: depositId || null // Vincula o sinal ao pedido para auditoria
+        });
+
+        // 2. Consome o sinal (booking fee) se houver, garantindo que não seja reusado
+        if (depositId) {
+          await BookingDepositEngine.consumeDeposit(tx, depositId, sale.id);
+        }
       });
 
       // Update Inventory Atomically
-      if (items && items.length > 0) {
-        const stockItems = items.map(i => ({ productId: i.productId || i.id, quantity: i.quantity || 1 }));
-        const enterpriseId = (sale as any).enterpriseId || (sale as any).companyId;
+      if (items && items.length > 0 && sale.enterpriseId && sale.shopId) {
+        const enterpriseId = sale.enterpriseId;
+        const shopId = sale.shopId;
+        const inventoryItems = await firebaseService.getAllDocs('inventory', enterpriseId, shopId); // Buscar inventário para resolução de substitutos
 
         // Lógica de Construção: Se for entrega futura, apenas reserva. Se for balcão, abate direto.
         if (sale.module === 'construction' && (sale as any).logistics?.type === 'scheduled_delivery') {
-          await firebaseService.reserveInventoryStocksAtomic(stockItems, { enterpriseId });
+          // A reserva também deve usar o InventoryEngine para resolver composições
+          await InventoryEngine.adjustStockRecursive(items, 0, enterpriseId, shopId, inventoryItems as any); // Multiplier 0 para reservar
           logger.info('core', 'Estoque reservado para entrega futura', { saleId: sale.id });
         } else {
-          await firebaseService.decrementProductStocksAtomic(stockItems, { enterpriseId });
+          await InventoryEngine.adjustStockRecursive(items, 1, enterpriseId, shopId, inventoryItems as any); // Multiplier 1 para deduzir
         }
+      }
+
+      // Dispara evento com ID da venda para garantir que o Mesh não duplique a baixa
+      if (items && items.length > 0) {
+        items.forEach(item => {
+          coreEventBus.emit('product:stock_decremented', { 
+            productId: item.productId || item.id, 
+            quantity: item.quantity,
+            saleId: sale.id 
+          });
+        });
       }
 
       // BFF Aggregation: Update Daily Summary for faster Dashboard rendering

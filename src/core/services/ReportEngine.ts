@@ -35,11 +35,11 @@ class ReportEngine {
   ): string {
     const periodLabel = selectedPeriod === 'today' ? 'Hoje' : selectedPeriod === '7d' ? '7 Dias' : '30 Dias';
     const date = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
-
+    
     let csvContent = `Relatório de Vendas - ${shopName},Período: ${periodLabel},Gerado em: ${date}\n`;
     csvContent += `Métrica,Valor\n`;
-    csvContent += `Total de Vendas,${localeEngine.formatMoney(stats.totalSalesToday, false)}\n`;
-    csvContent += `Ticket Médio,${localeEngine.formatMoney(stats.avgTicketToday, false)}\n`;
+    csvContent += `Total de Vendas,${localeEngine.formatMoney(stats.totalSalesToday, false).replace(localeEngine.settings.currency, '').trim()}\n`; // Remover símbolo para CSV
+    csvContent += `Ticket Médio,${localeEngine.formatMoney(stats.avgTicketToday, false).replace(localeEngine.settings.currency, '').trim()}\n`; // Remover símbolo para CSV
     csvContent += `Margem de Lucro,${stats.profitMargin.toFixed(2)}%\n`;
     csvContent += `Pedidos no Período,${stats.orderCount}\n`;
     csvContent += `Custo de Mão de Obra,${stats.laborCostPercentage.toFixed(2)}%\n`;

@@ -7,6 +7,9 @@ import { authService } from '../../auth/authService'; // Moved up for consistenc
 import { localeEngine, CountryCode } from './LocaleEngine';
 import { firebaseService } from '../../services/firebaseService';
 import { logger } from './logger';
+import { ShopCloneEngine, CloneOptions } from './ShopCloneEngine';
+import { StockTransferEngine, TransferItem } from './StockTransferEngine';
+import { CommunicationEngine } from './CommunicationEngine';
 
 class AccountService {
   private mapRoleForLegacy(role: string): User['role'] {
@@ -167,7 +170,6 @@ class AccountService {
     const success = await authService.loginAsDev(email, password);
     if (success) logger.info('auth', 'Login de desenvolvedor bem-sucedido', { email });
     return success;
-    return authService.loginAsDev(email, password);
   }
 
   public async loginWithDevBootstrap(code: string): Promise<boolean> {
@@ -255,17 +257,56 @@ class AccountService {
     }));
   }
 
+  public async cloneExistingShop(
+    enterpriseId: string, 
+    sourceShopId: string, 
+    name: string, 
+    location: string,
+    options?: CloneOptions
+  ) {
+    return ShopCloneEngine.cloneShop(enterpriseId, sourceShopId, { name, location } as any, options);
+  }
+
+  public async initiateStockTransfer(
+    sourceShopId: string, 
+    destinationShopId: string, 
+    items: TransferItem[],
+    notes?: string
+  ) {
+    const user = this.getCurrentUser();
+    const companyId = this.getCurrentCompanyId();
+    if (!user || !companyId) throw new Error('Sessão inválida');
+    
+    return StockTransferEngine.initiateTransfer({
+      enterpriseId: companyId,
+      sourceShopId,
+      destinationShopId,
+      items,
+      userId: user.id,
+      userName: user.name,
+      notes
+    });
+  }
+
   public async getShopsByCompany(companyId: string): Promise<Shop[]> {
     const shops = await firebaseService.getAllDocs('shops');
     return (shops as Shop[]).filter(s => s.enterpriseId === companyId);
   }
 
   public async getCompanyMetrics(companyId: string) {
-    // Otimização: No futuro, substituir por queries indexadas no banco
-    const companyOrders = (await firebaseService.getAllDocs('orders', companyId)) as Order[];
-    const staffDocs = await firebaseService.getAllDocs('staff', companyId);
+    // Otimização: Busca apenas pedidos concluídos de hoje para métricas de performance
+    const startOfToday = new Date().setHours(0,0,0,0);
+    const companyOrders = await firebaseService.getDocsByQuery('orders', [
+      { field: 'enterpriseId', op: '==', value: companyId },
+      { field: 'status', op: '==', value: 'delivered' },
+      { field: 'closedAt', op: '>=', value: startOfToday }
+    ]) as Order[];
+
+    // Busca o staff filtrando apenas por enterpriseId (Global HR)
+    const staffDocs = await firebaseService.getAllDocs('staff', companyId, null);
     
     const companyStaffCount = staffDocs.length;
+    const totalPayroll = (staffDocs as Staff[]).reduce((acc, s) => acc + (s.salary || 0), 0);
     
     const dailyRevenue = companyOrders.reduce((acc, o) => acc + (o.status === 'delivered' ? o.total : 0), 0);
     const activeOrders = companyOrders.filter(o => o.status === 'preparing' || o.status === 'pending').length;
@@ -276,6 +317,7 @@ class AccountService {
       activeOrders,
       healthScore,
       staffCount: companyStaffCount,
+      totalPayroll,
       lastSync: new Date().toISOString()
     };
   }
@@ -284,9 +326,26 @@ class AccountService {
     const tenant = await authService.getTenantById(id);
     if (!tenant) return null;
 
-    // Regionalização: Define o país no motor de localização baseado no cadastro da empresa
     const countryCode = (tenant as any).countryCode as CountryCode || 'BR';
     localeEngine.setCountry(countryCode);
+
+    // Configuração de Localização Dinâmica baseada na Web Audit
+    const regionalProfiles: Record<string, any> = {
+      'BR': { currency: 'BRL', taxLabel: 'Impostos', idLabel: 'CPF', dateFormat: 'dd/MM/yyyy' },
+      'PT': { currency: 'EUR', taxLabel: 'IVA', idLabel: 'NIF', dateFormat: 'dd/MM/yyyy' },
+      'US': { currency: 'USD', taxLabel: 'Sales Tax', idLabel: 'SSN', dateFormat: 'MM/dd/yyyy' },
+      'UK': { currency: 'GBP', taxLabel: 'VAT', idLabel: 'NI Number', dateFormat: 'dd/MM/yyyy' }
+    };
+
+    const profile = regionalProfiles[countryCode] || regionalProfiles['BR'];
+    
+    // Atualiza o motor de localização com os novos rótulos
+    localeEngine.settings = {
+      ...localeEngine.settings,
+      currencySymbol: profile.currency === 'EUR' ? '€' : profile.currency === 'GBP' ? '£' : '$',
+      taxLabel: profile.taxLabel,
+      identityLabel: profile.idLabel
+    };
 
     return {
       id: tenant.id,
@@ -332,13 +391,13 @@ class AccountService {
     const timestamp = Date.now();
     logger.warn('auth', `ALERTA DE VIOLAÇÃO: ${type}`, { companyId, details });
 
-    await firebaseService.addItem('dev_alerts', {
+    await CommunicationEngine.sendMessage({
       companyId,
-      type,
-      details,
-      timestamp,
-      status: 'pending_review',
-      priority: 'high'
+      enterpriseId: companyId,
+      userId: 'dev_team_id', // ID do usuário da equipe de desenvolvimento
+      title: `ALERTA DE VIOLAÇÃO: ${type}`,
+      content: details,
+      type: 'critical'
     });
   }
 

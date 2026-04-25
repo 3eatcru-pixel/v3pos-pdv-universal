@@ -44,16 +44,17 @@ class PaymentReconciliationEngine {
     const ledgerMap = new Map(ledger.map(l => [l.externalId, l]));
     
     const results = { matched: 0, missing: 0, totalAmount: 0 };
+    const updatePromises: Promise<void>[] = [];
 
     for (const entry of externalReport) {
       // Procura no nosso banco por NSU ou ID Externo
       const localMatch = ledgerMap.get(entry.nsu) || ledgerMap.get(entry.id);
       
       if (localMatch) {
-        await firebaseService.updateItem('payment_ledger', localMatch.id, { 
+        updatePromises.push(firebaseService.updateItem('payment_ledger', localMatch.id, { 
           status: 'confirmed',
           reconciledAt: Date.now() 
-        });
+        }));
         results.matched++;
         results.totalAmount += localMatch.amount;
       } else {
@@ -62,6 +63,7 @@ class PaymentReconciliationEngine {
       }
     }
 
+    await Promise.all(updatePromises);
     return results;
   }
 
