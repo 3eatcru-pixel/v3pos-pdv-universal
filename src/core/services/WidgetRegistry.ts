@@ -47,5 +47,29 @@ export const WidgetRegistry: Record<string, WidgetDefinition> = {
     component: React.lazy(() => import('../widgets/BusinessModelRevenueWidget')),
     permission: 'canViewSales',
     gridSpan: 'medium'
+  },
+  'PENDING_OPERATIONS': {
+    id: 'PENDING_OPERATIONS',
+    component: React.lazy(() => import('../widgets/PendingOperationsMonitorWidget')),
+    permission: 'canViewSales',
+    gridSpan: 'medium'
+  },
+  'SIMULATION_RANKING': {
+    id: 'SIMULATION_RANKING',
+    component: React.lazy(() => import('../widgets/SimulationRankingWidget')),
+    permission: 'canViewSales',
+    gridSpan: 'medium'
+  },
+  'ONBOARDING_PROGRESS': {
+    id: 'ONBOARDING_PROGRESS',
+    component: React.lazy(() => import('../widgets/OnboardingProgressWidget')),
+    permission: 'canViewSales',
+    gridSpan: 'medium'
+  },
+  'NEGATIVE_STOCK_MONITOR': {
+    id: 'NEGATIVE_STOCK_MONITOR',
+    component: React.lazy(() => import('../widgets/NegativeStockMonitorWidget')),
+    permission: 'canManageInventory',
+    gridSpan: 'medium'
   }
 };

@@ -12,39 +12,63 @@ class SalesService {
     
     // Save to Firebase
     try {
+      const enterpriseId = sale.enterpriseId;
+      const shopId = sale.shopId;
+      
       await firebaseService.runTransaction(async (tx) => {
-        // 1. Salva o pedido de forma atômica
-        const orderRef = firebaseService.getDocRef('orders', sale.id);
-        tx.set(orderRef, {
-          ...sale,
-          items,
-          status: 'delivered',
-          startTime: Date.now(),
-          closedAt: Date.now(),
-          depositId: depositId || null // Vincula o sinal ao pedido para auditoria
+        // 1. Auditoria: Leituras dentro da transação para garantir consistência de custo e saldo
+        const itemIds = Array.from(new Set(items.map(i => i.productId || i.id).filter(Boolean)));
+        
+        const [inventoryItems, allProducts] = await Promise.all([
+          firebaseService.getDocsByQuery('inventory', [{ field: 'enterpriseId', op: '==', value: enterpriseId }, { field: 'id', op: 'in', value: itemIds }]),
+          firebaseService.getDocsByQuery('products', [{ field: 'enterpriseId', op: '==', value: enterpriseId }, { field: 'id', op: 'in', value: itemIds }])
+        ]);
+
+        // Auditoria: Snapshots de Custo devem ser baseados no momento exato da transação
+        // Mapeia custos atuais para congelar no pedido (Snapshot de Custo)
+        const itemsWithCosts = items.map(item => {
+          const invItem = (inventoryItems as any[]).find(i => i.id === (item.productId || item.id));
+          return { ...item, unitCost: invItem?.costPerUnit || 0 };
         });
 
-        // 2. Consome o sinal (booking fee) se houver, garantindo que não seja reusado
+        // 1. Auditoria: PROCESSAMENTO DE ESTOQUE (Deve ser a PRIMEIRA operação para permitir tx.get)
+        // Firestore exige que todas as leituras ocorram antes de qualquer escrita na transação.
+        if (items && items.length > 0) {
+          const multiplier = (sale.module === 'construction' && (sale as any).logistics?.type === 'scheduled_delivery') ? 0 : 1;
+          
+          await InventoryEngine.adjustStockRecursive(
+            items, 
+            multiplier, 
+            enterpriseId, 
+            shopId, 
+            inventoryItems as any, 
+            allProducts as any,
+            tx // Passa a transação existente
+          );
+        }
+
+        // 2. Transação: Consumo de sinal (Escrita: tx.update)
         if (depositId) {
           await BookingDepositEngine.consumeDeposit(tx, depositId, sale.id);
         }
-      });
 
-      // Update Inventory Atomically
-      if (items && items.length > 0 && sale.enterpriseId && sale.shopId) {
-        const enterpriseId = sale.enterpriseId;
-        const shopId = sale.shopId;
-        const inventoryItems = await firebaseService.getAllDocs('inventory', enterpriseId, shopId); // Buscar inventário para resolução de substitutos
-
-        // Lógica de Construção: Se for entrega futura, apenas reserva. Se for balcão, abate direto.
-        if (sale.module === 'construction' && (sale as any).logistics?.type === 'scheduled_delivery') {
-          // A reserva também deve usar o InventoryEngine para resolver composições
-          await InventoryEngine.adjustStockRecursive(items, 0, enterpriseId, shopId, inventoryItems as any); // Multiplier 0 para reservar
-          logger.info('core', 'Estoque reservado para entrega futura', { saleId: sale.id });
-        } else {
-          await InventoryEngine.adjustStockRecursive(items, 1, enterpriseId, shopId, inventoryItems as any); // Multiplier 1 para deduzir
+        // 1.5 Auditoria de Compliance: Verificação de Idade (Tobacco/Alcohol)
+        const needsAgeCheck = allProducts.some(p => (p as any).metadata?.requiresAgeCheck);
+        if (needsAgeCheck && !(sale as any).metadata?.ageVerified) {
+          throw new Error('age_verification_required: Este pedido contém itens controlados. Verifique o documento do cliente.');
         }
-      }
+
+        // 3. Transação: ESCRITA FINAL (Pedido salvo por último)
+        const orderRef = firebaseService.getDocRef('orders', sale.id);
+        tx.set(orderRef, {
+          ...sale,
+          items: itemsWithCosts,
+          status: 'delivered',
+          startTime: Date.now(),
+          closedAt: Date.now(),
+          depositId: depositId || null
+        });
+      });
 
       // Dispara evento com ID da venda para garantir que o Mesh não duplique a baixa
       if (items && items.length > 0) {

@@ -16,6 +16,7 @@ export class ShopCloneEngine {
    */
   static async cloneShop(
     enterpriseId: string,
+    sourceEnterpriseId: string, // Adicionado para permitir puxar de outras empresas/templates
     sourceShopId: string,
     newShopData: Partial<Shop>,
     options: CloneOptions = { cloneProducts: true, cloneCategories: true, syncMenuChanges: true, resetStock: true }
@@ -38,8 +39,9 @@ export class ShopCloneEngine {
 
       // 2. Tratar Categorias e Menu
       if (options.cloneCategories) {
+        // Busca categorias da empresa de origem (Template ou Loja Mãe)
         const categories = await firebaseService.getDocsByQuery('categories', [
-          { field: 'enterpriseId', op: '==', value: enterpriseId },
+          { field: 'enterpriseId', op: '==', value: sourceEnterpriseId },
           { field: 'shopId', op: '==', value: sourceShopId }
         ]) as Category[];
         for (const cat of categories) {
@@ -56,8 +58,9 @@ export class ShopCloneEngine {
 
       // 3. Tratar Produtos (Sem clonar estoque)
       if (options.cloneProducts) {
+        // Busca produtos da empresa de origem
         const products = await firebaseService.getDocsByQuery('products', [
-          { field: 'enterpriseId', op: '==', value: enterpriseId },
+          { field: 'enterpriseId', op: '==', value: sourceEnterpriseId },
           { field: 'shopId', op: '==', value: sourceShopId }
         ]) as Product[];
         

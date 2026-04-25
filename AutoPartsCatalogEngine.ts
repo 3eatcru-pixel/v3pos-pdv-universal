@@ -34,17 +34,16 @@ export class AutoPartsCatalogEngine {
     try {
       logger.info('autoparts', 'Iniciando busca técnica por código', { searchCode: normalizedCode });
 
-      // AUDITORIA: Em produção, utilizar queries indexadas (where array-contains)
-      // Otimização: Usar query para filtrar por enterpriseId e tentar buscar por códigos
       const allParts = await firebaseService.getDocsByQuery('products', [
         { field: 'enterpriseId', op: '==', value: enterpriseId }
       ]) as AutoPart[];
       
       return allParts.filter(part => {
+        // Normalização rigorosa para evitar que "ABC-12" ignore a busca por "ABC12"
         const codes = [
-          part.manufacturerCode?.replace(/[^a-zA-Z0-9]/g, '').toUpperCase(),
-          ...(part.oemCodes || []).map((c: string) => c.replace(/[^a-zA-Z0-9]/g, '').toUpperCase())
-        ];
+          part.manufacturerCode,
+          ...(part.oemCodes || [])
+        ].filter(Boolean).map(c => c.replace(/[^a-zA-Z0-9]/g, '').toUpperCase());
         
         return codes.some(c => c && c.includes(normalizedCode));
       });

@@ -115,8 +115,8 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   const [selectedRole, setSelectedRole] = useState<RolePermissions | null>(null);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
-  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [selectedBusinessModel, setSelectedBusinessModel] = useState<'commission' | 'rental' | 'hybrid' | 'freelancer'>('commission');
+  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance' | 'Folha' | 'Checklist' | 'Escalas'>('Resumo');
 
   const selectedShopId = accountService.getSelectedShopId();
@@ -170,6 +170,12 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
     }
   };
 
+  useEffect(() => {
+    if (selectedStaff) {
+      setSelectedBusinessModel((selectedStaff as any).businessModel || 'commission');
+    }
+  }, [selectedStaff]);
+
   const handleDeleteDocument = async (docToDelete: any) => {
     if (!selectedStaff || !confirm('Deseja remover este documento?')) return;
 
@@ -207,16 +213,13 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
     }
   };
 
-  const handleTerminateStaff = async (id: string) => {
-    const reason = prompt('Motivo do desligamento/inatividade:');
-    if (!reason) return;
-    
+  const handleDeleteStaff = async (id: string) => {
+    if (!confirm('Tem certeza que deseja remover este colaborador permanentemente?')) return;
     try {
-      await HREngine.terminateStaff(companyId, id, reason, currentUser?.name || 'Admin');
+      await HREngine.deleteStaff(id);
       setSelectedStaff(null);
-      alert('Colaborador desligado com sucesso. O histórico foi preservado.');
     } catch (err) {
-      logger.error('staff', 'Falha no offboarding', { staffId: id });
+      logger.error('staff', 'Falha ao remover colaborador', { staffId: id, error: err });
     }
   };
 
@@ -252,11 +255,12 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
     };
 
     try {
-      await firebaseService.saveItem('rolePermissions', roleData.role, roleData);
+      await accountService.saveRolePermissions(roleData);
       setIsRoleModalOpen(false);
       setSelectedRole(null);
     } catch (err) {
       logger.error('staff', 'Falha ao salvar protocolo de cargo', { error: err });
+      alert(err instanceof Error ? err.message : 'Falha ao salvar cargo.');
     }
   };
 
@@ -280,26 +284,22 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       admissionDate: new Date(formData.get('admissionDate') as string).getTime(),
       active: true,
       enterpriseId: companyId,
-      businessModel: selectedBusinessModel,
+      businessModel: selectedBusinessModel, // Salva o modelo de negócio selecionado
       assignedShopIds: selectedStaff?.assignedShopIds?.length ? selectedStaff.assignedShopIds : [selectedShopId || 'main-shop'],
       bankInfo: {
         bankName: formData.get('bankName') as string,
         agency: formData.get('agency') as string,
         account: formData.get('account') as string,
-      },
-      serviceConfig: {
-        serviceRate: parseFloat(formData.get('serviceRate') as string || '50'),
-        productRate: parseFloat(formData.get('productRate') as string || '10'),
-        rentalFee: parseFloat(formData.get('rentalFee') as string || '0')
       }
     };
 
     try {
-      await HREngine.saveStaff(companyId, staffData, photoFile);
+      await HREngine.saveStaff(companyId, staffData, photoFile, currentUser?.role);
       setIsStaffModalOpen(false);
       setSelectedStaff(null);
     } catch (err) {
       logger.error('staff', 'Falha ao salvar colaborador', { error: err });
+      alert(err instanceof Error ? err.message : 'Falha ao processar cadastro.');
     }
   };
 
@@ -641,11 +641,11 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                      >
                         Editar Cadastro
                      </button>
-                     <button
-                       onClick={() => handleTerminateStaff(selectedStaff.id)}
+                     <button 
+                       onClick={() => handleDeleteStaff(selectedStaff.id)}
                        className="w-full py-5 bg-rose-500/10 text-rose-500 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest hover:bg-rose-500 hover:text-white transition-all active:scale-95 border border-rose-500/20"
                      >
-                        Desligar / Inativar
+                        Remover Colaborador
                      </button>
                      <button 
                        onClick={() => setIsEventModalOpen(true)}
@@ -660,7 +660,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                <div className="flex-1 overflow-y-auto responsive-padding custom-scrollbar bg-slate-50/30 bottom-safe-area">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-16">
                      <div className="flex border-b border-slate-200 overflow-x-auto no-scrollbar">
-                     {['Resumo', 'Contratual', 'Escalas', 'Folha', 'Checklist', 'Documentação', 'Performance', 'Carreira'].map((tab) => (
+                     {['Resumo', 'Contratual', 'Escalas', 'Folha', 'Checklist', 'Documentação', 'Performance'].map((tab) => (
                            <button 
                              key={tab} 
                              onClick={() => setActiveTab(tab as any)}
@@ -690,40 +690,6 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                              A gestão detalhada de horários está disponível no <br/> 
                              <span className="text-blue-500">Módulo de Escalas Global</span> do sistema.
                           </p>
-                       </div>
-                    </div>
-                  )}
-
-                  {activeTab === 'Carreira' && (
-                    <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
-                       <div className="flex items-center justify-between">
-                          <h4 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Linha do Tempo de Carreira</h4>
-                          <button className="px-6 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all">Promover Agora</button>
-                       </div>
-                       
-                       <div className="space-y-4">
-                          {((selectedStaff as any).promotionHistory || []).length > 0 ? (selectedStaff as any).promotionHistory.map((h: any, idx: number) => (
-                             <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-100 flex items-center justify-between group hover:border-blue-500 transition-all">
-                                <div className="flex items-center gap-4">
-                                   <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
-                                      <Award className="w-5 h-5" />
-                                   </div>
-                                   <div>
-                                      <p className="text-xs font-black text-slate-800 uppercase tracking-tight">{h.fromRole} <ArrowRight className="inline w-3 h-3 mx-1" /> {h.toRole}</p>
-                                      <p className="text-[10px] text-slate-400 font-bold uppercase">{format(h.date, 'dd MMM yyyy')}</p>
-                                   </div>
-                                </div>
-                                <div className="text-right">
-                                   <p className="text-sm font-black text-emerald-600">{formatCurrency(h.toSalary)}</p>
-                                   <p className="text-[8px] font-bold text-slate-300 uppercase">Aprovado por {h.approvedBy}</p>
-                                </div>
-                             </div>
-                          )) : (
-                             <div className="py-20 text-center opacity-30">
-                                <Target className="w-12 h-12 mx-auto text-slate-300 mb-4" />
-                                <p className="text-[10px] font-black uppercase tracking-widest">Aguardando primeira movimentação de carreira.</p>
-                             </div>
-                          )}
                        </div>
                     </div>
                   )}
@@ -1108,23 +1074,42 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                    </div>
 
                    <div className="bg-slate-50 p-10 rounded-[2.5rem] border border-slate-100 space-y-8">
-                      <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-200 pb-4 italic">Estrutura de Custo & Contrato</h4>
+                      <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-200 pb-4 italic">
+                        {selectedBusinessModel === 'rental' ? 'Configuração do Aluguel' : 'Estrutura de Custo & Contrato'}
+                      </h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                         {selectedBusinessModel !== 'rental' && (
+                           <>
+                            <div className="space-y-3">
+                               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Remuneração Base (Salário)</label>
+                               <input name="salary" type="number" step="0.01" defaultValue={selectedStaff?.salary} className="w-full bg-white border-2 border-transparent rounded-2xl p-5 font-bold italic focus:border-emerald-500 outline-none transition-all" placeholder="R$ 0,00" />
+                            </div>
+                            <div className="space-y-3">
+                               <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Regime de Trabalho</label>
+                               <select name="contractType" defaultValue={selectedStaff?.contractType || 'clt'} className="w-full bg-white border-2 border-transparent rounded-2xl p-5 font-bold italic focus:border-blue-500 outline-none transition-all appearance-none cursor-pointer">
+                                  <option value="clt">CLT (Efetivo)</option>
+                                  <option value="pj">PJ (Empresarial)</option>
+                                  <option value="freelancer">Freelancer</option>
+                               </select>
+                            </div>
+                           </>
+                         )}
+                         
+                         {(selectedBusinessModel === 'rental' || selectedBusinessModel === 'hybrid') && (
+                            <div className="space-y-3">
+                               <label className="text-[10px] font-black uppercase text-rose-500 tracking-widest pl-2">Taxa de Aluguel (Chair Fee)</label>
+                               <input name="rentalFee" type="number" step="0.01" defaultValue={(selectedStaff as any)?.serviceConfig?.rentalFee} className="w-full bg-white border-2 border-rose-100 rounded-2xl p-5 font-black text-xl italic focus:border-rose-500 outline-none transition-all" placeholder="R$ 0,00" />
+                            </div>
+                         )}
+                         {selectedBusinessModel === 'freelancer' && (
+                            <div className="space-y-3">
+                               <label className="text-[10px] font-black uppercase text-blue-500 tracking-widest pl-2">Diária Base (Freelancer)</label>
+                               <input name="dailyRate" type="number" step="0.01" defaultValue={(selectedStaff as any)?.serviceConfig?.dailyRate} className="w-full bg-white border-2 border-blue-100 rounded-2xl p-5 font-black text-xl italic focus:border-blue-500 outline-none transition-all" placeholder="R$ 0,00" />
+                            </div>
+                         )}
+
                          <div className="space-y-3">
-                            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Remuneração Base</label>
-                            <input name="salary" type="number" step="0.01" defaultValue={selectedStaff?.salary} className="w-full bg-white border-2 border-transparent rounded-2xl p-5 font-bold italic focus:border-emerald-500 outline-none transition-all" placeholder="R$ 0,00" />
-                         </div>
-                         <div className="space-y-3">
-                            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Regime de Trabalho</label>
-                            <select name="contractType" defaultValue={selectedStaff?.contractType || 'clt'} className="w-full bg-white border-2 border-transparent rounded-2xl p-5 font-bold italic focus:border-blue-500 outline-none transition-all appearance-none cursor-pointer">
-                               <option value="clt">CLT (Efetivo)</option>
-                               <option value="pj">PJ (Empresarial)</option>
-                               <option value="freelancer">Freelancer / Horista</option>
-                               <option value="intern">Estagiário / Aprendiz</option>
-                            </select>
-                         </div>
-                         <div className="space-y-3">
-                            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">Data de Admissão</label>
+                            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">{selectedBusinessModel === 'rental' ? 'Início da Parceria' : 'Data de Admissão'}</label>
                             <input name="admissionDate" type="date" defaultValue={selectedStaff?.admissionDate ? format(selectedStaff.admissionDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')} className="w-full bg-white border-2 border-transparent rounded-2xl p-5 font-bold italic focus:border-blue-500 outline-none transition-all" />
                          </div>
                       </div>
@@ -1274,7 +1259,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                            { name: 'canManageSchedule', label: 'Escalas' },
                          ].map(action => (
                             <label key={action.name} className="relative flex items-center justify-between p-5 bg-white border border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50 transition-all">
-                               <span className="text-[10px] font-black uppercase text-slate-700">{action.label}</span>
+                               <span className={cn("text-[10px] font-black uppercase", action.name === 'canManageStaff' ? "text-blue-600" : "text-slate-700")}>{action.label}</span>
                                <input type="checkbox" name={action.name} defaultChecked={(selectedRole?.actions as any)?.[action.name]} className="sr-only peer" />
                                <div className="w-10 h-6 bg-slate-200 rounded-full peer-checked:bg-emerald-500 transition-all relative flex items-center px-1">
                                   <div className="w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-4 shadow-sm" />

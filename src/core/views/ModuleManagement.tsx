@@ -94,6 +94,10 @@ export const ModuleManagement: React.FC<ModuleManagementProps> = ({ enterpriseId
     { id: 'service', label: 'Serviços Master', icon: <Briefcase />, desc: 'Agendamentos e gestão de profissionais liberais.' },
     { id: 'construction', label: 'Obras / Materiais', icon: <Hammer />, desc: 'Orçamentos complexos e logística de materiais.' },
     { id: 'retail', label: 'Varejo / Loja', icon: <Tag />, desc: 'Venda de produtos físicos com grade e serial.' },
+    { id: 'solo_service', label: 'Autônomo (Serviços)', icon: <Briefcase />, desc: 'Agenda e cobranças simples para quem trabalha sozinho.' },
+    { id: 'solo_retail', label: 'Autônomo (Vendas)', icon: <ShoppingCart />, desc: 'Vendas rápidas e estoque básico para micro-empreendedor.' },
+    { id: 'convenience', label: 'Distribuidora / Conveniência', icon: <Zap />, desc: 'PDV focado em fardos, cigarros e controle de vasilhames.' },
+    // Auditoria: HR, Store Management e Settings são módulos CORE, não devem ser listados como opcionais.
   ];
 
   return (

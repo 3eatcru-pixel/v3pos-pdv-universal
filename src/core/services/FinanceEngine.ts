@@ -2,12 +2,41 @@ import { Transaction, RecountRequest, Order, Product } from '../../types';
 import { bomEngine } from './BOMEngine';
 import { StockReconciliationItem } from './StockReconciliationEngine';
 import { InventoryEngine } from './InventoryEngine';
+import { firebaseService } from '../../services/firebaseService';
+import { logger } from './logger';
 
 export class FinanceEngine {
   static summarize(transactions: Transaction[]) {
     const totalIncome = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
     const totalExpense = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
     return { totalIncome, totalExpense, balance: totalIncome - totalExpense };
+  }
+
+  /**
+   * Registra despesas fixas mensais (Luz, Água, Gás, Reparos).
+   */
+  static async recordMonthlyUtility(params: {
+    enterpriseId: string;
+    shopId: string;
+    category: 'Energia' | 'Água' | 'Gás' | 'Internet' | 'Manutenção' | 'Outros';
+    amount: number;
+    referenceMonth: string; // MM/YYYY
+    adminName: string;
+  }) {
+    const transaction: Transaction = {
+      id: `util-${Date.now()}`,
+      enterpriseId: params.enterpriseId,
+      shopId: params.shopId,
+      type: 'expense',
+      category: params.category,
+      amount: params.amount,
+      description: `Conta de ${params.category} ref. ${params.referenceMonth}`,
+      staffName: params.adminName,
+      timestamp: Date.now()
+    };
+
+    await firebaseService.saveItem('transactions', transaction.id, transaction);
+    logger.info('finance', 'Despesa fixa mensal registrada', { category: params.category, month: params.referenceMonth });
   }
 
   static filterTransactions(transactions: Transaction[], type: 'all' | 'income' | 'expense', term: string) {
@@ -43,15 +72,14 @@ export class FinanceEngine {
     const custoMercadoriaVendida = orders
       .filter(o => o.status === 'delivered')
       .reduce((acc, order) => {
-        const currentInventory = InventoryEngine.listInventory(order.enterpriseId, order.shopId); // Obter inventário atualizado
         const adjustments = bomEngine.explodeCartToInsumos(
           order.items.map(i => ({ ...i, id: i.productId })), // Mapear para o formato esperado
-          products,
-          currentInventory as any // Passar o inventário para resolução de substitutos
+          products, // Lista de produtos necessária para explodir BOM
+          inventory as any // Usa o inventário já passado para o motor
         );
         
         const costOfOrder = adjustments.reduce((sum, adj) => {
-          const item = (currentInventory as any[]).find(i => i.id === adj.inventoryItemId); // Buscar item no inventário
+          const item = (inventory as any[]).find(i => i.id === adj.inventoryItemId); // Buscar item no inventário
           return sum + (adj.quantityToDeduct * (item?.costPerUnit || 0));
         }, 0);
 

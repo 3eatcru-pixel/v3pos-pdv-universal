@@ -18,7 +18,8 @@ import {
   Layers,
   ShoppingBag,
   UtensilsCrossed,
-  Hammer
+  Hammer,
+  Briefcase
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { accountService } from '../services/accountService';
@@ -101,6 +102,9 @@ export const HoldingDashboard: React.FC<HoldingDashboardProps> = ({ onSelectEnte
       case 'restaurant': return <UtensilsCrossed className="w-3 h-3" />;
       case 'retail': return <ShoppingBag className="w-3 h-3" />;
       case 'service': return <Hammer className="w-3 h-3" />;
+      case 'hr_core': return <Briefcase className="w-3 h-3" />; // Ícone para o módulo de RH
+      case 'store_mgmt_core': return <LayoutDashboard className="w-3 h-3" />; // Ícone para Gestão de Loja
+      case 'settings_custom_core': return <Settings className="w-3 h-3" />; // Ícone para Configurações
       default: return <Package className="w-3 h-3" />;
     }
   };

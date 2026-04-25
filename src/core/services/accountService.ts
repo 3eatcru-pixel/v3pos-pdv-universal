@@ -1,4 +1,4 @@
-import { Company, SupportMessage, User, BusinessMode, Shop } from '../types';
+import { Company, SupportMessage, User, BusinessMode, Shop, Staff } from '../types';
 export type { Company, SupportMessage, User, BusinessMode, Shop };
 import { Order } from '../../types';
 import { meshNetwork } from '../../services/p2pSync';
@@ -10,6 +10,11 @@ import { logger } from './logger';
 import { ShopCloneEngine, CloneOptions } from './ShopCloneEngine';
 import { StockTransferEngine, TransferItem } from './StockTransferEngine';
 import { CommunicationEngine } from './CommunicationEngine';
+import { ROLE_HIERARCHY } from './HREngine';
+import { EndOfDayEngine } from './EndOfDayEngine';
+import { SimulationEngine } from './SimulationEngine';
+import { BackupEngine } from './BackupEngine';
+import { CloudConfig, cloudLatencyMonitor } from './CloudLatencyMonitor';
 
 class AccountService {
   private mapRoleForLegacy(role: string): User['role'] {
@@ -52,16 +57,45 @@ class AccountService {
     return authService.getCurrentTenant();
   }
 
+  public async getEODSession() {
+    const user = this.getCurrentUser();
+    const shopId = this.getSelectedShopId();
+    const companyId = this.getCurrentCompanyId();
+    if (!user || !shopId || !companyId) return null;
+
+    return EndOfDayEngine.startSession(companyId, shopId, user.id, user.name);
+  }
+
   public async registerCompany(
     name: string,
     ownerEmail: string,
     businessType: BusinessMode,
     ownerName?: string,
     ownerPhone?: string,
-    enabledModules?: string[]
+    enabledModules: string[] = [], // Default to empty array, will add core modules
+    templateSource?: { enterpriseId: string; shopId: string } // Permite puxar mix de outra loja
   ): Promise<Company & { credentials: { password: string; pin: string } }> {
+    const currentUser = this.getCurrentUser();
+    
+    const isSolo = businessType === 'solo_service' || businessType === 'solo_retail' || businessType === 'convenience';
+
+    // Auditoria: Garante que o usuário escolheu pelo menos um módulo de negócio (não-core)
+    const businessModules = enabledModules.filter(m => !['hr_core', 'store_mgmt_core', 'settings_custom_core'].includes(m) && m !== businessType);
+    if (businessModules.length === 0 && !isSolo) {
+      throw new Error('Fluxo de Instalação interrompido: Você deve selecionar pelo menos um módulo operacional para sua empresa.');
+    }
+
+    // Auditoria: Somente Dev, Suporte (manager) ou Donos podem registrar novas empresas
+    const hasPower = currentUser && ['dev', 'owner', 'manager'].includes(currentUser.role);
+    if (currentUser && !hasPower) {
+      throw new Error('Acesso negado: Você não tem permissão para provisionar novas empresas.');
+    }
+
     const ownerPassword = Math.random().toString(36).slice(2, 10);
     const ownerPin = Math.floor(1000 + Math.random() * 9000).toString();
+
+    // Se for um dono criando outra empresa, mantemos o vínculo de ownerId
+    const targetOwnerId = currentUser?.role === 'owner' ? currentUser.id : undefined;
 
     const created = await authService.createOwner(
       {
@@ -70,13 +104,53 @@ class AccountService {
         ownerEmail,
         ownerName: ownerName || 'Proprietário',
         ownerPhone,
-        enabledModules: enabledModules || [businessType],
+        // Auditoria: Garante a injeção dos pilares de gestão
+        enabledModules: Array.from(new Set([
+          ...enabledModules, 
+          businessType, 
+          'hr_core', 
+          'store_mgmt_core', 
+          'settings_custom_core',
+          isSolo ? 'solo_assistant_core' : ''
+        ])),
+        // Disponibiliza todos os módulos como "unlocked" para o dono gerenciar no futuro, ou herda do dev
+        availableModules: ['restaurant', 'market', 'construction', 'retail', 'service', 'pharmacy', 'autoparts', 'solo_service', 'solo_retail', 'convenience'], 
       },
       {
         password: ownerPassword,
         pin: ownerPin,
       }
     );
+
+    const newCompanyId = created.tenant.id;
+
+    // Auditoria Solo: Configura automaticamente o proprietário como o Staff principal
+    if (isSolo) {
+      await HREngine.saveStaff(newCompanyId, {
+        id: created.owner.id,
+        name: ownerName || 'Consultor Solo',
+        role: 'owner',
+        active: true,
+        businessModel: 'freelancer',
+        assignedShopIds: ['main-shop'],
+        email: ownerEmail
+      }, undefined, 'dev');
+      logger.info('auth', 'Perfil Solo configurado com auto-gestão ativada.');
+    }
+
+    // Lógica de "Pull": Se houver template, clonamos produtos e categorias com estoque ZERADO
+    if (templateSource) {
+      logger.info('auth', 'Puxando catálogo de template para nova empresa', { templateSource, newCompanyId });
+      await ShopCloneEngine.cloneShop(newCompanyId, templateSource.enterpriseId, templateSource.shopId, {
+        name: 'Unidade Matriz',
+        location: 'Principal'
+      } as any, {
+        cloneProducts: true,
+        cloneCategories: true,
+        syncMenuChanges: false,
+        resetStock: true // Sempre zerado para nova reconciliação
+      });
+    }
 
     return {
       id: created.tenant.id,
@@ -108,6 +182,13 @@ class AccountService {
     },
     ownerData: { password: string; pin?: string }
   ) {
+    const currentUser = this.getCurrentUser();
+    // Auditoria: Apenas desenvolvedores ou contas de suporte podem criar contas de donos do zero
+    const canCreateOwner = currentUser?.role === 'dev' || currentUser?.role === 'manager';
+    if (!canCreateOwner) {
+      throw new Error('Apenas o suporte técnico pode provisionar novos proprietários no sistema.');
+    }
+
     return authService.createOwner(tenantData, ownerData);
   }
 
@@ -192,6 +273,11 @@ class AccountService {
     localStorage.setItem('pos_device_mode', 'central_server');
     localStorage.setItem('pos_business_mode', tenant.businessType);
     localStorage.setItem('rm_enterprise_id', tenant.id);
+
+    // Auditoria: Passa configurações explicitamente para evitar circularidade
+    const cloudConfig = tenant.cloudConfig || { provider: 'system', tier: 'free' };
+    meshNetwork.startCloudSync(tenant.id, cloudConfig, tenant.autoCloudSwitchingEnabled); 
+    meshNetwork.requestCloudSync(tenant.id, true); // Request an immediate, forced sync
     return true;
   }
 
@@ -202,6 +288,25 @@ class AccountService {
     localStorage.removeItem('pos_device_mode');
     localStorage.removeItem('rm_selected_shop_id');
     window.location.reload();
+  }
+
+  /**
+   * Vincula a conta atual do usuário a uma conta Google para Logins futuros.
+   */
+  public async linkGoogleAccount(): Promise<boolean> {
+    return authService.linkGoogleProvider();
+  }
+
+  /**
+   * Realiza login direto via Google OAuth.
+   */
+  public async loginWithGoogle(): Promise<boolean> {
+    const success = await authService.signInWithGoogle();
+    if (success) {
+      localStorage.removeItem('pos_business_mode');
+      window.location.reload();
+    }
+    return success;
   }
 
   public async loginAsDemo() {
@@ -224,6 +329,9 @@ class AccountService {
         }
       );
       tenant = created.tenant;
+
+      // Puxa simulação inicial para a demo não nascer vazia
+      await SimulationEngine.bootstrapFullSimulation(tenant.id, 'main-shop', 'restaurant');
     }
 
     const demoEmail = tenant.ownerEmail || 'demo@modular.com';
@@ -412,6 +520,26 @@ class AccountService {
     }
   }
 
+  /**
+   * Salva as permissões de um cargo validando regras de hierarquia de poder.
+   */
+  public async saveRolePermissions(roleData: RolePermissions) {
+    // Regra de Segurança: canManageStaff (Gerenciar RH) exige nível Gerente ou Líder Autorizado
+    if (roleData.actions.canManageStaff) {
+      const rolePower = ROLE_HIERARCHY[roleData.role] || 1; // Default 1 (Staff)
+      const isAuthorizedLeader = roleData.label.toLowerCase().includes('líder') || roleData.label.toLowerCase().includes('leader');
+
+      if (rolePower < 2 && !isAuthorizedLeader) {
+        logger.error('security', 'Tentativa de delegação de RH não autorizada', { role: roleData.role });
+        throw new Error('Operação bloqueada: A permissão "Gerenciar RH" só pode ser delegada a cargos de nível Gerente ou superior, ou líderes explicitamente autorizados.');
+      }
+      
+      logger.warn('security', 'Poder administrativo delegado com sucesso', { target: roleData.label });
+    }
+
+    return firebaseService.saveItem('rolePermissions', roleData.role, roleData);
+  }
+
   public async toggleModuleLock(companyId: string, moduleId: string, locked: boolean) {
     const company = await this.getCompanyById(companyId);
     if (!company) return;
@@ -419,11 +547,122 @@ class AccountService {
     const nextLocked = locked
       ? Array.from(new Set([...currentLocked, moduleId]))
       : currentLocked.filter((m) => m !== moduleId);
+
+    // Auditoria: Impede o bloqueio de módulos CORE
+    if (['hr_core', 'store_mgmt_core', 'settings_custom_core'].includes(moduleId) && locked) {
+      throw new Error('Módulos fundamentais de gestão não podem ser bloqueados.');
+    }
+
     await authService.updateTenant(companyId, { lockedModules: nextLocked });
   }
 
   public async setEnabledModules(companyId: string, modules: string[]) {
-    await authService.updateTenant(companyId, { enabledModules: modules });
+    // Garante que módulos CORE permaneçam habilitados
+    const finalModules = Array.from(new Set([...modules, 'hr_core', 'store_mgmt_core', 'settings_custom_core']));
+    await authService.updateTenant(companyId, { enabledModules: finalModules });
+  }
+
+  /**
+   * Verifica se este hardware específico é o Servidor Local da Unidade
+   */
+  public isLocalServer(): boolean {
+    return localStorage.getItem('pos_device_role') === 'host';
+  }
+
+  /**
+   * Alterna o modo Servidor Local. Dispositivos "Host" gerenciam o sync com a nuvem.
+   */
+  public async toggleLocalServerMode(enabled: boolean): Promise<void> {
+    const companyId = this.getCurrentCompanyId();
+    const tenant = await this.getCurrentTenant();
+
+    if (enabled && companyId && tenant) {
+      localStorage.setItem('pos_device_role', 'host');
+      localStorage.setItem('pos_device_mode', 'central_server');
+      localStorage.setItem('pos_business_mode', tenant.businessType);
+      
+      // Ativa o motor de sincronismo Cloud no mesh local
+      meshNetwork.stopCloudSync(); // Garante que qualquer sync anterior seja parado
+      meshNetwork.startCloudSync(companyId); // Start the interval sync
+      meshNetwork.requestCloudSync(companyId, true); // Request an immediate, forced sync
+    } else {
+      localStorage.removeItem('pos_device_role');
+      localStorage.removeItem('pos_device_mode');
+      meshNetwork.stopCloudSync();
+    }
+  }
+
+  /**
+   * Atualiza as preferências de Backup em Nuvem da empresa.
+   */
+  public async updateBackupSettings(companyId: string, enabled: boolean) {
+    await authService.updateTenant(companyId, { googleDriveBackupEnabled: enabled });
+    logger.info('auth', `Backup no Google Drive ${enabled ? 'Habilitado' : 'Desabilitado'}`);
+  }
+
+  /**
+   * Altera a política de venda com estoque zero.
+   */
+  public async updateStockPolicy(companyId: string, blockOnZero: boolean) {
+    await authService.updateTenant(companyId, { blockOnZeroStock: blockOnZero });
+    logger.info('inventory', `Política de estoque atualizada: Bloquear em Zero = ${blockOnZero}`);
+  }
+
+  public getCloudConfig(): CloudConfig {
+    const tenant = authService.getCurrentTenant();
+    return tenant?.cloudConfig || { provider: 'system', tier: 'free' };
+  }
+
+  public getAutoCloudSwitchingPreference(): boolean {
+    const tenant = authService.getCurrentTenant();
+    return tenant?.autoCloudSwitchingEnabled || false;
+  }
+
+  /**
+   * Atualiza as chaves de infraestrutura de nuvem privada.
+   */
+  public async updateCloudInfrastructure(companyId: string, config: {
+    provider: 'system' | 'custom_firestore';
+    tier: 'free' | 'turbo';
+    customConfig?: { projectId: string; apiKey: string };
+    autoSwitchEnabled?: boolean; // Nova opção
+  }) {
+    await authService.updateTenant(companyId, { 
+      cloudConfig: config,
+      // Se mudar para Turbo ou Custom, resetamos ou ignoramos a contagem de unidades mensais
+      monthlyUnitsLimit: config.provider === 'system' ? 400 : 999999,
+      autoCloudSwitchingEnabled: config.autoSwitchEnabled ?? this.getAutoCloudSwitchingPreference()
+    });
+    
+    logger.info('system', 'Configuração de infraestrutura de nuvem atualizada', { provider: config.provider });
+  }
+
+  /**
+   * Reverte forçadamente para a nuvem padrão do sistema em caso de emergência.
+   */
+  public async revertToDefaultCloud(companyId: string) {
+    await authService.updateTenant(companyId, { 
+      cloudConfig: { provider: 'system', tier: 'free' },
+      monthlyUnitsLimit: 400
+    });
+    
+    logger.error('system', 'REVERT_TO_DEFAULT_CLOUD: Infraestrutura restaurada para o padrão do sistema.');
+    // Força o reinício do motor P2P com as novas credenciais
+    meshNetwork.stopCloudSync(); // Para e reinicia para pegar a nova config
+    meshNetwork.startCloudSync(companyId);
+  }
+
+  /**
+   * Orquestra a restauração do sistema a partir de um JSON bruto.
+   */
+  public async performSystemRestore(fileContent: string): Promise<boolean> {
+    const companyId = this.getCurrentCompanyId();
+    if (!companyId) throw new Error('Empresa não identificada.');
+
+    const data = JSON.parse(fileContent);
+    const success = await BackupEngine.restoreFromCloud(companyId, data);
+    if (success) window.location.reload(); // Força recarga para atualizar estados locais
+    return success;
   }
 
   private createDevNotification(companyId: string, title: string, message: string) {

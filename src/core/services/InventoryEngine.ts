@@ -26,12 +26,15 @@ export class InventoryEngine {
     multiplier: number, // 1 for deduction, -1 for return
     enterpriseId: string,
     shopId: string,
-    inventory: InventoryItem[]
+    inventory: InventoryItem[],
+    products: Product[] = [], // Adicionado para permitir explosão de BOM
+    existingTx?: any, // Permite execução em bloco atômico externo
+    blockOnZero: boolean = false // Nova trava customizável
   ) {
     // Usar BOMEngine para explodir a composição e resolver substitutos
     const explodedItems = bomEngine.explodeCartToInsumos(
       items.map(i => ({ id: i.id || (i as any).productId, quantity: i.quantity, name: i.name, composition: i.composition, modifiers: i.modifiers })),
-      [], // products não é necessário aqui, BOMEngine já tem acesso ou deveria receber
+      products, // Agora passa a lista correta para identificar ingredientes
       inventory
     );
 
@@ -40,7 +43,8 @@ export class InventoryEngine {
       const isInventoryItem = inventory.some(inv => inv.id === adj.inventoryItemId);
       return {
         id: adj.inventoryItemId,
-        amount: adj.quantityToDeduct * multiplier,
+        // Auditoria: Mantemos o valor absoluto para reservas, e o sinal para ajustes físicos
+        amount: multiplier === 0 ? adj.quantityToDeduct : adj.quantityToDeduct * multiplier,
         type: isInventoryItem ? 'inventory' : 'product' // Assumindo que se não é inventory, é product
       };
     });
@@ -60,7 +64,7 @@ export class InventoryEngine {
 
     if (finalAdjustments.length > 0) {
       try {
-        await firebaseService.runTransaction(async (tx) => {
+        const updateLogic = async (tx: any) => {
           for (const adj of finalAdjustments) {
             const collectionName = adj.type === 'inventory' ? 'inventory' : 'products';
             const ref = firebaseService.getDocRef(collectionName, adj.id);
@@ -74,9 +78,14 @@ export class InventoryEngine {
               const currentReserved = Number(data[reservedField]) || 0;
               let batches: StockBatch[] = data.batches || [];
               
+              // Lógica de Bloqueio: Se a empresa não permite estoque negativo
+              if (blockOnZero && adj.amount > 0 && currentTotal < adj.amount) {
+                throw new Error(`Estoque insuficiente para o item: ${data.name}`);
+              }
+
               if (adj.amount > 0) {
                 // DEDUÇÃO: Lógica FEFO (First Expired First Out)
-                if (currentTotal < adj.amount) {
+                if (currentTotal < adj.amount && !blockOnZero) {
                   logger.warn('core', 'Estoque insuficiente para ajuste atômico', { id: adj.id, currentTotal, requested: adj.amount });
                 }
 
@@ -109,14 +118,15 @@ export class InventoryEngine {
               } else if (multiplier === 0) {
                 // RESERVA: Incrementa o saldo reservado sem mexer no estoque físico
                 tx.update(ref, { 
-                  [reservedField]: currentReserved + adj.quantityToDeduct,
+                  [reservedField]: currentReserved + adj.amount,
                   updatedAt: Date.now() 
                 });
                 continue; // Processa o próximo item da transação
               }
 
-              const nextTotal = Math.max(0, currentTotal - adj.amount);
-              
+              // Auditoria: Permitimos estoque negativo se blockOnZero for false para indicar erro de gestão
+              const nextTotal = currentTotal - adj.amount;
+
               tx.update(ref, { 
                 [stockField]: nextTotal,
                 batches,
@@ -124,7 +134,13 @@ export class InventoryEngine {
               });
             }
           }
-        });
+        };
+
+        if (existingTx) {
+          await updateLogic(existingTx);
+        } else {
+          await firebaseService.runTransaction(updateLogic);
+        }
         
         // Notify the rest of the system via Event Bus
         finalAdjustments.forEach(adj => {
@@ -147,42 +163,49 @@ export class InventoryEngine {
    * Converte uma reserva em venda efetiva.
    * Abate o reservedStock e o currentStock (via FEFO).
    */
-  static async releaseReservationToSale(enterpriseId: string, itemId: string, quantity: number, collection: 'inventory' | 'products' = 'inventory') {
-    try {
-      await firebaseService.runTransaction(async (tx) => {
-        const ref = firebaseService.getDocRef(collection, itemId);
-        const snap = await tx.get(ref);
+  static async releaseReservationToSale(enterpriseId: string, itemId: string, quantity: number, collection: 'inventory' | 'products' = 'inventory', existingTx?: any, blockOnZero: boolean = false) {
+    const logic = async (tx: any) => {
+      const ref = firebaseService.getDocRef(collection, itemId);
+      const snap = await tx.get(ref);
+      
+      if (snap.exists()) {
+        const data = snap.data();
+        const stockField = collection === 'inventory' ? 'currentStock' : 'stock';
+        const reservedField = collection === 'inventory' ? 'reservedStock' : 'reserved';
         
-        if (snap.exists()) {
-          const data = snap.data();
-          const stockField = collection === 'inventory' ? 'currentStock' : 'stock';
-          const reservedField = collection === 'inventory' ? 'reservedStock' : 'reserved';
-          
-          const currentTotal = Number(data[stockField]) || 0;
-          const currentReserved = Number(data[reservedField]) || 0;
-          let batches: StockBatch[] = data.batches || [];
+        const currentTotal = Number(data[stockField]) || 0;
+        const currentReserved = Number(data[reservedField]) || 0;
+        let batches: StockBatch[] = data.batches || [];
 
-          // 1. Abate reserva
-          const nextReserved = Math.max(0, currentReserved - quantity);
-          
-          // 2. Abate estoque físico via FEFO
-          let remaining = quantity;
-          batches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
-          for (const batch of batches) {
-            if (remaining <= 0) break;
-            const deduct = Math.min(batch.quantity, remaining);
-            batch.quantity -= deduct;
-            remaining -= deduct;
-          }
-
-          tx.update(ref, { 
-            [stockField]: Math.max(0, currentTotal - quantity),
-            [reservedField]: nextReserved,
-            batches,
-            updatedAt: Date.now() 
-          });
+        if (blockOnZero && currentTotal < quantity) {
+          throw new Error(`Estoque insuficiente para liberar reserva: ${data.name}`);
         }
-      });
+
+        // 1. Abate reserva
+        const nextReserved = Math.max(0, currentReserved - quantity);
+        
+        // 2. Abate estoque físico via FEFO
+        let remaining = quantity;
+        batches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
+        for (const batch of batches) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(batch.quantity, remaining);
+          batch.quantity -= deduct;
+          remaining -= deduct;
+        }
+
+        tx.update(ref, { 
+          [stockField]: currentTotal - quantity,
+          [reservedField]: nextReserved,
+          batches,
+          updatedAt: Date.now() 
+        });
+      }
+    };
+
+    try {
+      if (existingTx) await logic(existingTx);
+      else await firebaseService.runTransaction(logic);
     } catch (error) {
       logger.error('core', 'Falha ao converter reserva em venda', { itemId, error });
     }
@@ -192,17 +215,21 @@ export class InventoryEngine {
    * Realiza um ajuste manual direto no item de inventário ou produto.
    * Utiliza transação para garantir que o cálculo seja baseado no valor mais recente do servidor.
    */
-  static async manualAdjustment(itemId: string, delta: number, collection: 'inventory' | 'products' = 'inventory') {
-    try {
-      await firebaseService.runTransaction(async (tx) => {
-        const ref = firebaseService.getDocRef(collection, itemId);
-        const snap = await tx.get(ref);
-        
-        if (snap.exists()) {
-          const data = snap.data();
-          const field = collection === 'inventory' ? 'currentStock' : 'stock';
-          const currentTotal = Number(data[field]) || 0;
-          let batches: StockBatch[] = data.batches || [];
+  static async manualAdjustment(itemId: string, delta: number, collection: 'inventory' | 'products' = 'inventory', existingTx?: any, blockOnZero: boolean = false) {
+    const updateLogic = async (tx: any) => {
+      const ref = firebaseService.getDocRef(collection, itemId);
+      const snap = await tx.get(ref);
+      
+      if (snap.exists()) {
+        const data = snap.data();
+        const field = collection === 'inventory' ? 'currentStock' : 'stock';
+        const currentTotal = Number(data[field]) || 0;
+        let batches: StockBatch[] = data.batches || [];
+
+        // Validação de bloqueio manual
+        if (blockOnZero && delta < 0 && currentTotal + delta < 0) {
+          throw new Error('Ajuste negado: Estoque ficaria negativo com a trava de segurança ativa.');
+        }
 
           if (delta < 0) {
             // DEDUÇÃO MANUAL: Lógica FEFO
@@ -231,15 +258,17 @@ export class InventoryEngine {
             }
           }
 
-          const nextTotal = Math.max(0, currentTotal + delta);
-          
-          tx.update(ref, { 
-            [field]: nextTotal, 
-            batches,
-            updatedAt: Date.now() 
-          });
-        }
-      });
+        const nextTotal = currentTotal + delta;
+        tx.update(ref, { [field]: nextTotal, batches, updatedAt: Date.now() });
+      }
+    };
+
+    try {
+      if (existingTx) {
+        await updateLogic(existingTx);
+      } else {
+        await firebaseService.runTransaction(updateLogic);
+      }
       logger.info('core', 'MANUAL_INVENTORY_ADJUSTMENT_SUCCESS', { itemId, delta });
     } catch (error) {
       logger.error('core', 'MANUAL_INVENTORY_ADJUSTMENT_FAILED', { itemId, error });

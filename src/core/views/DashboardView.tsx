@@ -10,7 +10,8 @@ import {
   Building2,
   History,
   CheckCircle2,
-  ShieldCheck
+  ShieldCheck,
+  TrendingUp
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { 
@@ -25,6 +26,7 @@ import {
 import { format, startOfDay, addDays, isSameDay } from 'date-fns';
 import { useCollection } from '../../hooks/useCollection';
 import { accountService } from '../services/accountService';
+import { useDevice } from '../../hooks/useDevice';
 import { cn, formatCurrency } from '../../lib/utils';
 import { WidgetRegistry } from '../services/WidgetRegistry';
 import { reportEngine } from '../services/ReportEngine';
@@ -67,6 +69,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const { data: summaries } = useCollection<any>('dailySummaries', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | '7d' | '30d'>('today');
   const [isAuditPassed, setIsAuditPassed] = useState(false);
+  const { isMobile } = useDevice();
+  const [mobileTab, setMobileTab] = useState<'resumo' | 'graficos' | 'alertas'>('resumo');
 
   const accessibleShopIds = useMemo(() => {
     if (!currentUser) return [];
@@ -288,8 +292,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, [orders, tables, inventory, shifts, shops, selectedShopId, isRegionalView, accessibleShopIds, summaries, selectedPeriod]);
 
+  // Navegação de Abas para Celular
+  const renderMobileNav = () => (
+    <div className="flex bg-slate-100 p-1.5 rounded-[1.5rem] mb-6 md:hidden">
+       {[
+         { id: 'resumo', label: 'Resumo', icon: <BarChart3 className="w-4 h-4" /> },
+         { id: 'graficos', label: 'Vendas', icon: <TrendingUp className="w-4 h-4" /> },
+         { id: 'alertas', label: 'Alertas', icon: <AlertTriangle className="w-4 h-4" /> },
+       ].map(tab => (
+         <button
+           key={tab.id}
+           onClick={() => setMobileTab(tab.id as any)}
+           className={cn(
+             "flex-1 flex flex-col items-center gap-1 py-3 rounded-2xl transition-all",
+             mobileTab === tab.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"
+           )}
+         >
+            {tab.icon}
+            <span className="text-[8px] font-black uppercase tracking-widest">{tab.label}</span>
+         </button>
+       ))}
+    </div>
+  );
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className={cn("space-y-8 animate-in fade-in duration-500", isMobile ? "px-2" : "")}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -326,14 +353,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </div>
 
-      {/* Slot-Based Grid: Renderiza apenas os "Legos" autorizados */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+      {isMobile && renderMobileNav()}
+
+      {/* Slot-Based Grid adaptada ao Mobile Tab */}
+      <div className={cn(
+        "grid gap-4",
+        isMobile ? "grid-cols-1" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+      )}>
+        {(!isMobile || mobileTab === 'resumo') && (
+          <>
         <Suspense fallback={<div className="h-32 bg-slate-50 animate-pulse rounded-3xl" />}>
           {enabledWidgets.map(widget => (
-            <div key={widget.id} className={cn(
+            <div key={widget.id} className={cn(!isMobile && (
               widget.gridSpan === 'medium' ? 'col-span-2' : 
               widget.gridSpan === 'large' ? 'col-span-full' : ''
-            )}>
+            ))}>
               <widget.component stats={stats} />
             </div>
           ))}
@@ -473,9 +507,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               )}
             </div>
           </div>
-        </div>
+          </div>
+        )}
 
-        <div className="space-y-6">
+        {(!isMobile || mobileTab === 'alertas') && (
+          <div className="space-y-6">
           <div className="sleek-card p-6 bg-red-50/30 border-red-100/50">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xs font-black uppercase text-red-800 tracking-[0.15em] flex items-center gap-2">
@@ -591,6 +627,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
              </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

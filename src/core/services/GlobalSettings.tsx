@@ -32,7 +32,9 @@ import { UserInboxView } from '../views/UserInboxView'; // Importar UserInboxVie
 import { PayoutApprovalDashboard } from '../views/PayoutApprovalDashboard'; // Importar novo dashboard
 import { CommunicationEngine, InternalMessage } from '../services/CommunicationEngine';
 import { BackupManagerView } from '../views/BackupManagerView';
-import { CloudConfigEngine } from '../services/CloudConfigEngine';
+import { CloudConfigEngine } from '../services/CloudConfigEngine'; // Importa o validador
+import { cloudLatencyMonitor, LatencyMeasurement } from '../services/CloudLatencyMonitor'; // Importa o monitor
+import { coreEventBus } from '../events/CoreEventBus';
 
 interface GlobalSettingsProps {
   context?: string;
@@ -54,7 +56,9 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
   const [isGoogleLinked, setIsGoogleLinked] = useState(false);
   const [cloudProvider, setCloudProvider] = useState<'system' | 'custom_firestore'>('system');
   const [cloudTier, setCloudTier] = useState<'free' | 'turbo'>('free');
-  const [blockOnZeroStock, setBlockOnZeroStock] = useState(false);
+  const [autoCloudSwitching, setAutoCloudSwitching] = useState(false);
+  const [latestLatencies, setLatestLatencies] = useState<{ system: LatencyMeasurement[]; custom: LatencyMeasurement[] }>({ system: [], custom: [] });
+  const [cloudRecommendation, setCloudRecommendation] = useState<{ provider: string; reason: string } | null>(null);
   
   const [customProjectId, setCustomProjectId] = useState('');
   const [customApiKey, setCustomApiKey] = useState('');
@@ -120,11 +124,18 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
     await accountService.linkGoogleAccount();
   };
 
+  const handleToggleAutoCloudSwitching = async () => {
+    const next = !autoCloudSwitching;
+    await accountService.updateCloudInfrastructure(companyId, { provider: cloudProvider, tier: cloudTier, customConfig: { projectId: customProjectId, apiKey: customApiKey }, autoSwitchEnabled: next });
+    setAutoCloudSwitching(next);
+    cloudLatencyMonitor.setAutoSwitchEnabled(next); // Atualiza o monitor
+  };
+
   const handleUpdateCloud = async (provider: 'system' | 'custom_firestore', tier: 'free' | 'turbo') => {
     if (provider === 'custom_firestore') {
       setIsValidatingCloud(true);
-      setError(null); // Auditoria: Limpa erros anteriores antes de validar nova config
       setCloudValidationStatus('idle');
+      setError(null); // Limpa erros anteriores
       
       const result = await CloudConfigEngine.validateFirestoreConfig(customProjectId, customApiKey);
       
@@ -139,8 +150,10 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
       await accountService.updateCloudInfrastructure(companyId, { 
         provider, tier, customConfig: { projectId: customProjectId, apiKey: customApiKey } 
       });
+      cloudLatencyMonitor.startMonitoring(companyId, { provider, tier, customConfig: { projectId: customProjectId, apiKey: customApiKey } }, autoCloudSwitching);
     } else {
       await accountService.updateCloudInfrastructure(companyId, { provider, tier });
+      cloudLatencyMonitor.startMonitoring(companyId, { provider, tier }, autoCloudSwitching);
     }
     setCloudProvider(provider);
     setCloudTier(tier);
@@ -329,6 +342,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                                        onClick={() => setCloudProvider('custom_firestore')} 
                                        className={cn("px-3 py-1 rounded-full text-[8px] font-black uppercase transition-all", cloudProvider === 'custom_firestore' ? "bg-indigo-600 text-white" : "text-slate-400")}
                                      >
+                                       {cloudTier === 'turbo' ? 'Turbo Ativo' : 'Modo Turbo'}
                                        Modo Turbo
                                      </button>
                                   </div>
@@ -385,29 +399,42 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                                     </div>
                                  </div>
                                )}
-                            </div>
 
-                            <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">
-                               <div className="flex items-center justify-between">
+                               {cloudRecommendation && (
+                                 <motion.div 
+                                   initial={{ opacity: 0, y: 10 }}
+                                   animate={{ opacity: 1, y: 0 }}
+                                   className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex items-start gap-3 mt-4"
+                                 >
+                                    <Info className="w-4 h-4 text-blue-600 shrink-0" />
+                                    <div>
+                                       <p className="text-[10px] font-black text-blue-900 uppercase leading-none">Recomendação de Cloud</p>
+                                       <p className="text-[9px] font-medium text-blue-600 mt-1">{cloudRecommendation.reason}</p>
+                                    </div>
+                                 </motion.div>
+                               )}
+
+                               <div className="flex items-center justify-between pt-4 border-t border-slate-100">
                                   <div className="flex items-center gap-3">
-                                     <div className={cn("p-3 rounded-xl", blockOnZeroStock ? "bg-rose-500 text-white" : "bg-white text-slate-400 border border-slate-200")}>
-                                        <Database className="w-4 h-4" />
+                                     <div className={cn("p-3 rounded-xl", autoCloudSwitching ? "bg-emerald-500 text-white shadow-lg" : "bg-white text-slate-400 border border-slate-200")}>
+                                        <RefreshCw className="w-4 h-4" />
                                      </div>
                                      <div>
-                                        <h4 className="text-xs font-black text-slate-800 uppercase italic">Trava de Estoque</h4>
-                                        <p className="text-[9px] text-slate-400 font-bold uppercase">{blockOnZeroStock ? 'Bloquear venda em 0' : 'Permitir estoque negativo'}</p>
+                                        <h4 className="text-xs font-black text-slate-800 uppercase italic">Troca Automática</h4>
+                                        <p className="text-[9px] text-slate-400 font-bold uppercase">Otimiza a conexão por latência</p>
                                      </div>
                                   </div>
                                   <button 
-                                    onClick={handleToggleStockBlock}
-                                    className={cn("w-12 h-6 rounded-full transition-all relative flex items-center px-1", blockOnZeroStock ? "bg-rose-500" : "bg-slate-300")}
+                                    onClick={handleToggleAutoCloudSwitching}
+                                    className={cn("w-12 h-6 rounded-full transition-all relative flex items-center px-1", autoCloudSwitching ? "bg-emerald-500" : "bg-slate-300")}
                                   >
-                                     <motion.div animate={{ x: blockOnZeroStock ? 24 : 0 }} className="w-4 h-4 bg-white rounded-full shadow-sm" />
+                                     <motion.div animate={{ x: autoCloudSwitching ? 24 : 0 }} className="w-4 h-4 bg-white rounded-full shadow-sm" />
                                   </button>
                                </div>
-                               <div className="p-3 bg-white/60 rounded-xl border border-slate-100">
+
+                               <div className="p-3 bg-white/5 rounded-xl border border-white/5">
                                   <p className="text-[8px] text-slate-400 font-medium leading-relaxed uppercase tracking-tighter">
-                                     Se desativado, o estoque pode ficar negativo para indicar falhas na reconciliação ou permitir vendas urgentes sem saldo no sistema.
+                                     <span className="text-blue-500 font-black">LATÊNCIA ATUAL:</span> Sistema: {latestLatencies.system[latestLatencies.system.length - 1]?.latency || 'N/A'}ms / Custom: {latestLatencies.custom[latestLatencies.custom.length - 1]?.latency || 'N/A'}ms
                                   </p>
                                </div>
                             </div>
