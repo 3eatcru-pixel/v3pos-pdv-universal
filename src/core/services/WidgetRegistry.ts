@@ -71,5 +71,17 @@ export const WidgetRegistry: Record<string, WidgetDefinition> = {
     component: React.lazy(() => import('../widgets/NegativeStockMonitorWidget')),
     permission: 'canManageInventory',
     gridSpan: 'medium'
+  },
+  'HARDWARE_STATUS': {
+    id: 'HARDWARE_STATUS',
+    component: React.lazy(() => import('../widgets/HardwareStatusWidget')),
+    permission: 'canViewSales',
+    gridSpan: 'small'
+  },
+  'LOCAL_LEGENDS': {
+    id: 'LOCAL_LEGENDS',
+    component: React.lazy(() => import('../widgets/LocalLegendsWidget')),
+    permission: 'canViewSales',
+    gridSpan: 'medium'
   }
 };

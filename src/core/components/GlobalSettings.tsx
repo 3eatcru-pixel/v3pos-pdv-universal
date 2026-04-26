@@ -13,7 +13,6 @@ import {
   Globe,
   Database,
   LayoutGrid,
-  MessageSquare,
   ChevronRight,
   Server,
   Wifi,
@@ -21,7 +20,10 @@ import {
   CloudUpload,
   Chrome,
   Cloud,
-  Cpu
+  Cpu,
+  Calendar,
+  Map as MapIcon,
+  MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { accountService } from '../services/accountService';
@@ -49,9 +51,12 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [companyName, setCompanyName] = useState('...');
-  const [isLocalServer, setIsLocalServer] = useState(false);
+  const [deviceRole, setDeviceRole] = useState<'host' | 'co-host' | 'none'>('none');
   const [googleBackupEnabled, setGoogleBackupEnabled] = useState(false);
+  const [backupInterval, setBackupInterval] = useState(10); // Default 10min
   const [isGoogleLinked, setIsGoogleLinked] = useState(false);
+  const [customLogo, setCustomLogo] = useState('');
+  const [customName, setCustomName] = useState('');
   const [cloudProvider, setCloudProvider] = useState<'system' | 'custom_firestore'>('system');
   const [cloudTier, setCloudTier] = useState<'free' | 'turbo'>('free');
   const [blockOnZeroStock, setBlockOnZeroStock] = useState(false);
@@ -90,8 +95,11 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
       if (mounted) {
         setIsPaused(paused);
         setCompanyName(company?.name || 'N/A');
-        setIsLocalServer(accountService.isLocalServer());
+        setDeviceRole(accountService.getDeviceRole());
         setGoogleBackupEnabled((company as any)?.googleDriveBackupEnabled || false);
+        setBackupInterval((company as any)?.backupIntervalMinutes || 10);
+        setCustomLogo((company as any)?.branding?.logo || '');
+        setCustomName((company as any)?.branding?.customName || '');
         // Simulação de verificação de provedor vinculado
         setIsGoogleLinked(user?.email?.includes('gmail.com') || false); 
       }
@@ -114,6 +122,10 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
     const next = !googleBackupEnabled;
     await accountService.updateBackupSettings(companyId, next);
     setGoogleBackupEnabled(next);
+  };
+
+  const handleUpdateBranding = async () => {
+    await accountService.updateCompanyBranding(companyId, { logo: customLogo, customName });
   };
 
   const handleLinkGoogle = async () => {
@@ -232,6 +244,56 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
 
                     <div className="p-10 space-y-8">
                        <div className="space-y-4">
+                          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2">Painel de Operações</span>
+                          <div className="grid grid-cols-1 gap-3">
+                             <button 
+                               onClick={() => { /* Navegar para Escalas */ setIsOpen(false); }}
+                               className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 rounded-3xl hover:bg-blue-50 transition-all group"
+                             >
+                                <div className="flex items-center gap-4">
+                                   <div className="p-3 bg-blue-100 text-blue-600 rounded-xl"><Calendar className="w-5 h-5" /></div>
+                                   <div className="text-left">
+                                      <h4 className="font-black text-slate-800 text-sm italic uppercase">Escalas da Unidade</h4>
+                                      <p className="text-[10px] text-slate-400 font-bold">Consulte turnos e folgas</p>
+                                   </div>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-slate-200" />
+                             </button>
+
+                             <button 
+                               onClick={() => { /* Navegar para Mapas */ setIsOpen(false); }}
+                               className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 rounded-3xl hover:bg-indigo-50 transition-all group"
+                             >
+                                <div className="flex items-center gap-4">
+                                   <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl"><MapIcon className="w-5 h-5" /></div>
+                                   <div className="text-left">
+                                      <h4 className="font-black text-slate-800 text-sm italic uppercase">Mapas da Loja</h4>
+                                      <p className="text-[10px] text-slate-400 font-bold">Layout técnico de ativos</p>
+                                   </div>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-slate-200" />
+                             </button>
+
+                             <button 
+                               onClick={() => { setIsInboxOpen(true); setIsOpen(false); }}
+                               className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 rounded-3xl hover:bg-emerald-50 transition-all group"
+                             >
+                                <div className="flex items-center gap-4">
+                                   <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl relative">
+                                      <MessageSquare className="w-5 h-5" />
+                                      {unreadCount > 0 && <div className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-white" />}
+                                   </div>
+                                   <div className="text-left">
+                                      <h4 className="font-black text-slate-800 text-sm italic uppercase">Mensagens</h4>
+                                      <p className="text-[10px] text-slate-400 font-bold">Inbox interno e alertas</p>
+                                   </div>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-slate-200" />
+                             </button>
+                          </div>
+                       </div>
+
+                       <div className="space-y-4">
                           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2">Minha Identidade</span>
                           <button 
                             onClick={handleLinkGoogle}
@@ -255,6 +317,34 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                               )}
                           </button>
                        </div>
+
+                       {canAdmin && (
+                         <div className="space-y-4">
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2">Identidade da Marca</span>
+                            <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">
+                               <div className="space-y-3">
+                                  <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Nome Exclusivo do App</label>
+                                  <input 
+                                    value={customName}
+                                    onChange={e => setCustomName(e.target.value)}
+                                    onBlur={handleUpdateBranding}
+                                    placeholder="Ex: Minha Distribuidora"
+                                    className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-blue-500 transition-all"
+                                  />
+                               </div>
+                               <div className="space-y-3">
+                                  <label className="text-[9px] font-black uppercase text-slate-400 ml-1">URL da Logo (PNG/SVG)</label>
+                                  <input 
+                                    value={customLogo}
+                                    onChange={e => setCustomLogo(e.target.value)}
+                                    onBlur={handleUpdateBranding}
+                                    placeholder="https://sua-logo.com/img.png"
+                                    className="w-full bg-white border border-slate-200 rounded-xl p-3 text-[10px] font-mono outline-none focus:border-blue-500 transition-all"
+                                  />
+                               </div>
+                            </div>
+                         </div>
+                       )}
 
                        {inboxMessages.length > 0 && (
                          <div className="space-y-4">
@@ -441,23 +531,38 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                             <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">
                                <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
-                                     <div className={cn("p-3 rounded-xl", isLocalServer ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20" : "bg-slate-200 text-slate-400")}>
+                                     <div className={cn("p-3 rounded-xl", deviceRole !== 'none' ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20" : "bg-slate-200 text-slate-400")}>
                                         <Server className="w-4 h-4" />
                                      </div>
                                      <div>
-                                        <h4 className="text-xs font-black text-slate-800 uppercase italic">Servidor Local</h4>
-                                        <p className="text-[9px] text-slate-400 font-bold uppercase">Este aparelho gerencia o Cloud Sync</p>
+                                        <h4 className="text-xs font-black text-slate-800 uppercase italic">Papel do Dispositivo</h4>
+                                        <p className="text-[9px] text-slate-400 font-bold uppercase">Define a hierarquia na rede local</p>
                                      </div>
                                   </div>
-                                  <button 
-                                    onClick={handleToggleServer}
-                                    className={cn("w-12 h-6 rounded-full transition-all relative flex items-center px-1", isLocalServer ? "bg-emerald-500" : "bg-slate-300")}
-                                  >
-                                     <motion.div animate={{ x: isLocalServer ? 24 : 0 }} className="w-4 h-4 bg-white rounded-full shadow-sm" />
-                                  </button>
                                </div>
+
+                              <div className="flex gap-1 bg-white p-1 rounded-full border border-slate-200">
+                                 <button 
+                                   onClick={() => handleSetDeviceRole('host')}
+                                   className={cn("flex-1 py-2 rounded-full text-[8px] font-black uppercase transition-all", deviceRole === 'host' ? "bg-blue-600 text-white shadow-md" : "text-slate-400")}
+                                 >
+                                   Host Principal
+                                 </button>
+                                 <button 
+                                   onClick={() => handleSetDeviceRole('co-host')}
+                                   className={cn("flex-1 py-2 rounded-full text-[8px] font-black uppercase transition-all", deviceRole === 'co-host' ? "bg-indigo-500 text-white shadow-md" : "text-slate-400")}
+                                 >
+                                   Co-Host
+                                 </button>
+                                 <button 
+                                   onClick={() => handleSetDeviceRole('none')}
+                                   className={cn("flex-1 py-2 rounded-full text-[8px] font-black uppercase transition-all", deviceRole === 'none' ? "bg-slate-900 text-white shadow-md" : "text-slate-400")}
+                                 >
+                                   Terminal
+                                 </button>
+                              </div>
                                
-                               {isLocalServer && (
+                               {deviceRole !== 'none' && (
                                  <button 
                                    onClick={handleManualSync}
                                    className="w-full py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
@@ -478,12 +583,25 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                                         <p className="text-[9px] text-slate-400 font-bold uppercase">Cópia redundante de segurança</p>
                                      </div>
                                   </div>
-                                  <button 
-                                    onClick={handleToggleBackup}
-                                    className={cn("w-12 h-6 rounded-full transition-all relative flex items-center px-1", googleBackupEnabled ? "bg-emerald-500" : "bg-slate-700")}
-                                  >
-                                     <motion.div animate={{ x: googleBackupEnabled ? 24 : 0 }} className="w-4 h-4 bg-white rounded-full shadow-sm" />
-                                  </button>
+                              <div className="flex items-center gap-4">
+                                 {googleBackupEnabled && (
+                                   <div className="flex flex-col items-end">
+                                      <span className="text-[8px] font-black text-blue-400 uppercase">A cada {backupInterval}min</span>
+                                      <input 
+                                        type="range" min="1" max="60" step="1" 
+                                        value={backupInterval} 
+                                        onChange={(e) => handleUpdateBackup(true, parseInt(e.target.value))}
+                                        className="w-20 h-1 bg-slate-700 rounded-lg appearance-none accent-blue-500"
+                                      />
+                                   </div>
+                                 )}
+                                 <button 
+                                   onClick={() => handleUpdateBackup(!googleBackupEnabled, backupInterval)}
+                                   className={cn("w-12 h-6 rounded-full transition-all relative flex items-center px-1", googleBackupEnabled ? "bg-emerald-500" : "bg-slate-700")}
+                                 >
+                                    <motion.div animate={{ x: googleBackupEnabled ? 24 : 0 }} className="w-4 h-4 bg-white rounded-full shadow-sm" />
+                                 </button>
+                              </div>
                                </div>
                                <button 
                                  onClick={() => { setIsRestoreOpen(true); setIsOpen(false); }}

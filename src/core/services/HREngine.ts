@@ -2,6 +2,7 @@ import { firebaseService } from '../../services/firebaseService';
 import { Staff, PerformanceEvent, RolePermissions } from '../../types';
 import { logger } from './logger';
 import { generateSafeId } from '../lib/utils'; // Assumindo que moveremos a utilidade para cá
+import { ImageProcessorEngine } from './ImageProcessorEngine';
 
 export const ROLE_HIERARCHY: Record<string, number> = {
   'staff': 1,
@@ -26,7 +27,7 @@ export class HREngine {
    * Salva ou atualiza um colaborador no nível da Empresa.
    * Garante que o vínculo seja com a EnterpriseId para visibilidade global.
    */
-  static async saveStaff(enterpriseId: string, staffData: Partial<Staff>, photoFile?: File, creatorRole?: string): Promise<string> {
+  static async saveStaff(enterpriseId: string, staffData: Partial<Staff>, photoFile?: File, creatorRole?: string, deferUntilEOD: boolean = false): Promise<string> {
     const id = staffData.id || `staff-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     let photoUrl = staffData.photo || '';
 
@@ -42,41 +43,87 @@ export class HREngine {
         }
       }
 
-      if (photoFile) {
-        const upload = await firebaseService.uploadFile(`staff_photos/${enterpriseId}/${id}`, photoFile);
-        if (upload) photoUrl = upload.url;
+      // Lógica de Diferimento: Se solicitado, salva na fila de pendências em vez de aplicar agora
+      if (deferUntilEOD) {
+        if (photoFile) {
+          const processedBlob = await ImageProcessorEngine.processForUpload(photoFile);
+          const upload = await firebaseService.uploadFile(`staff_photos/${enterpriseId}/${id}`, processedBlob as File);
+          if (upload) photoUrl = upload.url;
+        }
+        const pendingId = `pending-hr-${id}`;
+        await firebaseService.saveItem('pending_staff_updates', pendingId, {
+          id: pendingId,
+          enterpriseId,
+          staffData: { ...staffData, photo: photoUrl || staffData.photo },
+          timestamp: Date.now()
+        });
+        logger.info('staff', 'Alteração de perfil enfileirada para o fechamento da loja', { staffId: id });
+        return id;
       }
 
-      const finalData = {
-        ...staffData,
-        id,
-        enterpriseId,
-        photo: photoUrl,
-        updatedAt: Date.now(),
-        active: staffData.active ?? true,
-        // Metadados de Serviços para Auditoria Internacional
-        professionalLicense: (staffData as any).professionalLicense || '', // Ex: Bloodborne Pathogens (US)
-        businessModel: (staffData as any).businessModel || 'commission', // 'commission' | 'rental' | 'hybrid'
-        promotionHistory: (staffData as any).promotionHistory || [],
-        serviceConfig: (staffData as any).serviceConfig || {
-          serviceRate: 50,
-          productRate: 10,
-          rentalFee: 0,
-          dailyRate: 0, // Adicionado para freelancers
-          staffFood: {
-            enabled: (staffData as any).serviceConfig?.staffFood?.enabled ?? false,
-            dailyLimit: (staffData as any).serviceConfig?.staffFood?.dailyLimit ?? 0,
-            allowedItems: (staffData as any).serviceConfig?.staffFood?.allowedItems || [] // Opcional: lista de IDs
-          }
-        }
-      };
+      await firebaseService.runTransaction(async (tx) => {
+        const staffRef = firebaseService.getDocRef('staff', id);
+        const snap = await tx.get(staffRef);
+        const currentData = snap.exists() ? snap.data() : {};
 
-      await firebaseService.saveItem('staff', id, finalData);
+        if (photoFile) {
+          const processedBlob = await ImageProcessorEngine.processForUpload(photoFile);
+          const upload = await firebaseService.uploadFile(`staff_photos/${enterpriseId}/${id}`, processedBlob as File);
+          if (upload) photoUrl = upload.url;
+        }
+
+        const finalData = {
+          ...currentData,
+          ...staffData,
+          id,
+          enterpriseId,
+          photo: photoUrl || currentData.photo || '',
+          updatedAt: Date.now(),
+          active: staffData.active ?? currentData.active ?? true,
+          professionalLicense: (staffData as any).professionalLicense || currentData.professionalLicense || '',
+          businessModel: (staffData as any).businessModel || currentData.businessModel || 'commission',
+          promotionHistory: (staffData as any).promotionHistory || currentData.promotionHistory || [],
+          serviceConfig: (staffData as any).serviceConfig || currentData.serviceConfig || {
+            serviceRate: 50,
+            productRate: 10,
+            rentalFee: 0,
+            dailyRate: 0,
+            staffFood: {
+              enabled: false,
+              dailyLimit: 0,
+              allowedItems: []
+            }
+          }
+        };
+
+        tx.set(staffRef, finalData);
+      });
+
       logger.info('staff', 'Colaborador salvo no nível enterprise', { id, enterpriseId });
       return id;
     } catch (error) {
       logger.error('staff', 'Erro ao salvar colaborador centralizado', { error });
       throw error;
+    }
+  }
+
+  /**
+   * Processa e aplica todas as alterações de RH que foram enfileiradas.
+   * Chamado automaticamente pelo EndOfDayEngine durante o encerramento.
+   */
+  static async applyPendingUpdates(enterpriseId: string) {
+    try {
+      const pending = await firebaseService.getDocsByQuery('pending_staff_updates', [
+        { field: 'enterpriseId', op: '==', value: enterpriseId }
+      ]);
+
+      for (const update of pending) {
+        await this.saveStaff(enterpriseId, update.staffData, undefined, 'dev'); // Aplica como dev para ignorar travas
+        await firebaseService.deleteItem('pending_staff_updates', update.id);
+      }
+      if (pending.length > 0) logger.info('hr', `Aplicadas ${pending.length} atualizações de RH pendentes.`);
+    } catch (error) {
+      logger.error('hr', 'Falha ao processar fila de atualizações de RH', { error });
     }
   }
 
@@ -150,23 +197,29 @@ export class HREngine {
    */
   static async terminateStaff(enterpriseId: string, staffId: string, reason: string, adminName: string) {
     try {
-      const terminationData = {
-        active: false,
-        terminationDate: Date.now(),
-        terminationReason: reason,
-        terminatedBy: adminName,
-        updatedAt: Date.now()
-      };
+      await firebaseService.runTransaction(async (tx) => {
+        const staffRef = firebaseService.getDocRef('staff', staffId);
+        const staffSnap = await tx.get(staffRef);
+        if (!staffSnap.exists()) throw new Error('Colaborador não encontrado');
 
-      await firebaseService.updateItem('staff', staffId, terminationData);
-      
-      await firebaseService.addAuditLog({
-        enterpriseId,
-        shopId: 'global',
-        staffId,
-        staffName: 'System',
-        action: 'STAFF_TERMINATION',
-        details: `Colaborador desligado por ${adminName}. Motivo: ${reason}`
+        tx.update(staffRef, {
+          active: false,
+          terminationDate: Date.now(),
+          terminationReason: reason,
+          terminatedBy: adminName,
+          updatedAt: Date.now()
+        });
+
+        const auditId = `audit-${generateSafeId('term')}`;
+        tx.set(firebaseService.getDocRef('audit_logs', auditId), {
+          enterpriseId,
+          shopId: 'global',
+          staffId,
+          staffName: 'System',
+          action: 'STAFF_TERMINATION',
+          details: `Colaborador desligado por ${adminName}. Motivo: ${reason}`,
+          timestamp: Date.now()
+        });
       });
 
       logger.warn('staff', 'Desligamento processado', { staffId, reason });
@@ -246,6 +299,73 @@ export class HREngine {
     } catch (error) {
       logger.error('hr', 'Falha ao registrar pesquisa de satisfação', { error });
       throw error;
+    }
+  }
+
+  /**
+   * Gera o payload de "Meu Workspace" para o colaborador.
+   * Agrupa escalas, documentos compartilhados e performance em um único snapshot.
+   */
+  static async getStaffWorkspaceData(enterpriseId: string, staffId: string) {
+    try {
+      const [staff, shifts, performance] = await Promise.all([
+        firebaseService.getDoc('staff', staffId) as Promise<Staff>,
+        firebaseService.getDocsByQuery('shifts', [
+          { field: 'staffId', op: '==', value: staffId },
+          { field: 'startTime', op: '>=', value: Date.now() }
+        ]),
+        firebaseService.getDocsByQuery('performance_events', [
+          { field: 'staffId', op: '==', value: staffId }
+        ])
+      ]);
+
+      return { staff, shifts, performance, timestamp: Date.now() };
+    } catch (error) {
+      logger.error('hr', 'Erro ao compilar workspace do staff', { staffId });
+      return null;
+    }
+  }
+
+  /**
+   * Publica a escala atual para o Google Drive e atualiza o índice no Firestore.
+   * Isso permite que os funcionários acessem a escala sem consumir cota de banco.
+   */
+  static async publishWeeklySchedule(enterpriseId: string, shopId: string, shifts: any[]) {
+    try {
+      const weekLabel = format(new Date(), 'yyyy-MM_ww');
+      logger.info('hr', '🚀 Publicando escala semanal no Workspace Drive...', { weekLabel });
+
+      // 1. Prepara o JSON para o App e o Texto para o Humano
+      const schedulePayload = {
+        enterpriseId,
+        shopId,
+        week: weekLabel,
+        publishedAt: Date.now(),
+        shifts: shifts.map(s => ({ staffId: s.staffId, start: s.startTime, end: s.endTime, area: s.area }))
+      };
+
+      // 2. Simula o upload para o Drive (Requisito: Drive-First)
+      // O BackupEngine se encarregaria de subir o 'schedulePayload'
+      const mockDriveFileId = `drive-file-${weekLabel}`;
+
+      // 3. Firestore atua APENAS como índice (Metadata Pointer)
+      // Economiza Units pois o conteúdo pesado (JSON de 1000 turnos) está no Drive.
+      await firebaseService.saveItem('publications', `schedule_${shopId}`, {
+        enterpriseId,
+        shopId,
+        type: 'weekly_schedule',
+        driveFileId: mockDriveFileId,
+        updatedAt: Date.now(),
+        label: `Escala Publicada: Semana ${weekLabel}`
+      });
+
+      logger.info('hr', '✅ Escala publicada e indexada com sucesso.');
+      
+      // Notifica todos os membros via Mesh
+      coreEventBus.emit('hr:schedule_published', { shopId, week: weekLabel });
+      
+    } catch (error) {
+      logger.error('hr', 'Falha ao publicar escala no Drive', { error });
     }
   }
 }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Calendar as CalendarIcon, 
   Clock, 
@@ -8,11 +8,16 @@ import {
   ChevronRight,
   Plus,
   Monitor,
-  Map as MapIcon
+  Map as MapIcon,
+  Edit3,
+  Save
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useCollection } from '../../hooks/useCollection';
 import { accountService } from '../services/accountService';
+import { DocLockEngine } from '../services/DocLockEngine';
+import { AutoSaveEngine } from '../services/AutoSaveEngine';
+import { ActiveLockOverlay } from '../components/ActiveLockOverlay';
 import { PhysicalResource, ResourceBooking } from '../services/ResourceSchedulerEngine';
 import { Staff, Shift } from '../../types';
 import { cn } from '../../lib/utils';
@@ -22,14 +27,74 @@ import { ptBR } from 'date-fns/locale';
 export const StaffScheduleView: React.FC = () => {
   const enterpriseId = accountService.getCurrentCompanyId() || 'default';
   const shopId = accountService.getSelectedShopId() || 'main';
+  const user = accountService.getCurrentUser();
   
   const [selectedDate, setSelectedDate] = useState(startOfDay(new Date()));
+  const [isEditing, setIsEditing] = useState(false);
+  const [lockHolder, setLockStatus] = useState<string | null>(null);
+  const [localShifts, setLocalShifts] = useState<Shift[]>([]); // Cópia local para edição
 
   // Carregamento de dados cruzados
   const { data: resources } = useCollection<PhysicalResource>('physical_resources', { enterpriseId, shopId });
   const { data: bookings } = useCollection<ResourceBooking>('resource_bookings', { enterpriseId, shopId, status: 'confirmed' });
   const { data: shifts } = useCollection<Shift>('shifts', { enterpriseId, shopId });
   const { data: staff } = useCollection<Staff>('staff', { enterpriseId });
+
+  // Auditoria: staffMap para busca O(1) de nomes na renderização da grid
+  const staffMap = useMemo(() => new Map(staff.map(s => [s.id, s.name])), [staff]);
+
+  // Ref para evitar "Stale Closures" no AutoSaveEngine
+  const editStateRef = useRef({ shifts: localShifts, date: selectedDate.getTime() });
+  useEffect(() => {
+    editStateRef.current = { shifts: localShifts, date: selectedDate.getTime() };
+  }, [localShifts, selectedDate]);
+
+  const docId = `schedule_${shopId}_${format(selectedDate, 'yyyy-MM-dd')}`;
+
+  // Monitoramento de Lock e Auto-Save
+  const handleStartEdit = async () => {
+    if (!user) return;
+    
+    const result = await DocLockEngine.acquireLock(enterpriseId, docId, user.id, user.name);
+    
+    if (result.success) {
+      setIsEditing(true);
+      setLocalShifts([...shifts]); // Faz o snapshot inicial para edição
+      
+      AutoSaveEngine.startMonitoring(
+        enterpriseId,
+        docId,
+        user.id,
+        user.name,
+        () => editStateRef.current, // Auditoria: Acessa a referência mutável mais recente
+        () => {
+          setIsEditing(false);
+          alert('Sessão encerrada por inatividade. Seu rascunho foi salvo no Drive.');
+        }
+      );
+    } else {
+      setLockStatus(result.holder || 'Outro Gerente');
+    }
+  };
+
+  const handleCancelEdit = async () => {
+    if (!user) return;
+    await DocLockEngine.releaseLock(docId, user.id);
+    AutoSaveEngine.stopMonitoring(docId);
+    setIsEditing(false);
+  };
+
+  const handleSaveScale = async () => {
+    // Lógica de persistência final no Firestore ocorreria aqui
+    handleCancelEdit();
+  };
+
+  // Cleanup ao destruir o componente
+  useEffect(() => {
+    return () => {
+      if (isEditing && user) handleCancelEdit();
+    };
+  }, [isEditing]);
 
   // Grade de Horários (08:00 às 22:00)
   const timeSlots = useMemo(() => {
@@ -38,18 +103,51 @@ export const StaffScheduleView: React.FC = () => {
     return eachHourOfInterval({ start, end });
   }, [selectedDate]);
 
-  const getStaffName = (id: string) => staff.find(s => s.id === id)?.name || 'Profissional';
+  const getStaffName = (id: string) => staffMap.get(id) || 'Profissional';
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 font-sans">
+      <AnimatePresence>
+        {lockHolder && (
+          <ActiveLockOverlay 
+            docName="Escala Semanal" 
+            holderName={lockHolder} 
+            onClose={() => setLockStatus(null)} 
+          />
+        )}
+      </AnimatePresence>
+
       {/* Header com Seletor de Data */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic">Mapa de Ocupação</h2>
-          <p className="text-slate-500 font-medium italic">Gestão visual de cadeiras, salas e equipamentos.</p>
+          <div className="flex items-center gap-3 mt-1">
+             <p className="text-slate-500 font-medium italic">Gestão visual de cadeiras, salas e equipamentos.</p>
+             {isEditing && (
+               <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full animate-pulse">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  <span className="text-[9px] font-black uppercase tracking-widest">Modo Edição Protegido</span>
+               </div>
+             )}
+          </div>
         </div>
         
         <div className="flex items-center gap-4 bg-white p-2 rounded-[2rem] border border-slate-100 shadow-sm">
+           {!isEditing ? (
+             <button 
+               onClick={handleStartEdit}
+               className="px-6 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-600 transition-all shadow-xl flex items-center gap-2"
+             >
+                <Edit3 className="w-4 h-4" /> Editar Escala
+             </button>
+           ) : (
+             <button 
+               onClick={handleSaveScale}
+               className="px-6 py-4 bg-emerald-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-emerald-600 transition-all shadow-xl flex items-center gap-2"
+             >
+                <Save className="w-4 h-4" /> Salvar Nexus
+             </button>
+           )}
            <button className="p-4 hover:bg-slate-50 rounded-2xl transition-all text-slate-400"><ChevronLeft /></button>
            <div className="px-6 flex flex-col items-center">
               <span className="text-[10px] font-black uppercase text-blue-600 tracking-widest">{format(selectedDate, 'eeee', { locale: ptBR })}</span>

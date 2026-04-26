@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Search, ChevronLeft, Check, Plus, Minus, Package, Zap, Undo2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useCollection } from '../../hooks/useCollection';
+import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
 import { InventoryEngine } from '../services/InventoryEngine';
 import { cn, formatCurrency } from '../../lib/utils';
@@ -18,10 +19,20 @@ export const InventoryCollectorView: React.FC<{ onBack: () => void }> = ({ onBac
   const [justification, setJustification] = useState('');
   const [lastAdjustment, setLastAdjustment] = useState<{ id: string, delta: number, name: string } | null>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   // Motor de Feedback Sonoro (Web Audio API)
   const playFeedbackSound = (type: 'success' | 'error') => {
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const audioCtx = audioCtxRef.current;
+    
+    // Auditoria: Resume o contexto de áudio (obrigatório em Android/Chrome após suspensão)
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
 
@@ -52,6 +63,16 @@ export const InventoryCollectorView: React.FC<{ onBack: () => void }> = ({ onBac
     window.addEventListener('click', focus);
     return () => window.removeEventListener('click', focus);
   }, [selectedItem]);
+
+  // Auditoria Nativa: Cleanup de hardware ao fechar a view
+  useEffect(() => {
+    return () => {
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close();
+        audioCtxRef.current = null;
+      }
+    };
+  }, []);
 
   const handleBarcodeSubmit = (barcode: string) => {
     const item = inventory.find(i => i.barcode === barcode);

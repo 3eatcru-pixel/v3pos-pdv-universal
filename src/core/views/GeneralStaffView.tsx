@@ -41,6 +41,7 @@ import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
 import { HREngine } from '../services/HREngine';
 import { CommunicationEngine } from '../services/CommunicationEngine';
+import { ImageProcessorEngine } from '../services/ImageProcessorEngine';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../hooks/useCollection';
@@ -127,6 +128,8 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   const staffPhotoRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  const recommendations = ImageProcessorEngine.getRecommendations();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1046,6 +1049,15 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                         }}
                       />
                       <p className="text-[10px] font-black uppercase text-slate-400 mt-4 tracking-widest">Clique para alterar foto</p>
+                   </div>
+
+                   {/* Recomendações de Imagem */}
+                   <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-2xl text-center">
+                      <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest mb-1">Padrão Nexus de Armazenamento</p>
+                      <p className="text-[10px] text-slate-500 font-medium italic">
+                        A foto será convertida para {recommendations.format} {recommendations.dimensions}. 
+                        Caso envie múltiplas imagens, a <span className="text-blue-600 font-black">primeira</span> será utilizada e cortada em {recommendations.aspectRatio}.
+                      </p>
                    </div>
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

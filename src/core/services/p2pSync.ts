@@ -3,6 +3,8 @@ import { coreEventBus } from '../events/CoreEventBus';
 import { CommunicationEngine } from './CommunicationEngine';
 import { cloudLatencyMonitor } from './CloudLatencyMonitor'; // Importa o novo monitor
 import { firebaseService } from '../../services/firebaseService';
+import { EndOfDayEngine } from './EndOfDayEngine';
+import { BackupEngine } from './BackupEngine';
 
 // Esta é uma representação simplificada de uma rede P2P real (ex: WebRTC, WebSockets).
 // Para demonstração, atua como um emissor de eventos em memória.
@@ -14,6 +16,14 @@ class MeshNetwork {
   private lastSuccessfulSyncTime: number = 0; // Timestamp da última sincronização bem-sucedida
   private lastSyncTime: number = 0; // Timestamp da última sincronização bem-sucedida
   private offlineAlertSent: boolean = false;
+  private nextSyncTimestamp: number = 0;
+  
+  // Auditoria Failover
+  private heartbeatInterval: any = null;
+  private failoverMonitor: any = null;
+  private lastHostHeartbeat: number = 0;
+  private taskGracePeriod: number = 2500; // 2.5 seg para o Host reagir antes do Co-Host agir
+  private pendingTasks: Map<string, any> = new Map();
 
   emitEvent(event: string, data: any) {
     logger.debug('p2p', `Emitting P2P event: ${event}`, data);
@@ -28,19 +38,180 @@ class MeshNetwork {
   startCloudSync(enterpriseId: string, cloudConfig?: any, autoSwitch?: boolean) {
     // Auditoria: Garante limpeza antes de reiniciar ciclos
     this.stopCloudSync();
+    this.startInfrastructureMonitoring(enterpriseId, cloudConfig);
 
     if (cloudConfig) {
       cloudLatencyMonitor.startMonitoring(enterpriseId, cloudConfig, autoSwitch ?? false);
     }
 
-    // Agendamento automático a cada 30 minutos
+    // Requisito 5: Backup automático pro Google Drive a cada 10 minutos
+    const isDriveOnly = localStorage.getItem('pos_storage_strategy') === 'drive_only';
+    const customInterval = cloudConfig?.backupIntervalMinutes || 5;
+    const interval = isDriveOnly ? customInterval * 60 * 1000 : 30 * 60 * 1000;
+
+    this.nextSyncTimestamp = Date.now() + interval;
+    this.emitSyncPrediction();
+
     this.syncInterval = setInterval(() => {
-      this.performCloudSync(enterpriseId);
-    }, 30 * 60 * 1000);
+      this.nextSyncTimestamp = Date.now() + interval;
+      if (isDriveOnly) {
+        BackupEngine.runEnterpriseBackup(enterpriseId);
+        
+        // Auditoria Eco-Mode: Tenta disparar o push de 5h para o Firestore se houver sessão ativa
+        import('./accountService').then(({ accountService }) => {
+           accountService.getEODSession().then(session => {
+             if (session && session.status === 'in_progress') {
+               EndOfDayEngine.checkAndTriggerMidShiftSync(session.id);
+             }
+           });
+        });
+      } else {
+        this.performCloudSync(enterpriseId);
+      }
+      this.emitSyncPrediction();
+    }, interval);
+
     // Execução imediata de um sync inicial
     this.requestCloudSync(enterpriseId); // Usa requestCloudSync para o sync inicial
     // Inicia o monitoramento de saúde da conexão Cloud
     this.startHealthMonitor(enterpriseId);
+  }
+
+  /**
+   * Emite para a UI a previsão de quando os dados do Drive serão atualizados
+   */
+  private emitSyncPrediction() {
+    coreEventBus.emit('system:sync_prediction', {
+      nextExpectedAt: this.nextSyncTimestamp,
+      isDriveOnly: localStorage.getItem('pos_storage_strategy') === 'drive_only',
+      status: 'eco_mode_active' // Avisa a UI que estamos economizando Firestore
+    });
+  }
+
+  /**
+   * Gerencia a saúde da infraestrutura local (Host/Co-Host Heartbeats)
+   */
+  private startInfrastructureMonitoring(enterpriseId: string, cloudConfig?: any) {
+    const role = localStorage.getItem('pos_device_role');
+    const HEARTBEAT_FREQ = 2000; // Auditoria Hot-Standby: Batimento a cada 2s
+    const FAILOVER_TIMEOUT = 7000; // Auditoria Hot-Standby: 7 segundos total para assunção de controle
+
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    if (this.failoverMonitor) clearInterval(this.failoverMonitor);
+
+    if (role === 'host') {
+      // O Cérebro envia sinais de vida para a malha
+      this.heartbeatInterval = setInterval(() => {
+        this.broadcast('HOST_HEALTH_PULSE', { 
+          enterpriseId, 
+          timestamp: Date.now(),
+          deviceId: 'main-host' 
+        });
+      }, HEARTBEAT_FREQ);
+      
+      logger.debug('p2p', 'Monitor de pulso ativado: Dispositivo operando como Cérebro (Host).');
+
+      // Auditoria: Protocolo de Reversão (Original Host reassumindo)
+      const isTemporary = localStorage.getItem('pos_failover_active') === 'true';
+      
+      if (!isTemporary) {
+        // Se este for o host original (sem flag de failover), anuncia sua volta para que proxies cedam
+        this.broadcast('HOST_PRIMARY_RECOVERY', { enterpriseId, timestamp: Date.now() });
+      } else {
+        // Se este for um host temporário, escuta o comando de cessão do original
+        this.on('HOST_PRIMARY_RECOVERY', async () => {
+          logger.warn('p2p', '🚀 REVERSÃO: Host original detectado online. Cedendo controle e voltando para Standby...');
+          const { accountService } = await import('./accountService');
+          await accountService.revertToCoHost();
+          
+          this.stopCloudSync();
+          const tenant = await accountService.getCurrentTenant();
+          this.startCloudSync(enterpriseId, tenant?.cloudConfig, tenant?.autoCloudSwitchingEnabled);
+        });
+      }
+    } 
+    
+    if (role === 'co-host') {
+      this.lastHostHeartbeat = Date.now();
+      
+      // Co-Hosts ficam em standby monitorando o silêncio do Host
+      this.on('HOST_HEALTH_PULSE', () => {
+        this.lastHostHeartbeat = Date.now();
+      });
+
+      this.failoverMonitor = setInterval(async () => {
+        const silenceDuration = Date.now() - this.lastHostHeartbeat;
+        
+        if (silenceDuration > FAILOVER_TIMEOUT) {
+          logger.warn('p2p', `⚠️ SILÊNCIO DETECTADO: Host principal não responde há ${silenceDuration}ms.`);
+          await this.attemptPromotion(enterpriseId);
+        }
+      }, 2000);
+      
+      logger.info('p2p', 'Modo Standby Ativo: Monitorando integridade do Host.');
+
+      // Lógica "Se ele não fizer, eu faço": Intercepção de Tarefas Críticas
+      this.on('SALE_REQUESTED', (sale: any) => {
+        const taskId = `sale-${sale.id}`;
+        this.pendingTasks.set(taskId, sale);
+
+        setTimeout(async () => {
+          if (this.pendingTasks.has(taskId)) {
+            logger.error('p2p', `💥 RESGATE DE TAREFA: Host demorou para processar venda ${sale.id}. Co-Host assumindo processamento.`);
+            try {
+              const { coreSalesService } = await import('./coreServices');
+              // O Co-Host processa a venda porque ele já é um espelho do banco local (via eventos mesh)
+              await (coreSalesService as any).processSale(sale, sale.items, sale.depositId, undefined, sale.appliedBottleCreditIds);
+              this.broadcast('SALE_CONFIRMED_BY_COHOST', { saleId: sale.id });
+              this.pendingTasks.delete(taskId);
+            } catch (e) {
+              logger.error('p2p', 'Co-Host falhou ao assumir tarefa de emergência', e);
+            }
+          }
+        }, this.taskGracePeriod);
+      });
+
+      this.on('SALE_ACK_BY_HOST', (data: { saleId: string }) => {
+        this.pendingTasks.delete(`sale-${data.saleId}`);
+      });
+    }
+
+    if (role === 'host') {
+      this.on('SALE_REQUESTED', (sale: any) => {
+        // O Host avisa a rede que recebeu a tarefa para os Co-Hosts não duplicarem o trabalho
+        this.broadcast('SALE_ACK_BY_HOST', { saleId: sale.id });
+      });
+    }
+  }
+
+  /**
+   * Tenta promover o Co-Host atual para Host caso o principal caia.
+   */
+  private async attemptPromotion(enterpriseId: string) {
+    logger.error('p2p', '🚨 EMERGÊNCIA: Iniciando protocolo de assunção de controle (Failover).');
+    
+    try {
+      // Importação dinâmica para evitar dependência circular
+      const { accountService } = await import('./accountService');
+      
+      // Auditoria: Assume o controle localmente
+      await accountService.promoteToTemporaryHost();
+      
+      // Reinicia o Cloud Sync agora como Host
+      const tenant = await accountService.getCurrentTenant();
+      this.startCloudSync(enterpriseId, tenant?.cloudConfig, tenant?.autoCloudSwitchingEnabled);
+      
+      await CommunicationEngine.sendMessage({
+        enterpriseId,
+        companyId: enterpriseId,
+        title: '🔄 Failover de Infraestrutura',
+        content: 'O Host principal ficou offline. Este dispositivo (Co-Host) assumiu o processamento de dados e backups automaticamente.',
+        type: 'warning',
+        userId: 'admin_broadcast'
+      });
+    } catch (error) {
+      logger.error('p2p', 'Falha ao assumir controle do Host', { error });
+    }
   }
 
   /**
@@ -55,6 +226,11 @@ class MeshNetwork {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
     }
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    if (this.failoverMonitor) clearInterval(this.failoverMonitor);
+    this.heartbeatInterval = null;
+    this.failoverMonitor = null;
+    
     this.syncInProgress = false; // Garante que a flag seja resetada
     cloudLatencyMonitor.stopMonitoring(); // Para o monitor de latência
     this.offlineAlertSent = false;
@@ -72,7 +248,17 @@ class MeshNetwork {
 
     this.healthCheckInterval = setInterval(async () => {
       const now = Date.now();
+      const isDriveOnly = localStorage.getItem('pos_storage_strategy') === 'drive_only';
       
+      // No modo Eco, o monitor baseia-se no sucesso do backup pro Drive, não no Firestore
+      if (isDriveOnly) {
+        const lastBackup = Number(localStorage.getItem(`pos_last_backup_time`) || 0);
+        if (lastBackup > 0 && (now - lastBackup > OFFLINE_THRESHOLD) && !this.offlineAlertSent) {
+           // Dispara alerta se o backup pro drive parar
+        }
+        return;
+      }
+
       // Auditoria: Se nunca sincronizou com sucesso e passou 1h desde o início, ou se parou de sincronizar há 1h
       const referenceTime = this.lastSuccessfulSyncTime || (now - (now % OFFLINE_THRESHOLD)); // Fallback para o início da hora atual se zero
       if ((now - referenceTime > OFFLINE_THRESHOLD) && !this.offlineAlertSent) {
@@ -119,6 +305,13 @@ class MeshNetwork {
   async performCloudSync(enterpriseId: string) {
     if (this.syncInProgress) {
       logger.debug('p2p', 'performCloudSync: Sync já em andamento, abortando.');
+      return;
+    }
+
+    // Auditoria: Verificação Nativa de Conectividade
+    if (!navigator.onLine) {
+      logger.warn('p2p', 'Tentativa de Cloud Sync ignorada: Dispositivo Offline.');
+      coreEventBus.emit('system:sync_status', { status: 'offline', lastSync: this.lastSuccessfulSyncTime });
       return;
     }
 

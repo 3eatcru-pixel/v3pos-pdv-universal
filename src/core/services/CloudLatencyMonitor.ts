@@ -64,6 +64,11 @@ class CloudLatencyMonitor {
   private async runLatencyCheck() {
     if (!this.enterpriseId || !this.currentCloudConfig) return;
 
+    // Auditoria: Apenas o dispositivo 'Host' (Servidor Local) mede latência
+    // Isso economiza 'Units' da empresa e evita processamento redundante em celulares
+    const isHost = localStorage.getItem('pos_device_role') === 'host';
+    if (!isHost) return;
+
     logger.debug('system', 'Executando checagem de latência Cloud...');
 
     // Mede a latência do provedor atual

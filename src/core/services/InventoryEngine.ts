@@ -31,9 +31,18 @@ export class InventoryEngine {
     existingTx?: any, // Permite execução em bloco atômico externo
     blockOnZero: boolean = false // Nova trava customizável
   ) {
+    // Auditoria de Modificadores: Remove itens do cálculo se houver modificador de exclusão (ex: "Sem Cebola")
+    const filteredItems = items.map(item => {
+      const exclusionModifiers = item.modifiers?.filter((m: any) => m.type === 'removal' || m.name.toLowerCase().startsWith('sem ')) || [];
+      const filteredComposition = item.composition?.filter((comp: any) => 
+        !exclusionModifiers.some((mod: any) => mod.name.toLowerCase().includes(comp.name.toLowerCase()))
+      );
+      return { ...item, composition: filteredComposition };
+    });
+
     // Usar BOMEngine para explodir a composição e resolver substitutos
     const explodedItems = bomEngine.explodeCartToInsumos(
-      items.map(i => ({ id: i.id || (i as any).productId, quantity: i.quantity, name: i.name, composition: i.composition, modifiers: i.modifiers })),
+      filteredItems.map(i => ({ id: i.id || (i as any).productId, quantity: i.quantity, name: i.name, composition: i.composition, modifiers: i.modifiers })),
       products, // Agora passa a lista correta para identificar ingredientes
       inventory
     );
@@ -65,12 +74,20 @@ export class InventoryEngine {
     if (finalAdjustments.length > 0) {
       try {
         const updateLogic = async (tx: any) => {
-          for (const adj of finalAdjustments) {
-            const collectionName = adj.type === 'inventory' ? 'inventory' : 'products';
-            const ref = firebaseService.getDocRef(collectionName, adj.id);
-            const snap = await tx.get(ref);
-            
-            if (snap.exists()) {
+          // Auditoria: Gathering Phase (READS FIRST)
+          // Firestore proíbe leituras após qualquer escrita na transação.
+          const refs = finalAdjustments.map(adj => {
+            const col = adj.type === 'inventory' ? 'inventory' : 'products';
+            return firebaseService.getDocRef(col, adj.id);
+          });
+          const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
+
+          // Auditoria: Processing Phase (WRITES LAST)
+          finalAdjustments.forEach((adj, idx) => {
+            const snap = snapshots[idx];
+            const ref = refs[idx];
+
+            if (snap && snap.exists()) {
               const data = snap.data();
               const stockField = adj.type === 'inventory' ? 'currentStock' : 'stock';
               const reservedField = adj.type === 'inventory' ? 'reservedStock' : 'reserved';
@@ -142,7 +159,7 @@ export class InventoryEngine {
           await firebaseService.runTransaction(updateLogic);
         }
         
-        // Notify the rest of the system via Event Bus
+        // Auditoria: Notifica apenas APÓS o sucesso da transação
         finalAdjustments.forEach(adj => {
           coreEventBus.emit('inventory:updated', { 
             id: adj.id, 
@@ -150,13 +167,11 @@ export class InventoryEngine {
             amount: -adj.amount
           });
         });
-
         logger.info('core', 'INVENTORY_ADJUSTMENT_SUCCESS', { count: finalAdjustments.length });
       } catch (error) {
         logger.error('core', 'INVENTORY_ADJUSTMENT_FAILED', { error });
         throw error;
       }
-    }
   }
 
   /**
@@ -272,6 +287,53 @@ export class InventoryEngine {
       logger.info('core', 'MANUAL_INVENTORY_ADJUSTMENT_SUCCESS', { itemId, delta });
     } catch (error) {
       logger.error('core', 'MANUAL_INVENTORY_ADJUSTMENT_FAILED', { itemId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Reconciliação em Massa (Full Stock Audit)
+   * Lê o estado atual, compara com a contagem enviada e lança ajustes apenas onde há diferença.
+   */
+  static async bulkReconcile(
+    enterpriseId: string, 
+    shopId: string, 
+    counts: Record<string, number>, // ID -> Quantidade Física
+    staff: { id: string, name: string }
+  ) {
+    try {
+      await firebaseService.runTransaction(async (tx) => {
+        const itemIds = Object.keys(counts);
+        const refs = itemIds.map(id => firebaseService.getDocRef('inventory', id));
+        const snaps = await Promise.all(refs.map(ref => tx.get(ref)));
+
+        for (let i = 0; i < snaps.length; i++) {
+          const snap = snaps[i];
+          if (!snap.exists()) continue;
+
+          const data = snap.data();
+          const physicalCount = counts[itemIds[i]];
+          const currentSystemStock = Number(data.currentStock) || 0;
+
+          if (physicalCount !== currentSystemStock) {
+            const delta = physicalCount - currentSystemStock;
+            // Aplica ajuste usando a lógica FEFO interna
+            await this.manualAdjustment(itemIds[i], delta, 'inventory', tx);
+            
+            // Log de Auditoria individual por item dentro da transação
+            const auditId = generateSafeId('audit-bulk');
+            tx.set(firebaseService.getDocRef('audit_logs', auditId), {
+              enterpriseId, shopId, staffId: staff.id, staffName: staff.name,
+              action: 'BULK_RECONCILE_ADJUST',
+              details: `Item ${data.name}: Sistema ${currentSystemStock} -> Físico ${physicalCount} (Delta: ${delta})`,
+              timestamp: Date.now()
+            });
+          }
+        }
+      });
+      logger.info('inventory', 'Reconciliação em massa concluída com sucesso.');
+    } catch (error) {
+      logger.error('inventory', 'Falha na reconciliação em massa', { error });
       throw error;
     }
   }

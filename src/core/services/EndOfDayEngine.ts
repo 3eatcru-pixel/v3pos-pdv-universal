@@ -1,8 +1,9 @@
 import { firebaseService } from '../../services/firebaseService';
 import { logger } from './logger';
 import { generateSafeId, formatCurrency } from '../lib/utils';
-import { format } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
 import { InventoryEngine } from './InventoryEngine';
+import { HREngine } from './HREngine';
 
 export interface EODChecklistItem {
   id: string;
@@ -44,7 +45,7 @@ export interface EODSession {
   shopId: string;
   dateStr: string; // yyyy-MM-dd
   shiftNumber: number; // Suporte a múltiplos fechamentos (1, 2...)
-  status: 'in_progress' | 'completed' | 'audited';
+  status: 'in_progress' | 'completed' | 'audited' | 'pending_closure';
   staffId: string;
   staffName: string;
   checklist: EODChecklistItem[];
@@ -58,6 +59,8 @@ export interface EODSession {
   };
   startedAt: number;
   completedAt?: number;
+  midShiftSyncDone?: boolean; // Auditoria: Controla o push parcial de 5h
+  debtPaymentsTotal: number; // Requisito: Total de fiado recebido (pago) no dia
 }
 
 /**
@@ -100,11 +103,65 @@ export class EndOfDayEngine {
       staffMeals: [],
       logs: {},
       financialSummary: { expectedCash: 0, actualCash: 0, difference: 0 },
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      midShiftSyncDone: false,
+      debtPaymentsTotal: 0
     };
 
     await firebaseService.saveItem('eod_sessions', session.id, session);
     return session;
+  }
+
+  /**
+   * Salva a sessão atual como 'Pendente de Fechamento' (Fechamento Parcial).
+   * Permite que o sistema inicie um novo turno imediatamente enquanto este fechamento
+   * fica aguardando conferência ou solução de problemas pelo próximo gerente.
+   */
+  static async saveAsPendingClosure(sessionId: string) {
+    try {
+      await firebaseService.updateItem('eod_sessions', sessionId, {
+        status: 'pending_closure',
+        updatedAt: Date.now()
+      });
+      
+      logger.warn('system', 'Fechamento movido para o estado PENDENTE. Novo turno liberado.', { sessionId });
+
+      // Auditoria Eco-Mode: Push parcial para o proprietário ter visibilidade imediata dos dados travados
+      const snap = await firebaseService.getDoc('eod_sessions', sessionId) as EODSession;
+      if (snap) await this.syncFinalSummaryToCloud(snap.enterpriseId, snap.shopId, true);
+    } catch (error) {
+      logger.error('system', 'Erro ao suspender sessão de fechamento', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Realiza um push parcial para o Firestore 5 horas após a abertura.
+   * Permite que o dono veja o progresso sem gastar units a cada venda.
+   */
+  static async checkAndTriggerMidShiftSync(sessionId: string) {
+    try {
+      const ref = firebaseService.getDocRef('eod_sessions', sessionId);
+      const snap = await firebaseService.getDoc('eod_sessions', sessionId) as EODSession;
+      
+      if (!snap || snap.status !== 'in_progress') return;
+      
+      const fiveHoursInMs = 5 * 60 * 60 * 1000;
+      const now = Date.now();
+
+      if (!snap.midShiftSyncDone && (now - snap.startedAt >= fiveHoursInMs)) {
+        logger.info('system', '⚡️ Gatilho de 5h atingido. Iniciando Push Consolidado parcial.');
+        
+        await this.syncFinalSummaryToCloud(snap.enterpriseId, snap.shopId, true);
+        
+        await firebaseService.updateItem('eod_sessions', sessionId, {
+          midShiftSyncDone: true,
+          updatedAt: Date.now()
+        });
+      }
+    } catch (error) {
+      logger.error('system', 'Falha na checagem de mid-shift sync', { error });
+    }
   }
 
   /**
@@ -169,6 +226,11 @@ export class EndOfDayEngine {
           staffMeals: [...(session.staffMeals || []), { ...meal, authorizedBy: adminPin, timestamp: Date.now() }],
           updatedAt: Date.now()
         });
+
+        // Auditoria CMV: Abate os ingredientes da refeição do estoque físico
+        for (const item of meal.items) {
+           await InventoryEngine.manualAdjustment(item.id || '', -item.quantity, 'inventory', tx);
+        }
       });
 
       logger.info('hr', 'Refeição de staff autorizada e registrada', { staff: meal.staffName, amount: meal.totalAmount });
@@ -221,6 +283,9 @@ export class EndOfDayEngine {
           throw new Error('Não é possível fechar o dia: Existem pedidos ou mesas abertas na unidade.');
         }
 
+        // 1.5 Auditoria HR: Aplica mudanças de cargo/perfil que estavam na fila
+        await HREngine.applyPendingUpdates(current.enterpriseId);
+
         const completedAt = Date.now();
         tx.update(ref, {
           ...finalData,
@@ -244,9 +309,74 @@ export class EndOfDayEngine {
         }
       });
       logger.info('system', 'Fechamento de dia concluído e auditado', { sessionId });
+
+      // Auditoria Eco-Mode: Após o fechamento, dispara o Push Consolidado para a Nuvem
+      await EndOfDayEngine.syncFinalSummaryToCloud(current.enterpriseId, current.shopId);
     } catch (error) {
       logger.error('system', 'Falha ao finalizar fechamento EOD', { error });
       throw error;
+    }
+  }
+
+  /**
+   * Realiza o Push Consolidado (Eco-Mode).
+   * Agrega todas as vendas locais do dia e envia um resumo único para o Firestore.
+   * Economiza centenas de Cloud Units ao evitar o sync por venda.
+   */
+  static async syncFinalSummaryToCloud(enterpriseId: string, shopId: string, isPartial: boolean = false) {
+    try {
+      logger.info('system', `🍃 Gerando Push Consolidado ${isPartial ? 'PARCIAL (5h)' : 'FINAL'} para o Proprietário...`, { shopId });
+
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      const startOfToday = startOfDay(new Date()).getTime();
+
+      // 1. Busca ordens e recebimentos de dívidas
+      const [localOrders, debtPayments] = await Promise.all([
+        firebaseService.getDocsByQuery('orders', [
+          { field: 'enterpriseId', op: '==', value: enterpriseId },
+          { field: 'shopId', op: '==', value: shopId },
+          { field: 'status', op: '==', value: 'delivered' },
+          { field: 'closedAt', op: '>=', value: startOfToday }
+        ]),
+        firebaseService.getDocsByQuery('transactions', [
+          { field: 'enterpriseId', op: '==', value: enterpriseId },
+          { field: 'shopId', op: '==', value: shopId },
+          { field: 'category', op: '==', value: 'Debt Payment' },
+          { field: 'timestamp', op: '>=', value: startOfToday }
+        ])
+      ]) as [any[], any[]];
+
+      const totalRevenue = localOrders.reduce((acc, o) => acc + o.total, 0);
+      const totalDebtPaid = debtPayments.reduce((acc, t) => acc + t.amount, 0);
+      const totalOnCreditIssued = localOrders.filter(o => o.paymentMethod === 'fiado').reduce((acc, o) => acc + o.total, 0);
+
+      const categoryMap: Record<string, number> = {};
+      localOrders.forEach(o => {
+        (o.items || []).forEach((i: any) => {
+          const cat = i.category || 'Geral';
+          categoryMap[cat] = (categoryMap[cat] || 0) + (i.totalPrice || (i.price * i.quantity));
+        });
+      });
+
+      // Envia o resumo atômico (Custo: 1 transação / 2 units)
+      await firebaseService.saveItem('daily_consolidated_summaries', `${shopId}_${todayStr}`, {
+        enterpriseId,
+        shopId,
+        date: todayStr,
+        revenue: totalRevenue + totalDebtPaid, // Receita total inclui dívidas pagas
+        salesOnly: totalRevenue,
+        debtPayments: totalDebtPaid,
+        newDebtsIssued: totalOnCreditIssued,
+        orderCount: localOrders.length,
+        categoryBreakdown: categoryMap,
+        syncedAt: Date.now(),
+        isEcoMode: true,
+        isPartial
+      });
+
+      logger.info('system', '✅ Push Consolidado enviado com sucesso.');
+    } catch (error) {
+      logger.error('system', 'Falha no processamento do Push Consolidado', { error });
     }
   }
 

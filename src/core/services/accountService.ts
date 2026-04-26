@@ -105,16 +105,17 @@ class AccountService {
         ownerName: ownerName || 'Proprietário',
         ownerPhone,
         // Auditoria: Garante a injeção dos pilares de gestão
-        enabledModules: Array.from(new Set([
+        enabledModules: Array.from(new Set(([
           ...enabledModules, 
           businessType, 
           'hr_core', 
           'store_mgmt_core', 
           'settings_custom_core',
+          'customer_core',
           isSolo ? 'solo_assistant_core' : ''
-        ])),
+        ]).filter(Boolean))),
         // Disponibiliza todos os módulos como "unlocked" para o dono gerenciar no futuro, ou herda do dev
-        availableModules: ['restaurant', 'market', 'construction', 'retail', 'service', 'pharmacy', 'autoparts', 'solo_service', 'solo_retail', 'convenience'], 
+        availableModules: ['restaurant', 'market', 'construction', 'retail', 'service', 'pharmacy', 'autoparts', 'solo_service', 'solo_retail', 'convenience', 'google_business_pro'], 
       },
       {
         password: ownerPassword,
@@ -262,6 +263,11 @@ class AccountService {
   }
 
   public async loginAsServer(accessCode: string): Promise<boolean> {
+    // Auditoria: Limpa resíduos de sessões anteriores para garantir boot nativo limpo
+    localStorage.removeItem('pos_device_role');
+    localStorage.removeItem('pos_device_mode');
+    localStorage.removeItem('pos_failover_active');
+
     const tenants = await authService.listTenants();
     const tenant = tenants.find((t) => t.accessCode === accessCode && t.status === 'active');
     if (!tenant) return false;
@@ -286,6 +292,8 @@ class AccountService {
     localStorage.removeItem('pos_business_mode');
     localStorage.removeItem('pos_device_role');
     localStorage.removeItem('pos_device_mode');
+    localStorage.removeItem('pos_sync_mode');
+    localStorage.removeItem('pos_notifications');
     localStorage.removeItem('rm_selected_shop_id');
     window.location.reload();
   }
@@ -303,6 +311,37 @@ class AccountService {
   public async loginWithGoogle(): Promise<boolean> {
     const success = await authService.signInWithGoogle();
     if (success) {
+      const authUser = authService.getCurrentUser();
+      if (authUser && !authUser.tenantId) {
+        // Requisito 2: Criação automática da empresa no primeiro login
+        logger.info('auth', 'Primeiro acesso Google detectado. Provisionando Nexus Solo...');
+        
+        const newCompany = await this.registerCompany(
+          `${authUser.name} Studio`,
+          authUser.email!,
+          'solo_service', // Tipo padrão para autônomos
+          authUser.name,
+          '',
+          ['hr_core', 'store_mgmt_core', 'solo_assistant_core']
+        );
+
+        // Requisito 3: Usuário suporte automático (ReadOnly para configurações)
+        await HREngine.saveStaff(newCompany.id, {
+          id: `support-${generateSafeId('')}`,
+          name: 'Grid Support (Virtual)',
+          role: 'manager',
+          active: true,
+          email: 'support@gridos.com',
+          isVirtualSupport: true // Flag para restringir acesso a dados operacionais
+        }, undefined, 'dev');
+
+        // Requisito 7: Define que esta empresa opera no modo "Drive-First"
+        await authService.updateTenant(newCompany.id, { 
+          storageStrategy: 'drive_only',
+          googleDriveBackupEnabled: true 
+        });
+      }
+
       localStorage.removeItem('pos_business_mode');
       window.location.reload();
     }
@@ -563,27 +602,41 @@ class AccountService {
   }
 
   /**
-   * Verifica se este hardware específico é o Servidor Local da Unidade
+   * Retorna o papel de infraestrutura deste dispositivo na rede local.
    */
-  public isLocalServer(): boolean {
-    return localStorage.getItem('pos_device_role') === 'host';
+  public getDeviceRole(): 'host' | 'co-host' | 'none' {
+    const role = localStorage.getItem('pos_device_role');
+    if (role === 'host') return 'host';
+    if (role === 'co-host') return 'co-host';
+    return 'none';
   }
 
   /**
-   * Alterna o modo Servidor Local. Dispositivos "Host" gerenciam o sync com a nuvem.
+   * Verifica se este hardware específico é um Servidor (Host ou Co-Host)
    */
-  public async toggleLocalServerMode(enabled: boolean): Promise<void> {
+  public isLocalServer(): boolean {
+    const role = this.getDeviceRole();
+    return role === 'host' || role === 'co-host';
+  }
+
+  /**
+   * Atualiza o papel de infraestrutura do dispositivo.
+   * 'host' e 'co-host' mantêm a rede viva e sincronizam com a nuvem.
+   */
+  public async setDeviceInfrastructureRole(role: 'host' | 'co-host' | 'none'): Promise<void> {
     const companyId = this.getCurrentCompanyId();
     const tenant = await this.getCurrentTenant();
 
-    if (enabled && companyId && tenant) {
-      localStorage.setItem('pos_device_role', 'host');
+    if (role !== 'none' && companyId && tenant) {
+      localStorage.setItem('pos_device_role', role);
       localStorage.setItem('pos_device_mode', 'central_server');
       localStorage.setItem('pos_business_mode', tenant.businessType);
       
       // Ativa o motor de sincronismo Cloud no mesh local
       meshNetwork.stopCloudSync(); // Garante que qualquer sync anterior seja parado
-      meshNetwork.startCloudSync(companyId); // Start the interval sync
+      
+      const cloudConfig = tenant.cloudConfig || { provider: 'system', tier: 'free' };
+      meshNetwork.startCloudSync(companyId, cloudConfig, tenant.autoCloudSwitchingEnabled); 
       meshNetwork.requestCloudSync(companyId, true); // Request an immediate, forced sync
     } else {
       localStorage.removeItem('pos_device_role');
@@ -595,9 +648,45 @@ class AccountService {
   /**
    * Atualiza as preferências de Backup em Nuvem da empresa.
    */
-  public async updateBackupSettings(companyId: string, enabled: boolean) {
-    await authService.updateTenant(companyId, { googleDriveBackupEnabled: enabled });
-    logger.info('auth', `Backup no Google Drive ${enabled ? 'Habilitado' : 'Desabilitado'}`);
+  public async updateBackupSettings(companyId: string, enabled: boolean, intervalMinutes: number = 10) {
+    await authService.updateTenant(companyId, { 
+      googleDriveBackupEnabled: enabled,
+      backupIntervalMinutes: intervalMinutes 
+    });
+    logger.info('auth', `Backup G-Drive: ${enabled ? 'ON' : 'OFF'} | Intervalo: ${intervalMinutes}min`);
+  }
+
+  /**
+   * Promove o dispositivo atual de Co-Host para Host (Failover)
+   */
+  public async promoteToTemporaryHost() {
+    localStorage.setItem('pos_device_role', 'host');
+    localStorage.setItem('pos_failover_active', 'true');
+    logger.warn('system', 'Dispositivo promovido a HOST temporário por falha de redundância.');
+  }
+
+  /**
+   * Reverte o dispositivo de Host temporário de volta para Co-Host (Protocolo de Reversão)
+   */
+  public async revertToCoHost() {
+    localStorage.setItem('pos_device_role', 'co-host');
+    localStorage.removeItem('pos_failover_active');
+    logger.info('system', 'Protocolo de Reversão: Retornando ao papel de Co-Host.');
+  }
+
+  /**
+   * Atualiza a identidade visual da empresa (White-label).
+   */
+  public async updateCompanyBranding(companyId: string, branding: { 
+    logo?: string, 
+    customName?: string,
+    dailyNotice?: string, // Requisito 1: Recado do Dia
+    themeMode?: 'standard' | 'festive' | 'dark_neon', // Requisito 2: Modo Festivo
+    receiptPhrases?: string[] // Requisito 4: Frases na Nota
+  }) {
+    const tenant = await this.getCurrentTenant();
+    await authService.updateTenant(companyId, { branding: { ...(tenant?.branding || {}), ...branding } });
+    logger.info('settings', 'Identidade visual da empresa atualizada');
   }
 
   /**

@@ -97,6 +97,7 @@ export const ModuleManagement: React.FC<ModuleManagementProps> = ({ enterpriseId
     { id: 'solo_service', label: 'Autônomo (Serviços)', icon: <Briefcase />, desc: 'Agenda e cobranças simples para quem trabalha sozinho.' },
     { id: 'solo_retail', label: 'Autônomo (Vendas)', icon: <ShoppingCart />, desc: 'Vendas rápidas e estoque básico para micro-empreendedor.' },
     { id: 'convenience', label: 'Distribuidora / Conveniência', icon: <Zap />, desc: 'PDV focado em fardos, cigarros e controle de vasilhames.' },
+    { id: 'google_business_pro', label: 'Marketing & Reviews', icon: <Globe />, desc: 'Gerencie seu Google Maps, avaliações e posts diretamente aqui.' },
     // Auditoria: HR, Store Management e Settings são módulos CORE, não devem ser listados como opcionais.
   ];
 

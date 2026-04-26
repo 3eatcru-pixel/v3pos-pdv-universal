@@ -1,5 +1,6 @@
 import { firebaseService } from '../../services/firebaseService';
 import { logger } from './logger';
+import { format } from 'date-fns';
 
 export type CloudOperation = 'SALE' | 'SYNC' | 'BACKUP' | 'RESTORE' | 'STAFF_CHANGE';
 
@@ -19,7 +20,7 @@ export class MeteringEngine {
   /**
    * Registra o consumo de unidades e verifica se a empresa ainda tem saldo.
    */
-  static async trackUsage(enterpriseId: string, operation: CloudOperation, cloudConfig: any, existingTx?: any): Promise<boolean> {
+  static async trackUsage(enterpriseId: string, operation: CloudOperation, cloudConfig: any, existingTx?: any, enterpriseSnap?: any): Promise<boolean> {
     // Se estiver no Modo Turbo (GCP Própria), o consumo é ilimitado
     if (cloudConfig?.provider === 'custom_firestore' || cloudConfig?.tier === 'turbo') {
       return true;
@@ -29,11 +30,20 @@ export class MeteringEngine {
 
     const performTracking = async (tx: any) => {
       const ref = firebaseService.getDocRef('enterprises', enterpriseId);
-      const snap = await tx.get(ref);
+      const snap = enterpriseSnap || await tx.get(ref);
       
       if (snap.exists()) {
         const data = snap.data();
-        const currentUsage = Number(data.monthlyUnitsUsed) || 0;
+        const currentMonth = format(new Date(), 'yyyy-MM');
+        const lastUsageMonth = data.lastUsageMonth || '';
+
+        // Auditoria: Reset automático de cota no início de um novo mês
+        let currentUsage = Number(data.monthlyUnitsUsed) || 0;
+        if (lastUsageMonth !== currentMonth) {
+          currentUsage = 0;
+          logger.info('system', 'Novo ciclo mensal detectado. Resetando cotas cloud.', { enterpriseId });
+        }
+
         const limit = Number(data.monthlyUnitsLimit) || 400;
 
         if (currentUsage + weight > limit) {
@@ -42,7 +52,8 @@ export class MeteringEngine {
         } else {
           tx.update(ref, { 
             monthlyUnitsUsed: currentUsage + weight,
-            lastUsageAt: Date.now()
+            lastUsageAt: Date.now(),
+            lastUsageMonth: currentMonth
           });
           return true;
         }

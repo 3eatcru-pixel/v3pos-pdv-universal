@@ -11,7 +11,8 @@ import {
   History,
   CheckCircle2,
   ShieldCheck,
-  TrendingUp
+  TrendingUp,
+  AlertOctagon
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { 
@@ -41,7 +42,8 @@ import {
   IncidentReport, 
   Reservation,
   Shop,
-  RolePermissions
+  RolePermissions,
+  EODSession
 } from '../../types';
 
 interface DashboardViewProps {
@@ -67,6 +69,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const { data: shops } = useCollection<Shop>('shops');
   const { data: roles } = useCollection<RolePermissions>('rolePermissions');
   const { data: summaries } = useCollection<any>('dailySummaries', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
+  const { data: eodSessions } = useCollection<EODSession>('eod_sessions', { enterpriseId: enterpriseId || null, shopId: selectedShopId || null });
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | '7d' | '30d'>('today');
   const [isAuditPassed, setIsAuditPassed] = useState(false);
   const { isMobile } = useDevice();
@@ -131,6 +134,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   }, [summaries, orders, enterpriseId, selectedShopId]);
 
+  const overduePendingClosures = useMemo(() => {
+    const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+    return eodSessions.filter(s => 
+      s.status === 'pending_closure' && 
+      s.startedAt < twentyFourHoursAgo
+    );
+  }, [eodSessions]);
+
   const stats = useMemo(() => {
     const now = new Date();
     const todayStart = startOfDay(now).getTime();
@@ -182,7 +193,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     // Cálculo de Labor Cost % (Salários / Vendas Totais)
     const totalMonthlyPayroll = staff.reduce((acc, s) => acc + (s.salary || 0), 0);
     const dailyLaborCost = totalMonthlyPayroll / 30;
-    const laborCostPercentage = totalSalesToday > 0 ? (dailyLaborCost / totalSalesToday) * 100 : 0;
+    const laborCostPercentage = totalSales > 0 ? (dailyLaborCost / totalSales) * 100 : 0;
 
     // Cálculo de Table Turn Time Médio (Minutos)
     const turnTimes = closedOrdersToday
@@ -518,11 +529,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <AlertTriangle className="w-4 h-4 text-red-500" /> Alertas Críticos
               </h3>
               <span className="w-6 h-6 flex items-center justify-center bg-red-100 text-red-600 text-[10px] font-black rounded-full shadow-sm">
-                {incidentReports.filter(i => i.status === 'open' && i.priority === 'high').length}
+                {incidentReports.filter(i => i.status === 'open' && i.priority === 'high').length + overduePendingClosures.length}
               </span>
             </div>
             <div className="space-y-3">
-              {incidentReports.filter(i => i.status === 'open').length === 0 ? (
+              {overduePendingClosures.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl shadow-sm animate-pulse">
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertOctagon className="w-4 h-4 text-amber-600" />
+                    <p className="text-xs font-black text-amber-900 uppercase italic">Fechamento Pendente</p>
+                  </div>
+                  <p className="text-[10px] text-amber-700 font-medium leading-tight">
+                    Existe {overduePendingClosures.length === 1 ? 'um fechamento' : `${overduePendingClosures.length} fechamentos`} parado há mais de 24h. Isso afeta a precisão do DRE.
+                  </p>
+                </div>
+              )}
+              {incidentReports.filter(i => i.status === 'open').length === 0 && overduePendingClosures.length === 0 ? (
                 <div className="py-6 flex flex-col items-center justify-center text-center opacity-40">
                   <CheckCircle2 className="w-8 h-8 text-emerald-500 mb-2" />
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Operação Segura</p>
