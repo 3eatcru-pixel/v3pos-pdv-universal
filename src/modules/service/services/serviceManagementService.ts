@@ -1,4 +1,4 @@
-import { ServiceDefinition, ServiceProvider, ServiceResource } from '../types';
+import { ServiceDefinition, ServiceProvider, ServiceResource, Staff } from '../types'; // Adicionado Staff para tipagem correta
 import { firebaseService } from '../../../services/firebaseService';
 import { logger } from '../../../core/services/logger';
 import { idGenerator } from '../../../core/utils/idGenerator';
@@ -49,7 +49,7 @@ class ServiceManagementService {
   }
 
   public async addProvider(data: Omit<ServiceProvider, 'id'>) {
-    const id = idGenerator.generate('prov');
+    const id = idGenerator.generate('prov'); // Auditoria: idGenerator já é usado
     const p: ServiceProvider = { ...data, id };
     await firebaseService.saveItem('staff', id, p);
     return p;

@@ -1,4 +1,4 @@
-import { Order, ServiceProvider, ServiceDefinition, ItemModifier } from '../types'; // Importar ItemModifier
+import { Order, ServiceProvider, ServiceDefinition } from '../types'; // ItemModifier não é usado diretamente aqui
 
 class CommissionService {
   /**

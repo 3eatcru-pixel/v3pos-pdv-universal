@@ -1,4 +1,4 @@
-import { ServiceClient } from '../types';
+import { ServiceClient, ServiceAppointment } from '../types'; // Adicionado ServiceAppointment para tipagem
 import { firebaseService } from '../../../services/firebaseService';
 import { logger } from '../../../core/services/logger';
 import { idGenerator } from '../../../core/utils/idGenerator';

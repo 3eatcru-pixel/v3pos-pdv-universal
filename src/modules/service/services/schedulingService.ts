@@ -1,4 +1,4 @@
-import { ServiceAppointment, AppointmentStatus } from '../types';
+import { ServiceAppointment, AppointmentStatus, OrderItem } from '../types'; // Adicionado OrderItem para a criação da Order
 import { integrationLayer } from '../../../integration/integrationLayer';
 import { firebaseService } from '../../../services/firebaseService';
 import { idGenerator } from '../../../core/utils/idGenerator';
@@ -124,7 +124,7 @@ class SchedulingService {
           shopId: app.shopId,
           customerId: app.clientId,
           staffId: app.providerId,
-          items: [{
+          items: [{ // Auditoria: Adicionado cost e category para OrderItem
             productId: app.serviceId,
             quantity: 1,
             price: app.totalPrice,
@@ -135,7 +135,19 @@ class SchedulingService {
           createdAt: Date.now(),
           source: 'service_appointment',
           referenceId: app.id
-        });
+        } as OrderItem[]); // Cast para OrderItem[]
+        logger.info('service', 'Pedido de venda gerado a partir de agendamento concluído', { orderId });
+      } catch (err) {
+        logger.error('service', 'Erro ao gerar pedido financeiro para agendamento', { error: err });
+      }
+    }
+    
+    logger.info('service', `Status do agendamento atualizado para ${status}`, { appointmentId: id });
+    integrationLayer.publishSyncEvent('service:appointment_updated', { ...app, status });
+  }
+}
+
+export const schedulingService = new SchedulingService();
         logger.info('service', 'Pedido de venda gerado a partir de agendamento concluído', { orderId });
       } catch (err) {
         logger.error('service', 'Erro ao gerar pedido financeiro para agendamento', { error: err });

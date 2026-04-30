@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react'; // React é importado mas não usado explicitamente
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Camera, Scan, X, Monitor, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';

@@ -1,5 +1,4 @@
 import type { ThirdPartyProvider, ThirdPartyProviderConfig } from '../../../types';
-import { logger } from '../../../core/services/logger';
 
 export interface SendOrderDecisionInput {
   provider: ThirdPartyProvider;

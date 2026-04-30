@@ -1,4 +1,4 @@
-import { firebaseService } from '../../services/firebaseService';
+import { firebaseService } from '../../services/firebaseService'; // firebaseService é usado
 import { Order, InventoryItem } from '../../types';
 import { logger } from './logger';
 

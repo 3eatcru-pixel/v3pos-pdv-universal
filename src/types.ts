@@ -204,6 +204,13 @@ export interface ServiceItem {
   commissionRate?: number; // Specific rate for this service
 }
 
+// Auditoria: Interface para Definição de Serviço (Unificada)
+export interface ServiceDefinition extends ServiceItem {
+  enterpriseId: string;
+  shopId?: string;
+  customCommissionRate?: number;
+}
+
 export interface Category {
   id: string;
   enterpriseId: string;
@@ -220,13 +227,6 @@ export interface ServiceResource {
   name: string;
   type: string; // e.g., 'chair', 'room', 'machine'
   active: boolean;
-}
-
-// Auditoria: Interface para Definição de Serviço (Unificada)
-export interface ServiceDefinition extends ServiceItem {
-  enterpriseId: string;
-  shopId?: string;
-  customCommissionRate?: number;
 }
 
 export interface Appointment {
@@ -444,16 +444,6 @@ export interface PerformanceEvent {
   points: number;
   timestamp: number;
   createdBy: string;
-}
-
-export interface InternalMessage {
-  id: string;
-  userId: string;
-  enterpriseId: string;
-  type: 'info' | 'warning' | 'critical';
-  timestamp: number;
-  read: boolean;
-  content: string;
 }
 
 export interface InternalMessage {

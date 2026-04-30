@@ -27,6 +27,7 @@ import {
   MessageSquare
 } from 'lucide-react'; 
 import { motion, AnimatePresence } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import { accountService } from '../services/accountService';
 import { cn } from '../../lib/utils';
 import { useCollection } from '../../hooks/useCollection';
@@ -38,6 +39,7 @@ import { BackupManagerView } from '../views/BackupManagerView';
 import { CloudConfigEngine } from '../services/CloudConfigEngine';
 import { meshNetwork } from '../../services/p2pSync';
 
+import { Company } from '../../types'; // Importar Company para tipagem
 interface GlobalSettingsProps {
   context?: string;
 }
@@ -97,19 +99,19 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
       ]);
       if (mounted) {
         setIsPaused(paused);
-        setCompanyName(company?.name || 'N/A');
+        setCompanyName(company?.name || 'N/A'); // Auditoria: company pode ser null
         setDeviceRole(accountService.getDeviceRole());
-        setGoogleBackupEnabled((company as any)?.googleDriveBackupEnabled || false);
-        setBackupInterval((company as any)?.backupIntervalMinutes || 10);
-        setCustomLogo((company as any)?.branding?.logo || '');
-        setCustomName((company as any)?.branding?.customName || '');
+        setGoogleBackupEnabled(company?.googleDriveBackupEnabled || false);
+        setBackupInterval(company?.backupIntervalMinutes || 10);
+        setCustomLogo(company?.branding?.logo || '');
+        setCustomName(company?.branding?.customName || '');
         // Simulação de verificação de provedor vinculado
         setIsGoogleLinked(user?.providerData?.some(p => p.providerId === 'google.com') || false); // Verificação mais robusta
       }
     };
     loadConfig();
     return () => { mounted = false; };
-  }, [companyId]);
+  }, [companyId, user, company]); // Adicionado company como dependência
 
   const handleToggleServer = async () => {
     const next = !isLocalServer;
@@ -267,7 +269,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2">Painel de Operações</span>
                           <div className="grid grid-cols-1 gap-3">
                              <button 
-                               onClick={() => { /* Navegar para Escalas */ setIsOpen(false); }}
+                               onClick={() => { navigate('/schedule-view'); setIsOpen(false); }} // Nova rota para Escalas
                                className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 rounded-3xl hover:bg-blue-50 transition-all group"
                              >
                                 <div className="flex items-center gap-4">
@@ -281,7 +283,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                              </button>
 
                              <button 
-                               onClick={() => { /* Navegar para Mapas */ setIsOpen(false); }}
+                               onClick={() => { navigate('/map-view'); setIsOpen(false); }} // Nova rota para Mapas
                                className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 rounded-3xl hover:bg-indigo-50 transition-all group"
                              >
                                 <div className="flex items-center gap-4">
@@ -295,7 +297,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                              </button>
 
                              <button 
-                               onClick={() => { setIsInboxOpen(true); setIsOpen(false); }}
+                               onClick={() => { navigate('/user-inbox'); setIsOpen(false); }} // Nova rota para UserInboxView
                                className="w-full flex items-center justify-between p-5 bg-white border border-slate-100 rounded-3xl hover:bg-emerald-50 transition-all group"
                              >
                                 <div className="flex items-center gap-4">
@@ -528,7 +530,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                          <div className="space-y-4">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2">Financeiro</span>
                             <button 
-                              onClick={() => { setIsPayoutsOpen(true); setIsOpen(false); }}
+                              onClick={() => { navigate('/payout-approval'); setIsOpen(false); }} // Nova rota para PayoutApprovalDashboard
                               className="w-full flex items-center justify-between p-5 bg-emerald-50 rounded-[1.5rem] border border-emerald-100 hover:bg-white hover:border-emerald-200 transition-all group"
                             >
                                 <div className="flex items-center gap-4">
@@ -641,8 +643,8 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                        {canAdmin && (
                          <div className="space-y-4">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2">Personalização</span>
-                            <button 
-                              onClick={() => { /* Navegar para SettingsCustomizationView */ setIsOpen(false); }}
+                            <button // Auditoria: CustomizationView já existe, apenas navegar
+                              onClick={() => { navigate('/customization'); setIsOpen(false); }}
                               className="w-full flex items-center justify-between p-5 bg-slate-50 rounded-[1.5rem] border border-slate-100 hover:bg-white hover:border-blue-200 transition-all group"
                             >
                                 <div className="flex items-center gap-4">
@@ -662,8 +664,8 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                        {user?.role === 'dev' && (
                          <div className="space-y-4">
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 ml-2">Configuração Global (DEV)</span>
-                            <button 
-                              onClick={() => { setIsModulesOpen(true); setIsOpen(false); }}
+                            <button // Auditoria: ModuleManagement já existe, apenas navegar
+                              onClick={() => { navigate('/module-management'); setIsOpen(false); }}
                               className="w-full flex items-center gap-4 p-5 bg-indigo-50 rounded-[1.5rem] border border-indigo-100 hover:bg-white hover:border-indigo-200 transition-all group"
                             >
                                 <div className="p-3 bg-white border border-indigo-200 rounded-xl text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white transition-colors">
@@ -836,30 +838,6 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
                   </div>
                 </div>
               )}
-
-              <AnimatePresence>
-        {isModulesOpen && user && (
-          <ModuleManagement enterpriseId={user.companyId} onClose={() => setIsModulesOpen(false)} />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {isInboxOpen && user && (
-          <UserInboxView 
-            enterpriseId={user.companyId} 
-            userId={user.id} 
-            userName={user.name} // Passa o nome do usuário para a view
-            messages={inboxMessages} 
-            onClose={() => setIsInboxOpen(false)} 
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {isPayoutsOpen && user && (
-          <PayoutApprovalDashboard />
-        )}
-      </AnimatePresence>
       <div className="p-8 text-center border-t border-slate-100 bg-slate-50/50">
                  <button className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-300 hover:text-blue-500 transition-colors flex items-center justify-center gap-2 mx-auto">
                     <HelpCircle className="w-3 h-3" /> Grid OS Security Cluster

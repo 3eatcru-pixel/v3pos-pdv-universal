@@ -12,6 +12,7 @@ const ORPHAN_FILES = [
   'src/core/components/GlobalSettings.tsx',
   'src/core/components/ModeSelector.tsx',
   'src/core/views/ModuleManagement.tsx',
+  'src/services/ThemeContext.tsx', // Auditoria: Movido para core/contexts
   'useScheduling.ts', // Auditoria: Duplicata na raiz, deve ser removido.
   'useCommissionReport.ts' // Auditoria: Duplicata na raiz, deve ser removido.
 ];

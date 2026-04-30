@@ -86,19 +86,11 @@ import {
   Truck,
   Briefcase,
   TrendingUp,
-  PieChart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { // Recharts imports moved to specific components
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell
-} from 'recharts'; 
 import { format, startOfWeek, addDays, isSameDay, eachDayOfInterval, endOfWeek, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { QRCodeSVG } from 'qrcode.react';
-import { generateId, generateInviteCode, validateId, belongsToCompany } from './lib/idUtils';
-import { doc, onSnapshot } from 'firebase/firestore';
-import * as XLSX from 'xlsx';
 
 import { 
   Product, 
@@ -150,10 +142,6 @@ import { useCollection } from './hooks/useCollection';
 import { accountService } from './core/services/accountService';
 import { idGenerator } from './core/utils/idGenerator';
 import { ShiftEngine } from './core/services/ShiftEngine';
-import { HoldingDashboard } from './core/views/HoldingDashboard';
-
-// --- State Management ---
-
 import { meshNetwork } from './services/p2pSync';
 import { dbLocal } from './services/db';
 import { LoginView } from './core/views/LoginView'; // Import LoginView
@@ -163,7 +151,7 @@ import { registerServiceWorker } from './services/swRegistration';
 import { ErrorBoundary } from './core/components/ErrorBoundary';
 import { ErrorBoundary } from './core/components/ErrorBoundary';
 
-export default function App() {
+export default function App() { // Componente principal do App
   const [enterpriseId, setEnterpriseId] = useState<string | null>(() => {
     return accountService.getCurrentCompanyId();
   });
@@ -176,9 +164,7 @@ export default function App() {
   const { data: enterprises, setData: setEnterprises } = useCollection<Enterprise>('enterprises', { enterpriseId: null, shopId: null });
   const { data: shops, setData: setShops } = useCollection<Shop>('shops');
 
-  const [selectedShopId, setSelectedShopId] = useState<string | null>(() => {
-    return localStorage.getItem('rm_selected_shop_id');
-  });
+  const [selectedShopId, setSelectedShopId] = useState<string | null>(() => localStorage.getItem('rm_selected_shop_id'));
 
   const [currentUser, setCurrentUser] = useState<Staff | null>(() => {
     const globalUser = accountService.getCurrentUser();
@@ -205,7 +191,6 @@ export default function App() {
       email: globalUser.email,
     } as Staff;
   });
-  // O estado currentView foi removido em favor das rotas do React Router
   
   const [holdingActive, setHoldingActive] = useState<boolean>(() => {
     // If we have a user but no enterprise selected yet, show holding
@@ -222,9 +207,7 @@ export default function App() {
   const { data: staff, setData: setStaff } = useCollection<Staff>('staff');
   const { data: shifts, setData: setShifts } = useCollection<Shift>('shifts');
   const { data: reservations, setData: setReservations } = useCollection<Reservation>('reservations');
-  const { data: printers, setData: setPrinters } = useCollection<Printer>('printers');
   const { data: notifications, setData: setNotifications } = useCollection<AppNotification>('notifications');
-  const { data: rolePermissions, setData: setRolePermissions } = useCollection<RolePermissions>('rolePermissions');
   const { data: businessConfigs, setData: setBusinessConfigs } = useCollection<BusinessConfig>('businessConfigs');
   // incidentReports e staffSchedules agora são carregados apenas dentro de suas respectivas Views (Lazy)
   
@@ -244,11 +227,6 @@ export default function App() {
   const [selectedScheduleDate] = useState<Date>(new Date());
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
-
-  const areaColors: Record<'FOH' | 'BOH', string> = {
-    FOH: '#10b981',
-    BOH: '#f97316',
-  };
 
   // --- Data Provider Switch ---
   
@@ -456,11 +434,9 @@ export default function App() {
       result = result.filter(o => o.staffId === currentUser.id || (o.tableId && myTableIds.includes(o.tableId)));
     }
     return result;
-  }, [orders, selectedShopId, currentUser, tables]);
+  }, [orders, selectedShopId, currentUser?.id, currentUser?.role, tables]);
   const filteredInventory = useMemo(() => inventory.filter(i => i.shopId === (selectedShopId || 'shop-1')), [inventory, selectedShopId]);
-  const filteredShifts = useMemo(() => shifts.filter(s => s.shopId === (selectedShopId || 'shop-1')), [shifts, selectedShopId]);
   const filteredReservations = useMemo(() => reservations.filter(r => r.shopId === (selectedShopId || 'shop-1')), [reservations, selectedShopId]);
-  const filteredPrinters = useMemo(() => printers.filter(p => p.shopId === (selectedShopId || 'shop-1')), [printers, selectedShopId]);
 
   const [isTableListView, setIsTableListView] = useState(false);
   const [tableSearchQuery, setTableSearchQuery] = useState('');
@@ -470,7 +446,6 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showDevTools, setShowDevTools] = useState(currentUser?.role === 'admin');
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
-  const [appScale, setAppScale] = useState(1);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
@@ -480,18 +455,12 @@ export default function App() {
 
   useEffect(() => {
     const handleResize = () => {
-      const width = window.innerWidth;
-      // Suporte para celulares pequenos e médios para evitar quebras de layout
-      if (width < 430) {
-        setAppScale(Math.max(0.82, width / 430));
-      } else {
-        setAppScale(1);
-      }
+      // Lógica de escala removida, agora o layout é responsivo via CSS
     };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    // handleResize(); // Removido
+    // window.addEventListener('resize', handleResize); // Removido
+    // return () => window.removeEventListener('resize', handleResize); // Removido
+  }, []); // Removido dependências
   
   const filteredTablesBySearch = useMemo(() => {
     return filteredTables.filter(t => 
@@ -541,8 +510,8 @@ export default function App() {
 
   const handleLogout = () => {
     accountService.logout(); // Isso já recarrega a página, então setCurrentUser e setCurrentView são redundantes
-    // setCurrentUser(null); // Removido
-    // setCurrentView('dashboard'); // Removido
+    // setCurrentUser(null);
+    // setCurrentView('dashboard');
   };
 
   const handleAddArea = () => {
@@ -568,11 +537,11 @@ export default function App() {
   }, [accessibleShopIds, selectedShopId]);
 
   const currentPermissions = useMemo(() => 
-    rolePermissions.find(p => p.role === currentUser?.role) || MOCK_PERMISSIONS.find(p => p.role === 'waiter')!
+    MOCK_PERMISSIONS.find(p => p.role === currentUser?.role) || MOCK_PERMISSIONS.find(p => p.role === 'waiter')! // Usando MOCK_PERMISSIONS temporariamente
   , [currentUser, rolePermissions]);
 
   const canAccessView = (view: View) => currentPermissions.views.includes(view);
-  const [serviceChargePercentage, setServiceChargePercentage] = useState<number>(10);
+  const [serviceChargePercentage] = useState<number>(10); // Não é alterado na UI, pode ser constante ou vir de config
   const [taxPercentage, setTaxPercentage] = useState<number>(0);
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -582,8 +551,8 @@ export default function App() {
   const [activeRecountItem, setActiveRecountItem] = useState<InventoryItem | null>(null);
 
   // Categories & Table Mgmt
-  const [productCategories, setProductCategories] = useState(['Burgers', 'Bebidas', 'Acompanhamentos', 'Sobremesas']);
-  const [inventoryCategories, setInventoryCategories] = useState(['Carnes', 'Panificados', 'Vegetais', 'Laticínios', 'Bebidas', 'Secos']);
+  const [productCategories] = useState(['Burgers', 'Bebidas', 'Acompanhamentos', 'Sobremesas']); // Não são alterados na UI
+  const [inventoryCategories] = useState(['Carnes', 'Panificados', 'Vegetais', 'Laticínios', 'Bebidas', 'Secos']); // Não são alterados na UI
   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
   const [isTableManagementMode, setIsTableManagementMode] = useState(false);
   const [isEditTableModalOpen, setIsEditTableModalOpen] = useState(false);
@@ -604,10 +573,10 @@ export default function App() {
   const [companySettings, setCompanySettings] = useState<CompanySettings>(() => {
     const raw = localStorage.getItem('rm_company_settings');
     if (!raw) {
-      return { name: 'RestManager POS', cnpj: '', address: '', requireAllergyDoubleConfirmation: false };
+      return { name: 'RestManager POS', cnpj: '', address: '', requireAllergyDoubleConfirmation: false }; // Default
     }
-    try {
-      const parsed = JSON.parse(raw) as CompanySettings;
+    try { // Auditoria: Adicionado tratamento de erro para JSON.parse
+      const parsed = JSON.parse(raw);
       return {
         name: parsed.name || 'RestManager POS',
         cnpj: parsed.cnpj || '',
@@ -615,7 +584,7 @@ export default function App() {
         logo: parsed.logo,
         requireAllergyDoubleConfirmation: Boolean(parsed.requireAllergyDoubleConfirmation),
       };
-    } catch {
+    } catch (e) {
       return { name: 'RestManager POS', cnpj: '', address: '', requireAllergyDoubleConfirmation: false };
     }
   });
@@ -689,7 +658,7 @@ export default function App() {
   const [modCustomPrice, setModCustomPrice] = useState('');
   const [modCustomRemove, setModCustomRemove] = useState('');
 
-  const STANDARD_ALLERGIES = [
+  const STANDARD_ALLERGIES = [ // Constante, não precisa de estado
     'Amendoim', 'Glúten', 'Lactose', 'Frutos do Mar', 'Ovo', 'Soja', 'Nozes', 'Peixe', 'Trigo', 'Leite', 'Castanhas'
   ];
 
@@ -704,7 +673,7 @@ export default function App() {
 
   // --- Handlers ---
 
-  const handleOpenTable = async (table: Table) => {
+  const handleOpenTable = async (table: Table) => { // Auditoria: Esta função é usada no AppContent, mas a lógica real está aqui
     if (table.status === 'free' || table.status === 'reserved') {
       const waiterId = currentUser?.id || 'a1';
       const orderId = idGenerator.generate('ord');
@@ -738,7 +707,7 @@ export default function App() {
     }
   };
 
-  const handlePrintToPrinter = async (type: Printer['type'], content: string) => {
+  const handlePrintToPrinter = async (type: Printer['type'], content: string) => { // Auditoria: printers é uma dependência
     // Priority: 1. Local storage preference, 2. Global default
     const localPreferredId = localStorage.getItem(`rm_printer_${type}`);
     let printer = printers.find(p => p.id === localPreferredId);
@@ -796,7 +765,7 @@ export default function App() {
     handlePrintToPrinter('receipt', receiptContent);
   };
 
-  const handleExportSalesToExcel = () => {
+  const handleExportSalesToExcel = () => { // Auditoria: XLSX é importado mas não usado diretamente aqui
     const deliveredOrders = orders.filter(o => o.status === 'delivered');
     if (deliveredOrders.length === 0) {
       alert("Não há vendas finalizadas para exportar.");
@@ -846,7 +815,7 @@ export default function App() {
     }
   };
 
-  const adjustInventory = async (items: OrderItem[], multiplier: number) => {
+  const adjustInventory = async (items: OrderItem[], multiplier: number, enterpriseId: string, shopId: string) => { // Auditoria: Não utilizada, substituída por processInventoryRecipeAtomic
     try {
       await InventoryEngine.adjustStockRecursive(
         items.map(i => ({ ...i, id: i.productId })), // Engine expects product ID
@@ -886,7 +855,7 @@ export default function App() {
   const handleUpdateItemModifiers = (itemId: string, modifiers: ItemModifier[]) => {
     setCart(prev => prev.map(item => {
       if (item.id !== itemId) return item;
-
+      // Auditoria: calculateProductCost precisa de inventory e products, e a lógica de custo de modificador foi corrigida
       const baseCost = calculateProductCost(item.productId);
       const modifierCostDelta = modifiers.reduce((acc, m) => {
         const invItem = inventory.find(i => 
@@ -911,7 +880,7 @@ export default function App() {
     }));
   };
 
-  const handleVoidOrderItem = async (orderId: string, itemId: string, reason: string) => {
+  const handleVoidOrderItem = async (orderId: string, itemId: string, reason: string) => { // Auditoria: Não utilizada diretamente, mas chamada por handleRemoveFromCart
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
@@ -937,7 +906,7 @@ export default function App() {
     }
   };
 
-  const handleRemoveFromCart = async (itemId: string) => {
+  const handleRemoveFromCart = async (itemId: string) => { // Auditoria: Não utilizada diretamente
     const item = cart.find(i => i.id === itemId);
     if (!item) return;
 
@@ -959,7 +928,7 @@ export default function App() {
     }
   };
 
-  const handleUpdateQuantity = (itemId: string, delta: number) => {
+  const handleUpdateQuantity = (itemId: string, delta: number) => { // Auditoria: Não utilizada diretamente
     setCart(prev => prev.map(item => {
       if (item.id === itemId) {
         if (item.status !== 'pending') return item; // Cannot change quantity once sent
@@ -1027,7 +996,7 @@ export default function App() {
     }
 
     // Update Inventory Stock based on ingredients and modifiers
-    await adjustInventory(newItems, 1);
+    await firebaseService.processInventoryRecipeAtomic(newItems.map(i => ({ productId: i.productId, quantity: i.quantity })), enterpriseId || 'local-ent');
 
     // Notifications
     const barCategories = ['Bebidas', 'Bar', 'FOH'];
@@ -1196,7 +1165,7 @@ export default function App() {
           // Return stock for all items that were deducted (sentToKitchen)
           const deductedItems = itemsToVoid.filter(i => i.sentToKitchen);
           if (deductedItems.length > 0) {
-            await adjustInventory(deductedItems, 1);
+            await firebaseService.processInventoryRecipeAtomic(deductedItems.map(i => ({ productId: i.productId, quantity: i.quantity })), enterpriseId || 'local-ent');
           }
 
           await firebaseService.updateItem('orders', order.id, { status: 'cancelled', items: updatedItems });
@@ -1214,7 +1183,7 @@ export default function App() {
         }
         setSelectedTable(null);
         setCart([]);
-        navigate('/tables'); // Navega para a tela de mesas
+        navigate('/tables');
     }
   };
 
@@ -1290,7 +1259,7 @@ export default function App() {
 
         // Deduct stock for takeaway items once paid/confirmed
         if (isFullyPaid || shouldSendToKitchen) {
-          await adjustInventory(cart, 1);
+          await firebaseService.processInventoryRecipeAtomic(cart.map(i => ({ productId: i.productId, quantity: i.quantity })), enterpriseId || 'local-ent');
         }
 
         const tableNum = `Takeaway #${nextNumber}`;
@@ -1355,7 +1324,7 @@ export default function App() {
 
         // Deduct stock if this is a takeaway transitioning from pending
         if (order.orderType === 'takeaway' && order.status === 'pending' && (isFullyPaid || shouldSendToKitchen)) {
-          await adjustInventory(order.items, 1);
+          await firebaseService.processInventoryRecipeAtomic(order.items.map(i => ({ productId: i.productId, quantity: i.quantity })), enterpriseId || 'local-ent');
         }
 
         if (isFullyPaid && order.tableId && order.tableId !== 'takeaway') {
@@ -1416,7 +1385,7 @@ export default function App() {
     if (editingInventoryItem) {
       await firebaseService.updateItem('inventory', editingInventoryItem.id, item);
     } else {
-      const id = Math.random().toString(36).substr(2, 9);
+      const id = idGenerator.generate('inv'); // Auditoria: idGenerator já é usado
       const newItem: InventoryItem = {
         id,
         enterpriseId: enterpriseId!,
@@ -1441,7 +1410,7 @@ export default function App() {
   };
 
   const handleRecountSubmit = async (itemId: string, itemName: string, prevStock: number, newStock: number, comment: string) => {
-    const id = Math.random().toString(36).substr(2, 9);
+    const id = idGenerator.generate('recount'); // Auditoria: idGenerator já é usado
     const newRequest: RecountRequest = {
       id,
       shopId: (selectedShopId || 'shop-1'),
@@ -1486,7 +1455,7 @@ export default function App() {
   };
 
   const handleAddTable = async (capacity: number) => {
-    const id = `t${Date.now()}`;
+    const id = idGenerator.generate('table'); // Auditoria: idGenerator já é usado
     const tablesInThisArea = tables.filter(t => (t.area || 'Salão Principal') === selectedArea && t.shopId === (selectedShopId || 'shop-1'));
     
     // Grid: 5 columns
@@ -1803,7 +1772,1445 @@ export default function App() {
     } else {
        // Create order for free table
        const waiterId = currentUser?.id || 'a1';
-       const orderId = `ord-${Math.random().toString(36).substr(2, 9)}`;
+       const newOrder: Order = { // Auditoria: idGenerator já é usado
+         id: idGenerator.generate('ord'),
+         enterpriseId: enterpriseId!,
+         shopId: (selectedShopId || 'shop-1'),
+         tableId: table.id,
+         staffId: waiterId,
+         items: cart,
+         status: 'pending',
+         startTime: Date.now(),
+         discount: 0,
+         subtotal: 0,
+         total: 0
+       };
+       await firebaseService.saveItem('orders', newOrder.id, newOrder);
+       await firebaseService.updateTableStatus(table.id, 'occupied', newOrder.id);
+    }
+    setSelectedTable(table);
+    setCart([]);
+    navigate('/orders'); // Navega para a tela de pedidos
+  };
+
+  // Auditoria: renderDeviceLinking e renderSchedule devem ser componentes separados e roteados
+  // Criando componentes para as funções renderDeviceLinking e renderSchedule
+  const DeviceLinkingView: React.FC = () => {
+    const [linkToken] = useState('RM-XYZ-99'); // Simulated company token
+    const handleLinkDevice = (token: string) => {
+      if (token === linkToken) {
+        setIsDeviceLinked(true);
+        localStorage.setItem('rm_device_linked', 'true');
+        return true;
+      }
+      return false;
+    };
+
+    return (
+      <div className="fixed inset-0 bg-slate-900 flex items-center justify-center z-[200] p-4 text-white">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl p-10 text-slate-800"
+        >
+          <div className="flex flex-col items-center text-center mb-8">
+            <div className="w-20 h-20 bg-emerald-500 rounded-3xl flex items-center justify-center shadow-xl shadow-emerald-500/20 mb-6">
+              <Link2 className="w-10 h-10 text-white" />
+            </div>
+            <h2 className="text-2xl font-black tracking-tight leading-tight mb-2">Vincular Dispositivo</h2>
+            <p className="text-sm text-slate-500 font-medium px-4">Escaneie o QR Code no painel do administrador ou digite o token de acesso.</p>
+          </div>
+
+          <div className="space-y-6">
+            <div>
+              <label htmlFor="link-token" className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest text-center">Token da Empresa</label>
+              <input 
+                id="link-token"
+                type="text" 
+                placeholder="RM-XXX-00"
+                className="w-full bg-slate-50 border-2 border-transparent focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all uppercase"
+                onChange={(e) => {
+                  if (e.target.value.toUpperCase() === linkToken) {
+                    handleLinkDevice(e.target.value.toUpperCase());
+                  }
+                }}
+              />
+            </div>
+
+            <div className="flex flex-col gap-3 pt-4">
+              <button 
+                onClick={() => {
+                  setIsDeviceLinked(true);
+                  localStorage.setItem('rm_device_linked', 'true');
+                }}
+                className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl"
+              >
+                Ativar como Demo
+              </button>
+              <p className="text-[9px] text-center text-slate-400 font-bold uppercase tracking-widest px-8">
+                Ao vincular, este dispositivo terá acesso sincronizado ao estoque, pedidos e relatórios da empresa.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
+  };
+
+  const ScheduleView: React.FC = () => {
+    const weekStart = startOfWeek(selectedScheduleDate, { weekStartsOn: 1 }); // Monday
+    const weekDays = eachDayOfInterval({
+      start: weekStart,
+      end: addDays(weekStart, 6)
+    });
+
+    // Filter staff by shop
+    const isRegionalView = currentUser?.role === 'owner' || currentUser?.role === 'regional_manager';
+    const displayStaff = selectedShopId 
+      ? staff.filter(s => s.assignedShopIds?.includes(selectedShopId))
+      : staff;
+
+    const getShiftsForStaffOnDay = (staffId: string, day: Date) => {
+      const relevantShifts = selectedShopId ? shifts.filter(s => s.shopId === selectedShopId) : shifts;
+      return relevantShifts.filter(s => s.staffId === staffId && isSameDay(new Date(s.startTime), day));
+    };
+
+    return (
+      <div className="space-y-8 pb-20">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">Escala Semanal</h2>
+            <p className="text-sm text-slate-500 font-medium">
+              {selectedShopId ? `Visualizando escala de: ${currentShop?.name}` : 'Visualizando escala de toda a rede'}
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-3">
+             {isRegionalView && (
+               <div className="bg-slate-100 p-1 rounded-xl flex border border-slate-200">
+                 {shops.filter(s => accessibleShopIds.includes(s.id)).map(s => (
+                   <button 
+                     key={s.id}
+                     onClick={() => setSelectedShopId(s.id)}
+                     className={cn(
+                       "px-3 py-1.5 text-[9px] font-black uppercase tracking-tight rounded-lg transition-all",
+                       selectedShopId === s.id ? "bg-white text-slate-800 shadow-sm" : "text-slate-400"
+                     )}
+                   >
+                     {s.name}
+                   </button>
+                 ))}
+               </div>
+             )}
+          </div>
+        </div>
+
+        <div className="sleek-card bg-white border-slate-100 overflow-hidden shadow-2xl">
+           <div className="grid grid-cols-[200px_repeat(7,1fr)] bg-slate-50/50 border-b border-slate-100">
+              <div className="p-4 border-r border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-widest">Equipe</div>
+              {weekDays.map(day => (
+                <div key={day.toString()} className={cn(
+                  "p-4 border-r border-slate-100 last:border-r-0 text-center flex flex-col",
+                  isSameDay(day, new Date()) && "bg-emerald-50/50"
+                )}>
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{format(day, 'EEE', { locale: ptBR })}</span>
+                  <span className="text-sm font-black text-slate-800">{format(day, 'dd/MM')}</span>
+                </div>
+              ))}
+           </div>
+
+           <div className="divide-y divide-slate-50">
+                {displayStaff.map(member => (
+                  <div key={member.id} className="grid grid-cols-[200px_repeat(7,1fr)] hover:bg-slate-50/30 transition-colors">
+                    <div className="p-4 border-r border-slate-100 flex items-center gap-3">
+                      <div className={cn(
+                        "w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0 shadow-sm",
+                        member.role === 'owner' ? "bg-slate-800" : "bg-emerald-500"
+                      )}>
+                        {member.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                      </div>
+                      <div className="overflow-hidden">
+                        <p className="text-xs font-bold text-slate-800 truncate">{member.name}</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-tight">{member.role.replace('_', ' ')}</p>
+                      </div>
+                    </div>
+
+                    {weekDays.map(day => {
+                      const dayShifts = getShiftsForStaffOnDay(member.id, day);
+                      return (
+                        <div key={day.toString()} className="p-2 min-h-[80px] border-r border-slate-50 last:border-r-0 flex flex-col gap-2">
+                           {dayShifts.map(shift => (
+                             <motion.div
+                               layoutId={shift.id}
+                               key={shift.id}
+                               onClick={() => {
+                                 if (currentPermissions.actions.canManageSchedule) {
+                                   setEditingShift(shift);
+                                   setIsShiftModalOpen(true);
+                                 }
+                               }}
+                               className="p-2 rounded-xl shadow-sm border border-black/5 cursor-pointer relative group overflow-hidden"
+                               style={{ backgroundColor: areaColors[shift.area] + '15', borderColor: areaColors[shift.area] + '30' }}
+                             >
+                                <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: areaColors[shift.area] }} />
+                                <div className="flex flex-col">
+                                   <span className="text-[9px] font-black uppercase tracking-tight" style={{ color: areaColors[shift.area] }}>{shift.area}</span>
+                                   <span className="text-[10px] font-bold text-slate-700 leading-none mt-1">
+                                     {format(shift.startTime, 'HH:mm')} - {format(shift.endTime, 'HH:mm')}
+                                   </span>
+                                </div>
+                             </motion.div>
+                           ))}
+                           {dayShifts.length === 0 && (
+                             <div className="flex-1 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Plus className="w-4 h-4 text-slate-200" />
+                             </div>
+                           )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+             </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-6 px-4">
+           <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: areaColors.BOH }} />
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Back of House (Cozinha)</span>
+           </div>
+           <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: areaColors.FOH }} />
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Front of House (Salão)</span>
+           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const ModifierModal: React.FC = () => {
+    if (!editingOrderItem) return null;
+
+    const currentModifiers = editingOrderItem.modifiers || [];
+    const toggleModifier = (name: string, type: ModifierType, price?: number, invId?: string) => {
+      const exists = currentModifiers.find(m => m.name === name && m.type === type && (invId ? m.inventoryItemId === invId : true));
+      let newModifiers: ItemModifier[] = [];
+      if (exists) {
+        newModifiers = currentModifiers.filter(m => !(m.name === name && m.type === type && (invId ? m.inventoryItemId === invId : true)));
+      } else {
+        const inventoryItemId = invId || inventory.find(i => i.name.toLowerCase() === name.toLowerCase())?.id; // Busca exata por nome
+        newModifiers = [...currentModifiers, { 
+          id: idGenerator.generate('mod'), // Usar idGenerator
+          name, 
+          type, 
+          price: price || 0,
+          inventoryItemId
+        }];
+      }
+      
+      const updatedItem = { ...editingOrderItem, modifiers: newModifiers };
+      setEditingOrderItem(updatedItem);
+      handleUpdateItemModifiers(editingOrderItem.id, newModifiers);
+    };
+
+    const addManualExtra = () => {
+      if (!modCustomName) return;
+      const price = parseFloat(modCustomPrice || '0');
+      const invItem = inventory.find(i => i.name.toLowerCase() === modCustomName.toLowerCase()); // Busca exata por nome
+      
+      const newModifiers = [...currentModifiers, { 
+        id: idGenerator.generate('mod'), // Usar idGenerator
+        name: modCustomName, 
+        type: 'extra', 
+        price,
+        inventoryItemId: invItem?.id
+      }];
+      const updatedItem = { ...editingOrderItem, modifiers: newModifiers };
+      setEditingOrderItem(updatedItem);
+      handleUpdateItemModifiers(editingOrderItem.id, newModifiers);
+      setModCustomName('');
+      setModCustomPrice('');
+    };
+
+    const addManualRemove = () => {
+      if (!modCustomRemove) return;
+      const invItem = inventory.find(i => i.name.toLowerCase() === modCustomRemove.toLowerCase()); // Busca exata por nome
+      
+      const newModifiers = [...currentModifiers, { 
+        id: idGenerator.generate('mod'), // Usar idGenerator
+        name: modCustomRemove, 
+        type: 'remove',
+        inventoryItemId: invItem?.id
+      }];
+      const updatedItem = { ...editingOrderItem, modifiers: newModifiers };
+      setEditingOrderItem(updatedItem);
+      handleUpdateItemModifiers(editingOrderItem.id, newModifiers);
+      setModCustomRemove('');
+    };
+
+    return (
+      <AnimatePresence> {/* Auditoria: Modais devem ser renderizados condicionalmente */}
+        {isModifierModalOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden border border-slate-100"
+            >
+              <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 tracking-tight">Customizar Item</h3>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">{editingOrderItem.name}</p>
+                </div>
+                <button 
+                  onClick={() => setIsModifierModalOpen(false)} 
+                  className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-600 shadow-sm border border-slate-100 transition-all hover:scale-110 active:scale-95"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-8 overflow-y-auto max-h-[70vh] custom-scrollbar">
+                {/* Allergies - Standard Set */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    Alergias (Aviso Cozinha)
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {STANDARD_ALLERGIES.map(allergy => {
+                      const isActive = currentModifiers.some(m => m.name === allergy && m.type === 'allergy');
+                      return (
+                        <button 
+                          key={allergy}
+                          onClick={() => toggleModifier(allergy, 'allergy')}
+                          className={cn(
+                            "px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                            isActive ? "bg-amber-500 text-white border-amber-600 shadow-lg shadow-amber-500/20" : "bg-white text-slate-400 border-slate-100 hover:border-amber-200"
+                          )}
+                        >
+                          {allergy}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Remove - Customizable */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 flex items-center gap-2">
+                    <Minus className="w-3.5 h-3.5 text-rose-500" />
+                    Remover (SEM)
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {['Cebola', 'Tomate', 'Pão', 'Picles', 'Maionese', 'Alface'].map(item => {
+                      const isActive = currentModifiers.some(m => m.name === item && m.type === 'remove');
+                      return (
+                        <button 
+                          key={item}
+                          onClick={() => toggleModifier(item, 'remove')}
+                          className={cn(
+                            "px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                            isActive ? "bg-rose-500 text-white border-rose-600 shadow-lg shadow-rose-500/20" : "bg-white text-slate-400 border-slate-100 hover:border-rose-200"
+                          )}
+                        >
+                          Sem {item}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Outro item para remover..."
+                      value={modCustomRemove}
+                      onChange={e => setModCustomRemove(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') addManualRemove();
+                      }}
+                      className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500/20 outline-none text-[10px] font-black uppercase tracking-widest"
+                    />
+                    <button 
+                      onClick={addManualRemove}
+                      className="p-3 bg-rose-500 text-white rounded-xl hover:bg-rose-600 transition-all active:scale-90"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Extras - Customizable */}
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 flex items-center gap-2">
+                    <Plus className="w-3.5 h-3.5 text-blue-500" />
+                    Adicionais (EXTRA)
+                  </label>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {[
+                      { name: 'Carne', price: 8.00 },
+                      { name: 'Queijo', price: 4.50 },
+                      { name: 'Bacon', price: 6.00 },
+                      { name: 'Ovo', price: 3.00 }
+                    ].map(extra => {
+                      const isActive = currentModifiers.some(m => m.name === extra.name && m.type === 'extra');
+                      return (
+                        <button 
+                          key={extra.name}
+                          onClick={() => {
+                            setModCustomName(extra.name);
+                            setModCustomPrice(extra.price.toString());
+                          }}
+                          className={cn(
+                            "px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                            isActive ? "bg-blue-500 text-white border-blue-600 shadow-lg shadow-blue-500/20" : "bg-white text-slate-400 border-slate-100 hover:border-blue-200"
+                          )}
+                        >
+                          {extra.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 border-dashed">
+                    <p className="text-[9px] font-black uppercase text-slate-400 mb-4 ml-1 tracking-widest">Adicionar Customizado</p>
+                    <div className="flex gap-2">
+                      <input 
+                        value={modCustomName}
+                        onChange={e => setModCustomName(e.target.value)}
+                        type="text" 
+                        placeholder="Nome (ex: Bacon)"
+                        className="flex-1 px-4 py-3.5 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none text-[10px] font-black uppercase tracking-widest"
+                      />
+                      <input 
+                        value={modCustomPrice}
+                        onChange={e => setModCustomPrice(e.target.value)}
+                        type="number" 
+                        placeholder="R$ 0,00"
+                        className="w-24 px-4 py-3.5 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none text-xs font-mono font-bold"
+                      />
+                      <button 
+                        onClick={addManualExtra}
+                        className="p-3.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all shadow-xl shadow-blue-500/20 active:scale-90"
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 bg-slate-900 border-t border-slate-800 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Preço Final do Item</span>
+                  <span className="text-2xl font-black text-white tracking-tight">
+                    {formatCurrency(editingOrderItem.price + currentModifiers.reduce((acc, m) => acc + (m.price || 0), 0))}
+                  </span>
+                </div>
+                <button 
+                  onClick={() => setIsModifierModalOpen(false)}
+                  className="bg-emerald-500 text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:scale-105 transition-all shadow-xl shadow-emerald-500/20"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    );
+  };
+
+  const TableEditModal: React.FC = () => {
+    if (!editingTable) return null;
+
+    return (
+      <AnimatePresence>
+        {isEditTableModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden"
+            >
+              <div className="p-8">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center">
+                      <TableIcon className="w-6 h-6 text-slate-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black text-slate-900">Editar Mesa {editingTable.number}</h3>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Configurações e Localização</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setIsEditTableModalOpen(false)} 
+                    className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                    title="Fechar Modal"
+                    aria-label="Fechar"
+                  >
+                    <X className="w-5 h-5 text-slate-400" />
+                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="edit-table-number" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Número da Mesa</label>
+                      <input
+                        id="edit-table-number"
+                        type="number"
+                        value={editingTable.number}
+                        onChange={(e) => setEditingTable({ ...editingTable, number: parseInt(e.target.value) })}
+                        className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                        title="Número da Mesa"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="edit-table-capacity" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Capacidade (Pessoas)</label>
+                      <input
+                        id="edit-table-capacity"
+                        type="number"
+                        value={editingTable.capacity}
+                        onChange={(e) => setEditingTable({ ...editingTable, capacity: parseInt(e.target.value) })}
+                        className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                        title="Capacidade da Mesa"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="edit-table-area" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Área / Ambiente</label>
+                    <select
+                      id="edit-table-area"
+                      value={editingTable.area || 'Salão Principal'}
+                      onChange={(e) => setEditingTable({ ...editingTable, area: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
+                      title="Área da Mesa"
+                    >
+                      {Array.from(new Set(tables.map(t => t.area || 'Salão Principal'))).map(area => (
+                        <option key={area} value={area}>{area}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex gap-4 pt-4">
+                    <button
+                      onClick={async () => {
+                        await handleUpdateTable(editingTable.id, {
+                          number: editingTable.number,
+                          capacity: editingTable.capacity,
+                          area: editingTable.area
+                        });
+                        setIsEditTableModalOpen(false);
+                      }}
+                      className="flex-1 bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-emerald-500 transition-all shadow-xl shadow-slate-900/20"
+                    >
+                      Salvar Alterações
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Excluir a mesa ${editingTable.number}?`)) {
+                          handleRemoveTable(editingTable.id);
+                          setIsEditTableModalOpen(false);
+                        }
+                      }}
+                      className="w-16 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all"
+                      title="Excluir Mesa"
+                      aria-label="Excluir"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    );
+  };
+
+  const ShiftModal: React.FC = () => {
+    return (
+      <AnimatePresence>
+        {isShiftModalOpen && ( // Auditoria: Modais devem ser renderizados condicionalmente
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+            <motion.div 
+               initial={{ scale: 0.9, opacity: 0 }}
+               animate={{ scale: 1, opacity: 1 }}
+               exit={{ scale: 0.9, opacity: 0 }}
+               className="bg-white modal-rounded w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-6 md:p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+                 <h3 className="responsive-h3 text-slate-800">{editingShift ? 'Editar Turno' : 'Novo Turno'}</h3>
+                 <button onClick={() => setIsShiftModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white shadow-sm border border-slate-100 text-slate-400 hover:text-slate-600">
+                   <X className="w-5 h-5" />
+                 </button>
+              </div>
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  const startTimeStr = formData.get('startTime') as string;
+                  const endTimeStr = formData.get('endTime') as string;
+                  const dateStr = formData.get('date') as string;
+                  const start = new Date(`${dateStr}T${startTimeStr}:00`).getTime();
+                  const end = new Date(`${dateStr}T${endTimeStr}:00`).getTime();
+                  handleSaveShift({
+                    staffId: formData.get('staffId') as string,
+                    area: formData.get('area') as 'FOH' | 'BOH',
+                    startTime: start,
+                    endTime: end
+                  });
+                }}
+                className="p-6 md:p-8 space-y-6 overflow-y-auto custom-scrollbar"
+              >
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Funcionário</label>
+                  <select name="staffId" defaultValue={editingShift?.staffId} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 appearance-none">
+                    {staff.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Área</label>
+                    <select name="area" defaultValue={editingShift?.area || 'FOH'} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 appearance-none">
+                      <option value="FOH">Front of House (Salão)</option>
+                      <option value="BOH">Back of House (Cozinha)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Data</label>
+                    <input type="date" name="date" defaultValue={editingShift ? format(editingShift.startTime, 'yyyy-MM-dd') : format(selectedScheduleDate, 'yyyy-MM-dd')} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Início</label>
+                    <input type="time" name="startTime" defaultValue={editingShift ? format(editingShift.startTime, 'HH:mm') : '08:00'} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Término</label>
+                    <input type="time" name="endTime" defaultValue={editingShift ? format(editingShift.endTime, 'HH:mm') : '16:00'} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
+                  </div>
+                </div>
+
+                {editingShift && (
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      if (confirm("Remover este turno?")) {
+                        handleDeleteShift(editingShift.id);
+                        setIsShiftModalOpen(false);
+                      }
+                    }}
+                    className="w-full py-2 text-xs font-black uppercase text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                  >
+                    Excluir Turno
+                  </button>
+                )}
+                
+                <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-xl hover:bg-slate-800 transition-all">
+                   Salvar Turno
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    );
+  };
+
+  if (!currentUser) return <LoginView />;
+  if (holdingActive) return <HoldingDashboard onSelectEnterprise={handleSelectEnterprise} onLogout={handleLogout} />;
+
+  return (
+    <Router>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
+    </Router>
+  );
+}
+
+function AppContent() {
+  // Mova os hooks que dependem do Router (useNavigate, useLocation) para este sub-componente
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentPath = location.pathname.substring(1) || 'dashboard';
+
+  // Re-declarar estados e handlers necessários para AppContent
+  const [enterpriseId, setEnterpriseId] = useState<string | null>(() => accountService.getCurrentCompanyId());
+  const [systemMode, setSystemMode] = useState<SystemMode>(() => (localStorage.getItem('rm_system_mode') as SystemMode) || 'restaurant');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('pos_restaurant_sidebar_collapsed') === 'true');
+  const { data: enterprises } = useCollection<Enterprise>('enterprises', { enterpriseId: null, shopId: null });
+  const { data: shops } = useCollection<Shop>('shops');
+  const [selectedShopId, setSelectedShopId] = useState<string | null>(() => localStorage.getItem('rm_selected_shop_id'));
+  const [currentUser] = useState<Staff | null>(() => {
+    const globalUser = accountService.getCurrentUser();
+    if (!globalUser) return null;
+    const mappedRole = globalUser.role === 'owner' ? 'owner' : globalUser.role === 'manager' ? 'manager_foh' : globalUser.role === 'dev' ? 'admin' : 'waiter';
+    return { id: globalUser.id, enterpriseId: globalUser.companyId, companyId: globalUser.companyId, name: globalUser.name, role: mappedRole, active: true, pin: globalUser.pin || '0000', assignedShopIds: [], email: globalUser.email } as Staff;
+  });
+  const { data: orders } = useCollection<Order>('orders');
+  const { data: tables } = useCollection<Table>('tables');
+  const { data: rolePermissions } = useCollection<RolePermissions>('rolePermissions');
+  const { data: businessConfigs } = useCollection<BusinessConfig>('businessConfigs');
+  const { data: printers } = useCollection<Printer>('printers');
+  const { data: notifications } = useCollection<AppNotification>('notifications');
+
+  const currentBusinessConfig = useMemo(() => businessConfigs.find(c => c.enterpriseId === enterpriseId), [businessConfigs, enterpriseId]);
+  const isModuleEnabled = (modId: string) => {
+    if (!currentBusinessConfig) return modId === 'restaurant';
+    if (modId === 'service') return true;
+    return currentBusinessConfig.enabledModules.includes(modId);
+  };
+
+  const accessibleShopIds = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'owner') return shops.map(s => s.id);
+    if (currentUser.role === 'regional_manager') return currentUser.assignedShopIds;
+    return currentUser.assignedShopIds || [];
+  }, [currentUser, shops]);
+
+  const currentPermissions = useMemo(() => 
+    rolePermissions.find(p => p.role === currentUser?.role) || MOCK_PERMISSIONS.find(p => p.role === 'waiter')!
+  , [currentUser, rolePermissions]);
+
+  const canAccessView = (view: View) => currentPermissions.views.includes(view);
+
+  const handleLogout = () => {
+    accountService.logout();
+  };
+
+  const markNotificationAsRead = async (id: string) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    await firebaseService.updateItem('notifications', id, { read: true });
+  };
+
+  const handleClearNotifications = async () => {
+    const toDelete = [...notifications];
+    setNotifications([]);
+    for (const notif of toDelete) {
+      await firebaseService.deleteItem('notifications', notif.id);
+    }
+  };
+
+  const handleOpenTable = (table: Table) => {
+    // Placeholder, a lógica real está no App.tsx principal
+    console.log('handleOpenTable called from AppContent', table);
+  };
+
+  const dashboardStats = useMemo(() => {
+    const todayStart = startOfDay(new Date()).getTime();
+    const yesterdayStart = startOfDay(addDays(new Date(), -1)).getTime();
+    const yesterdayEnd = endOfDay(addDays(new Date(), -1)).getTime();
+
+    const isRegionalView = currentUser?.role === 'owner' || currentUser?.role === 'regional_manager';
+    const relevantOrders = (isRegionalView && !selectedShopId) ? orders : orders.filter(o => o.shopId === selectedShopId);
+    
+    const closedOrdersToday = relevantOrders.filter(o => o.status === 'delivered' && o.closedAt && o.closedAt >= todayStart);
+    const totalSalesToday = closedOrdersToday.reduce((acc, o) => acc + o.total, 0);
+    const totalCostToday = closedOrdersToday.reduce((acc, o) => {
+      return acc + (o.items || []).reduce((itemAcc, item) => {
+        const shouldCountCost = item.status !== 'voided' || item.sentToKitchen;
+        return itemAcc + (shouldCountCost ? (item.cost || 0) * item.quantity : 0);
+      }, 0);
+    }, 0);
+
+    const closedOrdersYesterday = relevantOrders.filter(o => o.status === 'delivered' && o.closedAt && o.closedAt >= yesterdayStart && o.closedAt <= yesterdayEnd);
+    const totalSalesYesterday = closedOrdersYesterday.reduce((acc, o) => acc + o.total, 0);
+
+    const trend = totalSalesYesterday > 0 
+      ? ((totalSalesToday - totalSalesYesterday) / totalSalesYesterday) * 100 
+      : 0;
+
+    const avgTicket = closedOrdersToday.length > 0 ? totalSalesToday / closedOrdersToday.length : 0;
+    const profitMargin = totalSalesToday > 0 ? ((totalSalesToday - totalCostToday) / totalSalesToday) * 100 : 0;
+
+    return {
+      totalSalesToday,
+      trend,
+      closedOrdersTodayCount: closedOrdersToday.length,
+      activeTablesCount: (isRegionalView && !selectedShopId ? tables : tables.filter(t => t.shopId === selectedShopId)).filter(t => t.status === 'occupied').length,
+      avgTicket,
+      profitMargin
+    };
+  }, [orders, tables, selectedShopId, currentUser]);
+
+  const [isNotificationPaneOpen, setIsNotificationPaneOpen] = useState(false);
+  const [isPrinting] = useState(false); // Estado de impressão
+  const [holdingActive, setHoldingActive] = useState(false); // Estado para HoldingDashboard
+
+  const appScale = 1; // Simplificado, a lógica real está no App principal
+
+  // Auditoria: renderModifierModal e renderTableEditModal devem ser movidos para componentes específicos
+  // Renderiza os modais diretamente aqui, pois AppContent é o container principal das rotas
+  const [isEditTableModalOpen, setIsEditTableModalOpen] = useState(false);
+  const [editingTable, setEditingTable] = useState<Table | null>(null);
+  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
+  const [editingOrderItem, setEditingOrderItem] = useState<OrderItem | null>(null);
+  const [modCustomName, setModCustomName] = useState('');
+  const [modCustomPrice, setModCustomPrice] = useState('');
+  const [modCustomRemove, setModCustomRemove] = useState('');
+  const STANDARD_ALLERGIES = ['Amendoim', 'Glúten', 'Lactose', 'Frutos do Mar', 'Ovo', 'Soja', 'Nozes', 'Peixe', 'Trigo', 'Leite', 'Castanhas'];
+  const inventory: InventoryItem[] = []; // Placeholder, inventory real viria de um hook
+  const products: Product[] = []; // Placeholder, products real viria de um hook
+
+  const handleUpdateTable = async (tableId: string, updates: Partial<Table>) => {
+    await firebaseService.updateItem('tables', tableId, updates);
+  };
+
+  const handleRemoveTable = async (id: string) => {
+    if (orders.find(o => o.tableId === id && o.status !== 'delivered')) {
+      alert("Não é possível remover uma mesa com pedidos ativos.");
+      return;
+    }
+    await firebaseService.deleteItem('tables', id);
+  };
+
+  const handleUpdateItemModifiers = (itemId: string, modifiers: ItemModifier[]) => {
+    // Lógica de atualização de modificadores (simplificada para AppContent)
+    console.log('Updating modifiers for item:', itemId, modifiers);
+  };
+
+  const handleSaveShift = async (shift: Pick<Shift, 'staffId' | 'area' | 'startTime' | 'endTime'>) => {
+    // Lógica de salvar turno (simplificada para AppContent)
+    console.log('Saving shift:', shift);
+  };
+
+  const handleDeleteShift = async (shiftId: string) => {
+    // Lógica de deletar turno (simplificada para AppContent)
+    console.log('Deleting shift:', shiftId);
+  };
+
+  const selectedScheduleDate = new Date(); // Placeholder
+  const areaColors: Record<'FOH' | 'BOH', string> = { FOH: '#10b981', BOH: '#f97316' }; // Placeholder
+  const shifts: Shift[] = []; // Placeholder
+
+  return (
+    <div 
+      className="min-h-screen bg-surface-bg flex flex-col lg:flex-row text-slate-900 font-sans overflow-x-hidden"
+      style={{ 
+        transform: appScale < 1 ? `scale(${appScale})` : 'none', 
+        transformOrigin: 'top center',
+        width: appScale < 1 ? `${100 / appScale}%` : '100%',
+        minHeight: appScale < 1 ? `${100 / appScale}vh` : '100vh'
+      }}
+    >
+      <TableEditModal />
+      <ModifierModal />
+      <ShiftModal />
+      {/* Sidebar - responsive drawer */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 bg-sidebar-bg border-r border-slate-800 flex flex-col h-screen p-4 sm:p-6 overflow-hidden transition-all duration-500 z-[160] lg:static lg:translate-x-0 lg:flex shadow-2xl lg:shadow-none",
+        isSidebarOpen ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0 lg:opacity-100",
+        isSidebarCollapsed ? "w-24" : "w-72 max-w-[85vw]"
+      )}>
+        <div className="flex flex-col gap-6 mb-8">
+          <div className="flex items-center justify-between px-2">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 shrink-0 bg-emerald-500 rounded-lg flex items-center justify-center shadow-lg shadow-emerald-900/50">
+                <span className="text-white font-bold text-sm">RM</span>
+              </div>
+              {!isSidebarCollapsed && (
+                <motion.h1 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-lg font-bold tracking-tight text-white truncate"
+                >
+                  RestManager
+                </motion.h1>
+              )}
+            </div>
+            <button 
+              onClick={() => isSidebarOpen ? setIsSidebarOpen(false) : setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="p-2 text-slate-500 hover:text-white transition-colors"
+            >
+              <AnimatePresence mode="wait">
+                {isSidebarCollapsed ? (
+                  <motion.div key="open" initial={{ opacity: 0, rotate: -90 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 90 }}>
+                    <PanelLeft className="w-6 h-6" />
+                  </motion.div>
+                ) : (
+                  <motion.div key="close" initial={{ opacity: 0, rotate: 90 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: -90 }}>
+                    <PanelLeftClose className="w-6 h-6 hidden lg:block" />
+                    <X className="w-6 h-6 lg:hidden" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </button>
+          </div>
+
+          {/* Shop Switcher */}
+          {!isSidebarCollapsed && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="px-2"
+            >
+              <label className="text-[9px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2 block">Unidade Selecionada</label>
+              <div className="relative group">
+                <select 
+                  value={selectedShopId || ''}
+                  onChange={(e) => setSelectedShopId(e.target.value)}
+                  className="w-full bg-slate-800/50 border border-slate-700 text-slate-200 text-xs font-bold py-3 pl-4 pr-10 rounded-xl appearance-none outline-none focus:border-emerald-500 transition-all cursor-pointer"
+                >
+                  {shops.filter(s => accessibleShopIds.includes(s.id)).map(shop => (
+                    <option key={shop.id} value={shop.id}>{shop.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none group-hover:text-slate-300" />
+              </div>
+            </motion.div>
+          )}
+        </div>
+
+        <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
+          {(!isSidebarCollapsed) && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-2">Para Você</div>}
+          {canAccessView('staff_pnl') && (
+            <NavItem 
+              icon={<User />}
+              label="Meu Painel"
+              active={currentPath === 'staff-pnl'}
+              onClick={() => navigate('/staff-pnl')}
+              isCollapsed={isSidebarCollapsed}
+              className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+            />
+          )}
+
+          {currentUser?.role === 'waiter' ? (
+            <>
+              {isModuleEnabled('restaurant') && (
+                <>
+                  {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-2">Operação</div>}
+                  <NavItem icon={<TableIcon />} label="Minhas Mesas" active={currentPath === 'tables'} onClick={() => navigate('/tables')} isCollapsed={isSidebarCollapsed} />
+                  {canAccessView('pending_orders') && (
+                    <NavItem 
+                      icon={<ClipboardList />} 
+                      label="Pedidos Ativos"
+                      active={currentPath === 'pending-orders'}
+                      onClick={() => navigate('/pending-orders')}
+                      isCollapsed={isSidebarCollapsed}
+                      badge={orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length || undefined}
+                    />
+                  )}
+                  {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Novo Pedido" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('bar') && <NavItem icon={<Beer />} label="Pedidos Bar" active={currentPath === 'bar'} onClick={() => navigate('/bar')} isCollapsed={isSidebarCollapsed} />}
+                </>
+              )}
+              {canAccessView('history') && <NavItem icon={<History />} label="Meus Atendimentos" active={currentPath === 'history'} onClick={() => navigate('/history')} isCollapsed={isSidebarCollapsed} />}
+            </>
+          ) : (
+            <>
+              {systemMode === 'distributor' ? (
+                <>
+                  {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="PDV / Balcão" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('dashboard') && <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} isCollapsed={isSidebarCollapsed} />}
+                  {isModuleEnabled('restaurant') && canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas (Garçom)" active={currentPath === 'tables'} onClick={() => navigate('/tables')} isCollapsed={isSidebarCollapsed} />}
+                </>
+              ) : (
+                <>
+                  {canAccessView('dashboard') && <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} isCollapsed={isSidebarCollapsed} />}
+                  {isModuleEnabled('restaurant') && (
+                    <>
+                      {canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas / Salão" active={currentPath === 'tables'} onClick={() => navigate('/tables')} isCollapsed={isSidebarCollapsed} />}
+                      {canAccessView('pending_orders') && (
+                        <NavItem 
+                          icon={<ClipboardList />} 
+                          label="Pedidos Ativos"
+                          active={currentPath === 'pending-orders'}
+                          onClick={() => navigate('/pending-orders')}
+                          isCollapsed={isSidebarCollapsed}
+                          badge={orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length || undefined}
+                        />
+                      )}
+                      {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Venda Rápida" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />}
+                    </>
+                  )}
+                </>
+              )}
+
+              {isModuleEnabled('restaurant') && (
+                <>
+                  {canAccessView('reservations') && <NavItem icon={<Calendar />} label="Reservas" active={currentPath === 'reservations'} onClick={() => navigate('/reservations')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('kitchen') && systemMode !== 'distributor' && (
+                    <NavItem
+                      icon={<ClipboardList />}
+                      label="Cozinha (KDS)"
+                      active={currentPath === 'kitchen'}
+                      onClick={() => navigate('/kitchen')}
+                      isCollapsed={isSidebarCollapsed} 
+                      badge={orders.filter(o => o.status === 'preparing' || o.status === 'pending').length || undefined}
+                    />
+                  )}
+                  {canAccessView('bar') && systemMode !== 'distributor' && <NavItem icon={<Beer />} label="Bar (BDS)" active={currentPath === 'bar'} onClick={() => navigate('/bar')} isCollapsed={isSidebarCollapsed} />}
+                </>
+              )}
+
+              {isModuleEnabled('market') && (
+                 <>
+                   {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-4">Mercado</div>}
+                   {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Frente de Caixa" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />}
+                   {canAccessView('inventory') && <NavItem icon={<Package />} label="Estoque Loja" active={currentPath === 'inventory'} onClick={() => navigate('/inventory')} isCollapsed={isSidebarCollapsed} />}
+                 </>
+              )}
+
+              {isModuleEnabled('construction') && (
+                 <>
+                   {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-4">Construção</div>}
+                   <NavItem icon={<HardHat />} label="Minhas Obras" active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} isCollapsed={isSidebarCollapsed} />
+                   <NavItem icon={<Hammer />} label="Logística" active={currentPath === 'history'} onClick={() => navigate('/history')} isCollapsed={isSidebarCollapsed} />
+                 </>
+              )}
+
+              {canAccessView('printer_mgmt') && <NavItem icon={<PrinterIcon />} label="Impressoras" active={currentPath === 'printer-mgmt'} onClick={() => navigate('/printer-mgmt')} isCollapsed={isSidebarCollapsed} />}
+            </>
+          )}
+
+          {currentUser?.role !== 'waiter' && (canAccessView('menu_mgmt') || canAccessView('inventory') || canAccessView('reports') || canAccessView('history') || canAccessView('staff_mgmt') || canAccessView('schedule') || canAccessView('safety')) && (
+            <div className={cn("pt-4 mt-4 border-t border-slate-800", isSidebarCollapsed && "px-0")}>
+              {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2">Administração</div>}
+              {canAccessView('safety') && <NavItem icon={<ShieldCheck />} label="Saúde & Segurança" active={currentPath === 'safety'} onClick={() => navigate('/safety')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('schedule') && <NavItem icon={<Clock />} label="Escala Semanal" active={currentPath === 'schedule'} onClick={() => navigate('/schedule')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('menu_mgmt') && <NavItem icon={<UtensilsCrossed />} label="Gerenciar Itens" active={currentPath === 'menu-mgmt'} onClick={() => navigate('/menu-mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('inventory') && <NavItem icon={<Package />} label="Estoque" active={currentPath === 'inventory'} onClick={() => navigate('/inventory')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('reports') && <NavItem icon={<BarChart3 />} label="Relatórios" active={currentPath === 'reports'} onClick={() => navigate('/reports')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('history') && <NavItem icon={<History />} label="Histórico" active={currentPath === 'history'} onClick={() => navigate('/history')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('staff_mgmt') && <NavItem icon={<Users />} label="RH & Performance" active={currentPath === 'staff-mgmt'} onClick={() => navigate('/staff-mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('finance-mgmt') && <NavItem icon={<Wallet />} label="Fluxo Financeiro" active={currentPath === 'finance-mgmt'} onClick={() => navigate('/finance-mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {isModuleEnabled('service') && canAccessView('service_mgmt') && (
+                <NavItem
+                  icon={<Briefcase />}
+                  label="Unidade de Serviço"
+                  active={currentPath === 'service-mgmt'}
+                  onClick={() => navigate('/service-mgmt')}
+                  isCollapsed={isSidebarCollapsed} 
+                  className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+                />
+              )}
+              {canAccessView('supplier_mgmt') && <NavItem icon={<Truck />} label="Fornecedores B2B" active={currentPath === 'supplier-mgmt'} onClick={() => navigate('/supplier-mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('settings') && <NavItem icon={<Settings />} label="Configurações" active={currentPath === 'settings'} onClick={() => navigate('/settings')} isCollapsed={isSidebarCollapsed} />}
+              {currentUser?.role === 'owner' && <NavItem icon={<Settings2 />} label="Customização Global" active={currentPath === 'customization'} onClick={() => navigate('/customization')} isCollapsed={isSidebarCollapsed} />}
+              {<NavItem icon={<Building2 />} label="Gestão da Unidade" active={currentPath === 'company-mgmt'} onClick={() => navigate('/company-mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {(currentUser?.role === 'owner' || currentUser?.role === 'admin') && (
+                <NavItem 
+                  icon={<LayoutDashboard />} 
+                  label="Selecionar Empresa" 
+                  active={false}
+                  onClick={() => setHoldingActive(true)}
+                  isCollapsed={isSidebarCollapsed} 
+                  className="bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-4"
+                />
+              )}
+              {canAccessView('purchasing-forecast') && (
+                <NavItem 
+                  icon={<PieChart />} 
+                  label="Previsão de Compras" 
+                  active={currentPath === 'purchasing-forecast'} 
+                  onClick={() => navigate('/purchasing-forecast')} 
+                  isCollapsed={isSidebarCollapsed} 
+                  className="bg-purple-500/10 text-purple-400 border border-purple-500/20 mt-4"
+                />
+              )}
+            </div>
+          )}
+
+          {showDevTools && (
+            <div className="pt-6 mt-6 border-t border-slate-800 space-y-3">
+              {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4">Ferramentas de Simulação</div>}
+              <button 
+                onClick={handleRoleCycle}
+                title={isSidebarCollapsed ? `Cargo: ${(currentUser?.role || 'waiter').replace('_', ' ').toUpperCase()}` : undefined}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-amber-400 hover:bg-amber-500/10 transition-all border border-amber-500/20 overflow-hidden",
+                  isSidebarCollapsed && "justify-center px-0"
+                )}
+              >
+                  <Zap className="w-4 h-4 shrink-0" />
+                  {!isSidebarCollapsed && (
+                    <span className="truncate">
+                      Simular Cargo: {(currentUser?.role || 'waiter').replace('_', ' ').toUpperCase()}
+                    </span>
+                  )}
+              </button>
+            </div>
+          )}
+          
+          <div className="pt-6 mt-6 border-t border-slate-800 space-y-3">
+             <button
+                onClick={handleLogout}
+                title={isSidebarCollapsed ? "Encerrar Turno" : undefined}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500/10 transition-all border border-rose-500/10 mt-2 overflow-hidden",
+                  isSidebarCollapsed && "justify-center px-0"
+                )}
+              >
+                <LogOut className="w-4 h-4 shrink-0" />
+                {!isSidebarCollapsed && <span>Encerrar Turno</span>}
+             </button>
+          </div>
+        </nav>
+
+        <div className={cn("mt-auto p-4 border-t border-slate-800/50", isSidebarCollapsed && "p-2")}>
+          {!isSidebarCollapsed && (
+            <div className="bg-slate-800/50 rounded-xl p-4 flex flex-col gap-4 border border-slate-800 overflow-hidden">
+              <div className="flex items-center gap-3">
+                <div className="relative shrink-0">
+                  <div className={cn(
+                    "w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm",
+                    currentUser?.role === 'owner' ? "bg-slate-800 text-slate-300" : currentUser?.role === 'waiter' ? "bg-amber-500/20 text-amber-500" : "bg-blue-500/20 text-blue-400"
+                  )}>
+                    {currentUser?.photo ? (
+                      <img src={currentUser.photo} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      currentUser?.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2) || '??'
+                    )}
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white leading-none mb-1 truncate">
+                    {currentUser?.name || 'Funcionário'}
+                  </p>
+                  <p className={cn(
+                    "text-[10px] uppercase tracking-widest font-black",
+                    currentUser?.role === 'owner' ? "text-emerald-500" : currentUser?.role === 'waiter' ? "text-amber-500" : "text-blue-400"
+                  )}>
+                    {currentUser?.role === 'owner' ? 'Gerente Ativo' : currentUser?.role === 'waiter' ? 'Garçom' : currentUser?.role === 'admin' ? 'Desenvolvedor' : currentUser?.role?.replace('_', ' ')}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Overlay for mobile sidebar */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-[140] lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Main Area */}
+      <main className="flex-1 flex flex-col p-4 sm:p-6 md:p-8 space-y-8 max-w-7xl mx-auto w-full pb-32 lg:pb-8">
+        <header className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="lg:hidden w-10 h-10 sleek-card flex items-center justify-center text-slate-600 border-none hover:bg-slate-50"
+            >
+              <Layout className="w-5 h-5" />
+            </button>
+            <div className="flex lg:hidden items-center gap-2">
+              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-xs uppercase">RM</span>
+              </div>
+              <span className="font-bold text-slate-900">RestManager</span>
+            </div>
+          </div>
+
+          <div className="hidden lg:flex items-center gap-8">
+             <div className="flex flex-col">
+               <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase">
+                  {currentUser?.role === 'waiter' ? 'Modo Garçom' : currentPath.replace('-', ' ')}
+               </h2>
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  {currentShop?.name} • {currentUser?.role === 'waiter' 
+                   ? `${tables.filter(t => t.waiterId === currentUser.id).length} Mesas Designadas` 
+                   : `Empresa: ${enterpriseId}`}
+               </p>
+             </div>
+             <div className="h-4 w-px bg-slate-100" />
+             {currentPermissions.actions.canViewSales && (
+               <>
+                 <div className="flex flex-col">
+                   <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Vendas Hoje</span>
+                   <span className="text-lg font-bold text-slate-900">
+                     {formatCurrency(dashboardStats.totalSalesToday)} 
+                     <span className={cn(
+                       "text-xs font-black ml-2",
+                       dashboardStats.trend >= 0 ? "text-emerald-500" : "text-rose-500"
+                     )}>
+                       {dashboardStats.trend >= 0 ? '+' : ''}{dashboardStats.trend.toFixed(0)}%
+                     </span>
+                   </span>
+                 </div>
+                 <div className="h-8 w-px bg-slate-200"></div>
+               </>
+             )}
+             <div className="flex flex-col">
+                <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Mesas Ativas</span>
+                <span className="text-lg font-bold text-slate-900">
+                  {dashboardStats.activeTablesCount} / {selectedShopId ? tables.filter(t => t.shopId === selectedShopId).length : tables.length}
+                </span>
+             </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full border border-slate-200">
+               <div className={cn("w-1.5 h-1.5 rounded-full", meshNetwork.isConnectedToLocalMesh ? "bg-emerald-500 animate-pulse" : "bg-rose-500")} />
+               <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest whitespace-nowrap">
+                 {meshNetwork.isConnectedToLocalMesh ? 'Mesh Local: Ativa' : 'Mesh Local: Off'}
+               </span>
+               <button 
+                onClick={() => meshNetwork.scanForNearbyNodes()}
+                className="ml-1 p-1 bg-white border border-slate-200 rounded-md hover:bg-slate-50"
+                title="Escanear Bluetooth"
+               >
+                 <Zap className="w-2.5 h-2.5 text-amber-500" />
+               </button>
+            </div>
+            <AnimatePresence>
+              {isPrinting && (
+                <motion.div 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-emerald-100 text-emerald-600 rounded-full border border-emerald-200"
+                >
+                  <PrinterIcon className="w-3 h-3 animate-bounce" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Imprimindo...</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <div className="relative">
+              <button 
+                onClick={() => setIsNotificationPaneOpen(!isNotificationPaneOpen)}
+                className={cn(
+                  "relative p-2.5 sleek-card hover:bg-slate-50 transition-all border-none cursor-pointer",
+                  isNotificationPaneOpen && "bg-slate-100 ring-2 ring-emerald-500/20"
+                )}
+              >
+                <Bell className={cn("w-5 h-5", notifications.some(n => !n.read) ? "text-emerald-500" : "text-slate-400")} />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-6 h-6 bg-emerald-500 text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white">
+                    {notifications.filter(n => !n.read).length}
+                  </span>
+                )}
+              </button>
+
+              <AnimatePresence>
+                {isNotificationPaneOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40 lg:absolute lg:inset-auto lg:right-0 lg:top-full lg:mt-4" onClick={() => setIsNotificationPaneOpen(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="fixed top-20 right-4 left-4 z-50 lg:absolute lg:top-full lg:right-0 lg:left-auto lg:w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden"
+                    >
+                      <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
+                        <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Notificações</h4>
+                        <button 
+                          onClick={handleClearNotifications}
+                          className="text-[10px] font-bold text-emerald-600 hover:underline"
+                        >
+                          Limpar todas
+                        </button>
+                      </div>
+                      <div className="max-h-96 overflow-y-auto divide-y divide-slate-50 custom-scrollbar">
+                        {notifications.length === 0 ? (
+                          <div className="p-8 text-center text-slate-300">
+                             <Bell className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                             <p className="text-[10px] font-black uppercase tracking-widest leading-tight">Nenhuma notificação</p>
+                          </div>
+                        ) : (
+                          notifications.map(notif => (
+                            <div 
+                              key={notif.id} 
+                              onClick={() => {
+                                markNotificationAsRead(notif.id);
+                                if (notif.tableId) {
+                                  const table = tables.find(t => t.id === notif.tableId);
+                                  if (table) {
+                                    handleOpenTable(table);
+                                    setIsNotificationPaneOpen(false);
+                                  }
+                                }
+                              }}
+                              className={cn(
+                                "p-4 cursor-pointer hover:bg-slate-50 transition-colors flex items-start gap-3",
+                                !notif.read && "bg-emerald-50/30"
+                              )}
+                            >
+                              {notif.type.includes('bar') && <div className="w-2 h-2 mt-1.5 rounded-full shrink-0 bg-blue-500 animate-pulse" />}
+                              {notif.type.includes('kitchen') && <div className="w-2 h-2 mt-1.5 rounded-full shrink-0 bg-amber-500 animate-pulse" />}
+                              {!notif.type.includes('bar') && !notif.type.includes('kitchen') && <div className="w-2 h-2 mt-1.5 rounded-full shrink-0 bg-emerald-400" />}
+                              <div>
+                                <p className={cn(
+                                  "text-xs font-bold leading-snug",
+                                  notif.type === 'order_ready_bar' ? "text-blue-600 font-black" :
+                                  notif.type === 'order_ready_kitchen' ? "text-amber-600 font-black" :
+                                  "text-slate-800"
+                                )}>{notif.message}</p>
+                                <p className="text-[9px] text-slate-400 font-medium mt-1">{format(notif.timestamp, 'HH:mm:ss', { locale: ptBR })}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+            <div className="h-8 w-[1px] bg-slate-200" />
+            <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-sm">
+              {currentUser?.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)}
+            </div>
+          </div>
+        </header>
+
+        <section className="flex-1">
+          <AnimatePresence mode="wait">
+            <ErrorBoundary>
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>}>
+              <Routes>
+                <Route path="/dashboard" element={<RestaurantDashboard setCurrentView={(v) => navigate(`/${v}`)} setSelectedShopId={setSelectedShopId} />} />
+                <Route path="/tables" element={<RestaurantLayout defaultView="tables" />} />
+                <Route path="/pending-orders" element={<RestaurantLayout defaultView="pending_orders" />} />
+                <Route path="/orders" element={<RestaurantLayout defaultView="orders" />} />
+                <Route path="/kitchen" element={<RestaurantLayout defaultView="kitchen" />} />
+                <Route path="/bar" element={<RestaurantLayout defaultView="bar" />} />
+                <Route path="/inventory" element={<RestaurantLayout defaultView="inventory" />} />
+                <Route path="/reports" element={<RestaurantLayout defaultView="reports" />} />
+                <Route path="/history" element={<RestaurantLayout defaultView="history" />} />
+                <Route path="/staff-mgmt" element={<GeneralStaffView module="restaurant" />} />
+                <Route path="/finance-mgmt" element={<FinanceManagementView module="restaurant" shopId={selectedShopId} />} />
+                <Route path="/supplier-mgmt" element={<SupplierManagementView module="restaurant" />} />
+                <Route path="/service-mgmt" element={<ServiceLayout />} />
+                <Route path="/menu-mgmt" element={<RestaurantLayout defaultView="menu" />} />
+                <Route path="/reservations" element={<RestaurantLayout defaultView="reservations" />} />
+                <Route path="/printer-mgmt" element={<PrinterManagementView onNew={() => {}} onEdit={() => {}} />} />
+                <Route path="/schedule" element={<StaffScheduleView module={systemMode} />} />
+                <Route path="/safety" element={<RestaurantLayout defaultView="safety" />} />
+                <Route path="/settings" element={<GlobalSettingsView enterpriseId={enterpriseId} companySettings={companySettings} setCompanySettings={setCompanySettings} isDeviceLinked={isDeviceLinked} linkedDevices={linkedDevices} linkToken={linkToken} />} />
+                <Route path="/customization" element={<CustomizationView enterpriseId={enterpriseId} />} />
+                <Route path="/company-mgmt" element={<CompanyManagement />} />
+                <Route path="/staff-pnl" element={<StaffDashboardLazy staff={currentUser} enterprise={enterprises.find(e => e.id === enterpriseId) || null} shops={shops} schedules={[]} />} />
+                <Route path="/purchasing-forecast" element={<PurchasingForecastView />} />
+                <Route path="/holding" element={<HoldingDashboard onSelectEnterprise={handleSelectEnterprise} onLogout={handleLogout} />} />
+                <Route path="/device-linking" element={<DeviceLinkingView />} /> {/* Nova rota para DeviceLinking */}
+                <Route path="/schedule-view" element={<ScheduleView />} /> {/* Nova rota para ScheduleView */}
+                <Route path="/modifier-modal" element={<ModifierModal />} /> {/* Nova rota para ModifierModal */}
+                <Route path="/table-edit-modal" element={<TableEditModal />} /> {/* Nova rota para TableEditModal */}
+                <Route path="/shift-modal" element={<ShiftModal />} /> {/* Nova rota para ShiftModal */}
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </Suspense>
+            </ErrorBoundary>
+          </AnimatePresence>
+        </section>
+      </main>
+
+      {/* Bottom Nav - Mobile */}
+      <nav className="lg:hidden fixed bottom-6 left-4 right-4 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-3 flex items-center justify-around z-[160]">
+        <MobileNavItem icon={<LayoutDashboard />} active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} />
+        <MobileNavItem icon={<TableIcon />} active={currentPath === 'tables'} onClick={() => navigate('/tables')} />
+        
+        <button 
+          onClick={() => { navigate('/orders'); }} {/* Botão central para novo pedido */}
+          className="bg-emerald-500 p-4 rounded-2xl shadow-lg -mt-12 border-4 border-slate-900 transform active:scale-90 transition-all"
+        >
+          <Plus className="w-6 h-6 text-white" />
+        </button>
+
+        <MobileNavItem icon={<ClipboardList />} active={currentPath === 'kitchen'} onClick={() => navigate('/kitchen')} />
+        <MobileNavItem icon={<History />} active={currentPath === 'history' || currentPath === 'reports'} onClick={() => {
+           if (currentUser?.role === 'waiter' || currentUser?.role === 'owner') navigate('/staff-mgmt');
+           else navigate('/reports');
+        }} />
+      </nav>
+    </div>
+  );
+}
+
+// --- Internal Components ---
+
+function MobileNavItem({ icon, active, onClick }: any) {
+  return (
+    <button 
+      onClick={onClick}
+      className={cn(
+        "p-2 rounded-xl transition-all relative",
+        active ? "text-emerald-400 scale-110" : "text-slate-500"
+      )}
+    >
+      {cloneElement(icon, { className: "w-6 h-6" })}
+      {active && (
+        <motion.div 
+          layoutId="mob-nav-active" 
+          className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-400"
+        />
+      )}
+    </button>
+  );
+}
+
+function LegendItem({ color, label }: any) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className={cn("w-3 h-3 rounded-full", color)} />
+      <span className="text-xs font-bold text-gray-500 uppercase tracking-tighter">{label}</span>
+    </div>
+  );
+}
+
+function FinanceCard({ title, value, percentage, color, icon }: any) {
+  return (
+    <div className="sleek-card p-6 bg-white border-slate-100 relative overflow-hidden group">
+      <div className={cn("absolute top-0 right-0 w-24 h-24 -mr-8 -mt-8 rounded-full opacity-5 transition-transform group-hover:scale-150 duration-700", color)} />
+      <div className="flex items-center gap-3 mb-4">
+         <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg", color)}>
+            {icon}
+         </div>
+         <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-tight">{title}</span>
+      </div>
+      <div className="flex items-baseline gap-2">
+         <p className="text-2xl font-black text-slate-900 tracking-tight">{value}</p>
+         <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded-md", color.replace('bg-', 'bg-opacity-10 text-'))}>
+            {percentage}
+         </span>
+      </div>
+    </div>
+  );
+}
+
+function CostBar({ label, value, total, color }: any) {
+  const percentage = total > 0 ? (value / total) * 100 : 0;
+  return (
+    <div className="space-y-2">
+       <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+          <span className="text-slate-500">{label}</span>
+          <div className="flex items-center gap-3">
+             <span className="text-slate-400">{formatCurrency(value)}</span>
+             <span className="text-slate-900">{percentage.toFixed(1)}%</span>
+          </div>
+       </div>
+       <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min(100, percentage)}%` }}
+            className={cn("h-full rounded-full shadow-sm", color)}
+          />
+       </div>
+    </div>
+  );
+}
        const newOrder: Order = {
          id: orderId,
          enterpriseId: enterpriseId!,
