@@ -43,6 +43,7 @@
         "image": { "type": "string" },
         "active": { "type": "boolean" },
         "ingredients": { "type": "object" }
+        "composition": { "type": "array", "items": { "type": "object", "properties": { "productId": { "type": "string" }, "quantity": { "type": "number" } } } }
       },
       "required": ["id", "shopId", "name", "price", "category", "active"]
     },
@@ -92,7 +93,8 @@
         "currentStock": { "type": "number" },
         "unit": { "type": "string" },
         "minStock": { "type": "number" },
-        "costPerUnit": { "type": "number" }
+        "costPerUnit": { "type": "number" },
+        "yieldFactor": { "type": "number" }
       },
       "required": ["id", "shopId", "name", "currentStock", "unit"]
     },

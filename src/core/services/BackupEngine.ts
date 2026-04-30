@@ -26,16 +26,14 @@ export class BackupEngine {
    * Utiliza compressão de string baseada em dicionário local.
    */
   private static compress(data: any): string {
-    const str = JSON.stringify(data);
-    // TODO: Substituir btoa por compressão LZW real (ex: lz-string) para reduzir tráfego Drive.
-    // O Base64 atual aumenta o payload em 33%.
-    const encoded = btoa(unescape(encodeURIComponent(str)));
-    return encoded;
+    // Placeholder para lz-string ou similar. 
+    // Por enquanto, apenas stringify puro para evitar o overhead de 33% do btoa
+    // que não estava comprimindo de fato.
+    return JSON.stringify(data);
   }
 
   private static decompress(data: string): any {
-    const str = decodeURIComponent(escape(atob(data)));
-    return JSON.parse(str);
+    return JSON.parse(data);
   }
 
   private static getSigningKey(): string {

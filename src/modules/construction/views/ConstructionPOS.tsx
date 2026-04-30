@@ -13,6 +13,7 @@ import { cashierEngine, CashierSession } from '../../../core/services/CashierEng
 import { paymentReconciliationEngine } from '../../../core/services/PaymentReconciliationEngine';
 import { businessHoursEngine } from '../../../core/services/BusinessHoursEngine';
 import { constructionLogisticsService } from '../services/ConstructionLogisticsService';
+import { idGenerator } from '../../../core/utils/idGenerator';
 import { RetailPOS } from '../../retail/views/RetailPOS';
 import { useCollection } from '../../../hooks/useCollection';
 import { BusinessConfig, Order } from '../../../types';
@@ -88,12 +89,12 @@ export const ConstructionPOS: React.FC = () => {
       module: 'construction',
       onSuccess: async (payments) => {
         try {
-          // Lógica: Geração de ID com entropia para evitar colisões em sync P2P
-          const saleId = `cs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          // Unificação da geração de ID via central utility
+          const saleId = idGenerator.generate('cs');
 
           for (const p of payments) {
             if (p.transactionId) {
-              const transactionId = `tr_${saleId}_${p.method}`;
+              const transactionId = idGenerator.generate('tr');
               await paymentReconciliationEngine.registerPayment({
                 id: transactionId,
                 saleId: saleId,

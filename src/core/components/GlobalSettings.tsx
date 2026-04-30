@@ -25,8 +25,8 @@ import {
   Calendar,
   Map as MapIcon,
   MessageSquare
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+} from 'lucide-react'; 
+import { motion, AnimatePresence } from 'motion/react';
 import { accountService } from '../services/accountService';
 import { cn } from '../../lib/utils';
 import { useCollection } from '../../hooks/useCollection';
@@ -104,7 +104,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
         setCustomLogo((company as any)?.branding?.logo || '');
         setCustomName((company as any)?.branding?.customName || '');
         // Simulação de verificação de provedor vinculado
-        setIsGoogleLinked(user?.email?.includes('gmail.com') || false); 
+        setIsGoogleLinked(user?.providerData?.some(p => p.providerId === 'google.com') || false); // Verificação mais robusta
       }
     };
     loadConfig();

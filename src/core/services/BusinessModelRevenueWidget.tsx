@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { TrendingUp, Wallet } from 'lucide-react';
-import { useCollection } from '../../hooks/useCollection';
+import { useCollection } from '../../hooks/useCollection'; // Auditoria: useCollection para Staff e Orders
 import { accountService } from '../services/accountService';
 import { formatCurrency, cn } from '../../lib/utils';
 import { Order, Staff } from '../../types';
@@ -19,26 +19,26 @@ const BusinessModelRevenueWidget: React.FC = () => {
     // 1. Receita de Aluguéis (Taxas fixas cobradas dos profissionais)
     staff.forEach(member => {
       if (member.businessModel === 'rental' || member.businessModel === 'hybrid') {
-        rentalRevenue += (member as any).serviceConfig?.rentalFee || 0;
+        rentalRevenue += member.serviceConfig?.rentalFee || 0; // serviceConfig deve ser parte do tipo Staff
       }
       if (member.businessModel === 'freelancer') {
         // Freelancers geralmente não pagam taxa fixa, mas podemos rastrear se houver uma taxa de agenciamento
       }
     });
 
-    // 2. Margem de Comissões (O que sobra para a empresa após pagar o staff)
+    // 2. Margem de Comissões (O que sobra para a empresa após pagar o staff) - Auditoria: Ajustar para usar item.cost
     orders.forEach(order => {
       const orderStaff = staff.find(s => s.id === order.staffId);
       if (!orderStaff || orderStaff.businessModel === 'rental') return;
 
-      const config = (orderStaff as any).serviceConfig || { serviceRate: 50, productRate: 10 };
+      const config = orderStaff.serviceConfig || { serviceRate: 50, productRate: 10 };
       
-      order.items.forEach((item: any) => {
+      order.items.forEach(item => {
         if (item.status === 'voided') return;
         
-        const isService = item.type === 'service';
+        const isService = item.category === 'service';
         const rate = isService ? config.serviceRate : config.productRate;
-        const materialCost = Number(item.unitCost || 0) * item.quantity;
+        const materialCost = Number(item.cost || 0) * item.quantity; // Usar item.cost
         
         // Parte do profissional
         const proCommission = Math.max(0, ((item.price * item.quantity) - materialCost) * (rate / 100));

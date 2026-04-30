@@ -1,4 +1,5 @@
 import type { ThirdPartyProvider, ThirdPartyProviderConfig } from '../../../types';
+import { logger } from '../../../core/services/logger';
 
 export interface SendOrderDecisionInput {
   provider: ThirdPartyProvider;
@@ -113,7 +114,7 @@ export class ThirdPartyConnectorGateway {
         ? `Falha no gateway ${input.provider} (${response.status}): ${body}`
         : `Não foi possível processar a decisão com o parceiro logístico (${input.provider}).`;
       
-      console.error('ThirdParty Gateway Error:', { status: response.status, body });
+      logger.error('integration', 'Falha na decisão de pedido externo', { provider: input.provider, status: response.status, body });
       throw new Error(errorMsg);
     }
   }
@@ -155,7 +156,7 @@ export class ThirdPartyConnectorGateway {
         ? `Falha no sync de ${input.type} (${response.status}): ${body}`
         : `Ocorreu uma falha na sincronização de ${input.type === 'menu' ? 'cardápio' : 'estoque'} com o parceiro ${input.provider}.`;
       
-      console.error('ThirdParty Sync Error:', { provider: input.provider, type: input.type, status: response.status });
+      logger.error('integration', 'Falha no sincronismo de catálogo', { provider: input.provider, type: input.type, status: response.status });
       throw new Error(errorMsg);
     }
   }

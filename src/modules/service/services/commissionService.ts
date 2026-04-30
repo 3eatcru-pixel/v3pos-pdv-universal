@@ -1,48 +1,64 @@
-import { ServiceAppointment, ServiceProvider, ServiceDefinition } from '../types';
+import { Order, ServiceProvider, ServiceDefinition, ItemModifier } from '../types'; // Importar ItemModifier
 
 class CommissionService {
   /**
-   * Calculates the commission earned by a given provider over a set of completed appointments.
-   * Assumes appointment `totalPrice` reflects the price charged.
+   * Calcula a comissão ganha por um provedor com base em pedidos (Orders) pagos.
+   * Agora olha para os itens da venda para identificar taxas customizadas.
    */
   public calculateProviderCommissions(
     provider: ServiceProvider,
-    appointments: ServiceAppointment[],
+    orders: Order[],
     services: ServiceDefinition[]
   ): number {
     let totalCommission = 0;
 
-    for (const app of appointments) {
-      // Only compute completed services
-      if (app.status !== 'completed') continue;
-      
-      // Basic flat rate calculation
-      const earningsForService = (app.totalPrice * provider.commissionRate) / 100;
-      totalCommission += earningsForService;
+    // Otimização: Transforma lista de serviços em Map para busca O(1)
+    const serviceMap = new Map(services.map(s => [s.id, s]));
 
-      // In the future: complex commission per service category, bonuses, etc.
+    for (const order of orders) {
+      // Apenas computa ordens pagas ou concluídas
+      if (order.status !== 'paid' && order.status !== 'completed') continue;
+      if (order.total <= 0) continue;
+      
+      for (const item of order.items) {
+        // Tenta encontrar a definição do serviço para verificar taxas específicas
+        const serviceDef = serviceMap.get(item.productId);
+        
+        // Ordem de precedência: Taxa do Serviço > Taxa do Profissional
+        const activeRate = serviceDef?.customCommissionRate ?? provider.commissionRate; // customCommissionRate deve ser adicionado ao tipo ServiceDefinition
+
+        totalCommission += (item.price * item.quantity * activeRate) / 100;
+      }
     }
 
     return totalCommission;
   }
 
   /**
-   * Return array of commission reports per provider
+   * Gera o relatório consolidado da empresa agrupando ordens por profissional.
    */
   public generateEnterpriseReport(
     providers: ServiceProvider[],
-    appointments: ServiceAppointment[],
+    orders: Order[],
     services: ServiceDefinition[]
   ) {
+    // Agrupamento O(n) usando staffId presente na Order
+    const ordersByProvider = orders.reduce((acc, order) => {
+      const providerId = order.staffId || 'unassigned';
+      if (!acc[providerId]) acc[providerId] = [];
+      acc[providerId].push(order);
+      return acc;
+    }, {} as Record<string, Order[]>);
+
     return providers.map(p => {
-      const pAppts = appointments.filter(a => a.providerId === p.id);
-      const commission = this.calculateProviderCommissions(p, pAppts, services);
-      const totalSales = pAppts.filter(a => a.status === 'completed').reduce((sum, a) => sum + a.totalPrice, 0);
+      const pOrders = ordersByProvider[p.id] || [];
+      const commission = this.calculateProviderCommissions(p, pOrders, services);
+      const totalSales = pOrders.reduce((sum, o) => sum + o.total, 0);
 
       return {
         providerId: p.id,
         providerName: p.name,
-        appointmentsHandled: pAppts.length,
+        ordersHandled: pOrders.length,
         totalSales,
         commissionEarned: commission
       };

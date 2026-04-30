@@ -1,5 +1,6 @@
 import { firebaseService } from '../../services/firebaseService';
 import { logger } from './logger';
+import { idGenerator } from '../utils/idGenerator';
 import type { Shift } from '../../types';
 
 interface SaveShiftParams {
@@ -37,11 +38,14 @@ export class ShiftEngine {
   }
 
   static async saveShift(params: SaveShiftParams): Promise<Shift> {
+    const entId = params.enterpriseId || params.editingShift?.enterpriseId;
+    if (!entId) throw new Error('enterprise_context_missing');
+
     const isValid = await this.validateShiftConflict(
-      params.enterpriseId || 'default', 
-      params.staffId, 
-      params.startTime, 
-      params.endTime, 
+      entId,
+      params.staffId,
+      params.startTime,
+      params.endTime,
       params.editingShift?.id
     );
 
@@ -50,10 +54,7 @@ export class ShiftEngine {
       throw new Error('shift_conflict_detected');
     }
 
-    const entropy = Math.random().toString(36).slice(2, 7);
-    const safeId = `shift-${Date.now()}-${entropy}`;
-    
-    const shiftId = params.editingShift?.id || safeId;
+    const shiftId = params.editingShift?.id || idGenerator.generate('shift');
     const resolvedShopId = params.selectedShopId || params.editingShift?.shopId;
     if (!resolvedShopId) {
       throw new Error('shop_context_missing');

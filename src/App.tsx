@@ -1,22 +1,24 @@
-import { StaffScheduleView } from './core/views/StaffScheduleView';
-import { GeneralStaffView } from './core/views/GeneralStaffView';
-import { RestaurantEmployees } from './modules/restaurant/views/RestaurantEmployees';
-import { FinanceManagementView } from './core/views/FinanceManagementView';
-import { SupplierManagementView } from './core/views/SupplierManagementView';
-import { RestaurantLayout } from './modules/restaurant/views/RestaurantLayout';
-import { RestaurantDashboard } from './modules/restaurant/views/RestaurantDashboard';
-import { CompanyManagement } from './core/views/CompanyManagement';
-import { ServiceLayout } from './modules/service/views/ServiceLayout';
-import { DashboardView } from './core/views/DashboardView';
-import { GlobalSettingsView, CustomizationView } from './core/views/GlobalSettingsView';
-import { PrinterManagementView } from './core/views/PrinterManagementView';
+import React, { useState, useMemo, useEffect, cloneElement, Suspense, lazy } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
+
+// Lazy Loading de Módulos para otimização de Bundle
+const RestaurantDashboard = lazy(() => import('./modules/restaurant/views/RestaurantDashboard').then(m => ({ default: m.RestaurantDashboard })));
+const RestaurantLayout = lazy(() => import('./modules/restaurant/views/RestaurantLayout').then(m => ({ default: m.RestaurantLayout })));
+const ServiceLayout = lazy(() => import('./modules/service/views/ServiceLayout').then(m => ({ default: m.ServiceLayout })));
+const GeneralStaffView = lazy(() => import('./core/views/GeneralStaffView').then(m => ({ default: m.GeneralStaffView })));
+const FinanceManagementView = lazy(() => import('./core/views/FinanceManagementView').then(m => ({ default: m.FinanceManagementView })));
+const SupplierManagementView = lazy(() => import('./core/views/SupplierManagementView').then(m => ({ default: m.SupplierManagementView })));
+const StaffScheduleView = lazy(() => import('./core/views/StaffScheduleView').then(m => ({ default: m.StaffScheduleView })));
+const GlobalSettingsView = lazy(() => import('./core/views/GlobalSettingsView').then(m => ({ default: m.GlobalSettingsView })));
+const CustomizationView = lazy(() => import('./core/views/GlobalSettingsView').then(m => ({ default: m.CustomizationView })));
+const CompanyManagement = lazy(() => import('./core/views/CompanyManagement').then(m => ({ default: m.CompanyManagement })));
+const PrinterManagementView = lazy(() => import('./core/views/PrinterManagementView').then(m => ({ default: m.PrinterManagementView })));
 
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useMemo, useEffect, cloneElement } from 'react';
 import { 
   LayoutDashboard, 
   Layout,
@@ -50,7 +52,6 @@ import {
   CreditCard,
   Smartphone,
   Banknote,
-  ArrowLeftRight,
   Calendar,
   Image as ImageIcon,
   Cloud,
@@ -88,18 +89,10 @@ import {
   PieChart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell
-} from 'recharts';
+import { // Recharts imports moved to specific components
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, Cell
+} from 'recharts'; 
 import { format, startOfWeek, addDays, isSameDay, eachDayOfInterval, endOfWeek, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { QRCodeSVG } from 'qrcode.react';
@@ -155,17 +148,20 @@ import { db } from './firebase';
 import { ensureFirebaseSession } from './services/authSession';
 import { useCollection } from './hooks/useCollection';
 import { accountService } from './core/services/accountService';
+import { idGenerator } from './core/utils/idGenerator';
 import { ShiftEngine } from './core/services/ShiftEngine';
-import { LoginView } from './core/views/LoginView';
-
 import { HoldingDashboard } from './core/views/HoldingDashboard';
-import { StaffDashboard } from './core/views/StaffDashboard';
 
 // --- State Management ---
 
 import { meshNetwork } from './services/p2pSync';
 import { dbLocal } from './services/db';
+import { LoginView } from './core/views/LoginView'; // Import LoginView
 import { integrationLayer } from './integration/integrationLayer';
+import { ThemeProvider } from './core/contexts/ThemeContext';
+import { registerServiceWorker } from './services/swRegistration';
+import { ErrorBoundary } from './core/components/ErrorBoundary';
+import { ErrorBoundary } from './core/components/ErrorBoundary';
 
 export default function App() {
   const [enterpriseId, setEnterpriseId] = useState<string | null>(() => {
@@ -209,11 +205,8 @@ export default function App() {
       email: globalUser.email,
     } as Staff;
   });
-  const [currentView, setCurrentView] = useState<View>(() => {
-    const saved = localStorage.getItem('rm_current_view') as View;
-    if (saved && saved !== 'holding') return saved;
-    return 'dashboard';
-  });
+  // O estado currentView foi removido em favor das rotas do React Router
+  
   const [holdingActive, setHoldingActive] = useState<boolean>(() => {
     // If we have a user but no enterprise selected yet, show holding
     const hasUser = !!accountService.getCurrentUser();
@@ -230,11 +223,11 @@ export default function App() {
   const { data: shifts, setData: setShifts } = useCollection<Shift>('shifts');
   const { data: reservations, setData: setReservations } = useCollection<Reservation>('reservations');
   const { data: printers, setData: setPrinters } = useCollection<Printer>('printers');
-  const { data: incidentReports, setData: setIncidentReports } = useCollection<IncidentReport>('incidentReports');
   const { data: notifications, setData: setNotifications } = useCollection<AppNotification>('notifications');
   const { data: rolePermissions, setData: setRolePermissions } = useCollection<RolePermissions>('rolePermissions');
   const { data: businessConfigs, setData: setBusinessConfigs } = useCollection<BusinessConfig>('businessConfigs');
-  const { data: staffSchedules, setData: setStaffSchedules } = useCollection<StaffSchedule>('staffSchedules');
+  // incidentReports e staffSchedules agora são carregados apenas dentro de suas respectivas Views (Lazy)
+  
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [customizationTab, setCustomizationTab] = useState<'modules' | 'roles' | 'workflows' | 'fields' | 'schedule'>('modules');
@@ -276,6 +269,10 @@ export default function App() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    registerServiceWorker();
   }, []);
 
   useEffect(() => {
@@ -336,10 +333,6 @@ export default function App() {
       console.warn('Falha ao migrar staff legado para auth global', error);
     }
   }, [enterpriseId, staff]);
-
-  useEffect(() => {
-    localStorage.setItem('rm_current_view', currentView);
-  }, [currentView]);
 
   const handleSelectEnterprise = (id: string) => {
     setEnterpriseId(id);
@@ -459,7 +452,6 @@ export default function App() {
   const filteredProducts = useMemo(() => products.filter(p => p.shopId === (selectedShopId || 'shop-1')), [products, selectedShopId]);
   const filteredOrders = useMemo(() => {
     let result = orders.filter(o => o.shopId === (selectedShopId || 'shop-1'));
-    if (currentUser?.role === 'waiter') {
       const myTableIds = tables.filter(t => t.waiterId === currentUser.id).map(t => t.id);
       result = result.filter(o => o.staffId === currentUser.id || (o.tableId && myTableIds.includes(o.tableId)));
     }
@@ -468,7 +460,6 @@ export default function App() {
   const filteredInventory = useMemo(() => inventory.filter(i => i.shopId === (selectedShopId || 'shop-1')), [inventory, selectedShopId]);
   const filteredShifts = useMemo(() => shifts.filter(s => s.shopId === (selectedShopId || 'shop-1')), [shifts, selectedShopId]);
   const filteredReservations = useMemo(() => reservations.filter(r => r.shopId === (selectedShopId || 'shop-1')), [reservations, selectedShopId]);
-  const filteredIncidentReports = useMemo(() => incidentReports.filter(i => i.shopId === (selectedShopId || 'shop-1')), [incidentReports, selectedShopId]);
   const filteredPrinters = useMemo(() => printers.filter(p => p.shopId === (selectedShopId || 'shop-1')), [printers, selectedShopId]);
 
   const [isTableListView, setIsTableListView] = useState(false);
@@ -549,9 +540,9 @@ export default function App() {
 
 
   const handleLogout = () => {
-    accountService.logout();
-    setCurrentUser(null);
-    setCurrentView('dashboard');
+    accountService.logout(); // Isso já recarrega a página, então setCurrentUser e setCurrentView são redundantes
+    // setCurrentUser(null); // Removido
+    // setCurrentView('dashboard'); // Removido
   };
 
   const handleAddArea = () => {
@@ -716,7 +707,7 @@ export default function App() {
   const handleOpenTable = async (table: Table) => {
     if (table.status === 'free' || table.status === 'reserved') {
       const waiterId = currentUser?.id || 'a1';
-      const orderId = `ord-${Math.random().toString(36).substr(2, 9)}`;
+      const orderId = idGenerator.generate('ord');
       
       const orderData: Order = {
         id: orderId,
@@ -736,14 +727,14 @@ export default function App() {
       await firebaseService.saveItem('orders', orderId, orderData);
       await firebaseService.updateTableStatus(table.id, 'occupied', orderId);
       
-      setSelectedTable({ ...table, status: 'occupied', currentOrderId: orderId });
+      setSelectedTable({ ...table, status: 'occupied', currentOrderId: orderId }); // Atualiza estado local da mesa
       setCart([]);
-      setCurrentView('orders');
+      navigate('/orders'); // Navega para a tela de pedidos
     } else {
       setSelectedTable(table);
       const existingOrder = orders.find(o => o.tableId === table.id && o.status !== 'delivered');
       setCart(existingOrder ? existingOrder.items : []);
-      setCurrentView('orders');
+      navigate('/orders'); // Navega para a tela de pedidos
     }
   };
 
@@ -996,10 +987,10 @@ export default function App() {
       const today = startOfDay(new Date()).getTime();
       const todayTakeaways = orders.filter(o => o.orderType === 'takeaway' && o.startTime >= today);
       nextTakeawayNumber = todayTakeaways.length + 1;
-      orderId = `take-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      orderId = idGenerator.generate('take');
     } else {
       existingOrder = orders.find(o => (o.tableId === selectedTable.id || o.tableId === selectedTable.number.toString()) && o.status !== 'delivered' && o.status !== 'cancelled');
-      orderId = existingOrder?.id || `ord-${Math.random().toString(36).substr(2, 9)}`;
+      orderId = existingOrder?.id || idGenerator.generate('ord');
     }
 
     const updatedCart = cart.map(i => i.status === 'pending' ? { 
@@ -1067,7 +1058,7 @@ export default function App() {
     if (isTakeaway) {
        alert(`Pedido Takeaway #${nextTakeawayNumber} enviado para a cozinha!`);
        setCart([]); 
-    } else {
+    } else if (selectedTable) { // Apenas se for mesa, atualiza carrinho e volta para mesas
        setCart(updatedCart);
        setCurrentView('tables');
        setSelectedTable(null);
@@ -1090,7 +1081,7 @@ export default function App() {
 
     await firebaseService.updateItem('orders', orderId, { status: 'preparing', closedAt: null });
     await firebaseService.updateItem('tables', order.tableId, { status: 'occupied', currentOrderId: orderId });
-    setCurrentView('tables');
+    navigate('/tables'); // Navega para a tela de mesas
   };
 
   const handleFinishTable = (tableId: string) => {
@@ -1175,7 +1166,7 @@ export default function App() {
       await firebaseService.updateTableStatus(tableId, 'free', null);
       setSelectedTable(null);
       setCart([]);
-      setCurrentView('tables');
+      navigate('/tables'); // Navega para a tela de mesas
       return;
     }
 
@@ -1223,7 +1214,7 @@ export default function App() {
         }
         setSelectedTable(null);
         setCart([]);
-        setCurrentView('tables');
+        navigate('/tables'); // Navega para a tela de mesas
     }
   };
 
@@ -1231,7 +1222,7 @@ export default function App() {
     if (cart.length === 0) return;
     
     const waiterId = currentUser?.id || 'a1';
-    const orderId = `take-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const orderId = idGenerator.generate('take');
     
     const today = startOfDay(new Date()).getTime();
     const todayTakeaways = orders.filter(o => o.orderType === 'takeaway' && o.startTime >= today);
@@ -1398,13 +1389,13 @@ export default function App() {
   };
 
   const handleRoleCycle = () => {
-    handleLogout();
+    handleLogout(); // handleLogout já cuida da navegação
   };
   const handleSaveProduct = async (product: Partial<Product>) => {
     if (editingProduct) {
       await firebaseService.updateItem('products', editingProduct.id, product);
     } else {
-      const id = Math.random().toString(36).substr(2, 9);
+      const id = idGenerator.generate('prod');
       const newProduct: Product = {
         id,
         enterpriseId: enterpriseId!,
@@ -1628,20 +1619,17 @@ export default function App() {
 
 
   const handleDeliverItem = async (orderId: string, itemId: string) => {
+    // Auditoria: Agora usa transação atômica para evitar perda de dados em atualizações simultâneas
+    await firebaseService.deliverItemAtomic(orderId, itemId);
+    
     const order = orders.find(o => o.id === orderId);
-    if (!order) return;
-
-    const updatedItems = order.items.map(i => i.id === itemId ? { ...i, status: 'delivered' as ItemStatus } : i);
-    const allDelivered = updatedItems.every(i => i.status === 'delivered' || i.status === 'voided');
-
-    await firebaseService.updateItem('orders', orderId, {
-      items: updatedItems,
-      status: allDelivered ? 'delivered' : order.status
-    });
-
-    if (allDelivered && order.tableId !== 'takeaway') {
-      // We only clear the ready flag. The table remains occupied until payment.
-      await firebaseService.updateItem('tables', order.tableId, { hasReadyItems: false });
+    const table = tables.find(t => t.id === order?.tableId);
+    if (table && table.hasReadyItems) {
+      // Verifica se ainda existem itens prontos para serem entregues nesta mesa
+      const stillHasReady = order?.items.some(i => i.status === 'ready' && i.id !== itemId);
+      if (!stillHasReady) {
+        await firebaseService.updateItem('tables', table.id, { hasReadyItems: false });
+      }
     }
   };
   const handleDeliverOrder = (orderId: string) => {
@@ -1692,7 +1680,7 @@ export default function App() {
     if (!editingTable) return null;
 
     return (
-      <AnimatePresence>
+      <AnimatePresence> {/* Auditoria: Modais devem ser renderizados condicionalmente */}
         {isEditTableModalOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
             <motion.div
@@ -1835,7 +1823,7 @@ export default function App() {
     setSelectedTable(table);
 
 
-
+  // Auditoria: renderDeviceLinking e renderSchedule devem ser componentes separados e roteados
 
   const renderDeviceLinking = () => {
     return (
@@ -1889,7 +1877,7 @@ export default function App() {
     );
   };
 
-  const renderSchedule = () => {
+  const renderSchedule = () => { // Auditoria: Este é um componente de View, deve ser lazy-loaded via rota
     const weekStart = startOfWeek(selectedScheduleDate, { weekStartsOn: 1 }); // Monday
     const weekDays = eachDayOfInterval({
       start: weekStart,
@@ -2028,7 +2016,7 @@ export default function App() {
   const renderShiftModal = () => {
     return (
       <AnimatePresence>
-        {isShiftModalOpen && (
+        {isShiftModalOpen && ( // Auditoria: Modais devem ser renderizados condicionalmente
           <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
             <motion.div 
                initial={{ scale: 0.9, opacity: 0 }}
@@ -2128,16 +2116,15 @@ export default function App() {
     if (!editingOrderItem) return null;
 
     const currentModifiers = editingOrderItem.modifiers || [];
-
     const toggleModifier = (name: string, type: ModifierType, price?: number, invId?: string) => {
-      const exists = currentModifiers.find(m => m.name === name && m.type === type);
+      const exists = currentModifiers.find(m => m.name === name && m.type === type && (invId ? m.inventoryItemId === invId : true));
       let newModifiers: ItemModifier[] = [];
       if (exists) {
-        newModifiers = currentModifiers.filter(m => !(m.name === name && m.type === type));
+        newModifiers = currentModifiers.filter(m => !(m.name === name && m.type === type && (invId ? m.inventoryItemId === invId : true)));
       } else {
-        const inventoryItemId = invId || inventory.find(i => i.name.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(i.name.toLowerCase()))?.id;
+        const inventoryItemId = invId || inventory.find(i => i.name.toLowerCase() === name.toLowerCase())?.id; // Busca exata por nome
         newModifiers = [...currentModifiers, { 
-          id: Math.random().toString(36).substr(2, 5), 
+          id: idGenerator.generate('mod'), // Usar idGenerator
           name, 
           type, 
           price: price || 0,
@@ -2153,10 +2140,10 @@ export default function App() {
     const addManualExtra = () => {
       if (!modCustomName) return;
       const price = parseFloat(modCustomPrice || '0');
-      const invItem = inventory.find(i => i.name.toLowerCase().includes(modCustomName.toLowerCase()) || modCustomName.toLowerCase().includes(i.name.toLowerCase()));
+      const invItem = inventory.find(i => i.name.toLowerCase() === modCustomName.toLowerCase()); // Busca exata por nome
       
       const newModifiers = [...currentModifiers, { 
-        id: Math.random().toString(36).substr(2, 5), 
+        id: idGenerator.generate('mod'), // Usar idGenerator
         name: modCustomName, 
         type: 'extra', 
         price,
@@ -2171,10 +2158,10 @@ export default function App() {
 
     const addManualRemove = () => {
       if (!modCustomRemove) return;
-      const invItem = inventory.find(i => i.name.toLowerCase().includes(modCustomRemove.toLowerCase()) || modCustomRemove.toLowerCase().includes(i.name.toLowerCase()));
+      const invItem = inventory.find(i => i.name.toLowerCase() === modCustomRemove.toLowerCase()); // Busca exata por nome
       
       const newModifiers = [...currentModifiers, { 
-        id: Math.random().toString(36).substr(2, 5), 
+        id: idGenerator.generate('mod'), // Usar idGenerator
         name: modCustomRemove, 
         type: 'remove',
         inventoryItemId: invItem?.id
@@ -2186,7 +2173,7 @@ export default function App() {
     };
 
     return (
-      <AnimatePresence>
+      <AnimatePresence> {/* Auditoria: Modais devem ser renderizados condicionalmente */}
         {isModifierModalOpen && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
             <motion.div 
@@ -2377,61 +2364,23 @@ export default function App() {
 
 
 
-  const renderContent = () => {
-    switch (currentView) {
-      case 'dashboard': return <RestaurantDashboard setCurrentView={setCurrentView} setSelectedShopId={setSelectedShopId} />;
-      case 'tables': return <RestaurantLayout defaultView="tables" />;
-      case 'pending_orders': return <RestaurantLayout defaultView="pending_orders" />;
-      case 'orders': return <RestaurantLayout defaultView="orders" />;
-      case 'kitchen': return <RestaurantLayout defaultView="kitchen" />;
-      case 'bar': return <RestaurantLayout defaultView="bar" />;
-      case 'inventory': return <RestaurantLayout defaultView="inventory" />;
-      case 'reports': return <RestaurantLayout defaultView="reports" />;
-      case 'history': return <RestaurantLayout defaultView="history" />;
-      case 'staff_mgmt': return <GeneralStaffView module="restaurant" />;
-      case 'finance_mgmt': return <FinanceManagementView module="restaurant" shopId={selectedShopId} />;
-      case 'supplier_mgmt': return <SupplierManagementView module="restaurant" />;
-      case 'service_mgmt': return <ServiceLayout />;
-      case 'menu_mgmt': return <RestaurantLayout defaultView="menu" />;
-      case 'reservations': return <RestaurantLayout defaultView="reservations" />;
-      case 'printer_mgmt': return (
-        <PrinterManagementView 
-          onNew={() => { alert('Use a tela de cadastro de impressoras no modulo atual.'); }}
-          onEdit={() => { alert('Use a tela de cadastro de impressoras no modulo atual.'); }}
-        />
-      );
-      case 'schedule': return <StaffScheduleView module={systemMode} />;
-      case 'safety': return <RestaurantLayout defaultView="safety" />;
-      case 'settings': return (
-        <GlobalSettingsView 
-          enterpriseId={enterpriseId}
-          companySettings={companySettings}
-          setCompanySettings={setCompanySettings}
-          isDeviceLinked={isDeviceLinked}
-          linkedDevices={linkedDevices}
-          linkToken={linkToken}
-        />
-      );
-      case 'customization': return <CustomizationView enterpriseId={enterpriseId} />;
-      case 'company_mgmt': return <CompanyManagement />;
-      case 'staff_pnl': return (
-        <StaffDashboard 
-          staff={currentUser} 
-          enterprise={enterprises.find(e => e.id === enterpriseId) || null}
-          shops={shops}
-          schedules={staffSchedules}
-        />
-      );
-      case 'holding': return <HoldingDashboard onSelectEnterprise={handleSelectEnterprise} onLogout={handleLogout} />;
-      default: return <RestaurantDashboard setCurrentView={setCurrentView} setSelectedShopId={setSelectedShopId} />;
-    }
-  };
-
-
   if (!currentUser) return <LoginView />;
   if (holdingActive) return <HoldingDashboard onSelectEnterprise={handleSelectEnterprise} onLogout={handleLogout} />;
 
-  return (
+  return ( // Auditoria: renderModifierModal e renderTableEditModal devem ser movidos para componentes específicos
+    <Router>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
+    </Router>
+  );
+}
+
+function AppContent() {
+  // Mova os hooks que dependem do Router (useNavigate, useLocation) para este sub-componente
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentPath = location.pathname.substring(1) || 'dashboard';
     <div 
       className="min-h-screen bg-surface-bg flex flex-col lg:flex-row text-slate-900 font-sans overflow-x-hidden"
       style={{ 
@@ -2441,8 +2390,9 @@ export default function App() {
         minHeight: appScale < 1 ? `${100 / appScale}vh` : '100vh'
       }}
     >
-      {renderModifierModal()}
-      {renderTableEditModal()}
+      {/* Auditoria: Modais devem ser renderizados condicionalmente dentro das rotas ou por um sistema de portal */}
+      {/* {renderModifierModal()} */}
+      {/* {renderTableEditModal()} */}
       {/* Sidebar - responsive drawer */}
       <aside className={cn(
         "fixed inset-y-0 left-0 bg-sidebar-bg border-r border-slate-800 flex flex-col h-screen p-4 sm:p-6 overflow-hidden transition-all duration-500 z-[160] lg:static lg:translate-x-0 lg:flex shadow-2xl lg:shadow-none",
@@ -2512,10 +2462,10 @@ export default function App() {
           {(!isSidebarCollapsed) && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-2">Para Você</div>}
           {canAccessView('staff_pnl') && (
             <NavItem 
-              icon={<User />} 
-              label="Meu Painel" 
-              active={currentView === 'staff_pnl'} 
-              onClick={() => setCurrentView('staff_pnl')} 
+              icon={<User />}
+              label="Meu Painel"
+              active={currentPath === 'staff-pnl'}
+              onClick={() => navigate('/staff-pnl')}
               isCollapsed={isSidebarCollapsed}
               className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
             />
@@ -2526,48 +2476,48 @@ export default function App() {
               {isModuleEnabled('restaurant') && (
                 <>
                   {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-2">Operação</div>}
-                  <NavItem icon={<TableIcon />} label="Minhas Mesas" active={currentView === 'tables'} onClick={() => setCurrentView('tables')} isCollapsed={isSidebarCollapsed} />
+                  <NavItem icon={<TableIcon />} label="Minhas Mesas" active={currentPath === 'tables'} onClick={() => navigate('/tables')} isCollapsed={isSidebarCollapsed} />
                   {canAccessView('pending_orders') && (
                     <NavItem 
                       icon={<ClipboardList />} 
-                      label="Pedidos Ativos" 
-                      active={currentView === 'pending_orders'} 
-                      onClick={() => setCurrentView('pending_orders')} 
-                      isCollapsed={isSidebarCollapsed} 
+                      label="Pedidos Ativos"
+                      active={currentPath === 'pending-orders'}
+                      onClick={() => navigate('/pending-orders')}
+                      isCollapsed={isSidebarCollapsed}
                       badge={orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length || undefined}
                     />
                   )}
-                  {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Novo Pedido" active={currentView === 'orders'} onClick={() => { setSelectedTable(null); setCurrentView('orders'); }} isCollapsed={isSidebarCollapsed} />}
-                  {canAccessView('bar') && <NavItem icon={<Beer />} label="Pedidos Bar" active={currentView === 'bar'} onClick={() => setCurrentView('bar')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Novo Pedido" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('bar') && <NavItem icon={<Beer />} label="Pedidos Bar" active={currentPath === 'bar'} onClick={() => navigate('/bar')} isCollapsed={isSidebarCollapsed} />}
                 </>
               )}
-              {canAccessView('history') && <NavItem icon={<History />} label="Meus Atendimentos" active={currentView === 'history'} onClick={() => setCurrentView('history')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('history') && <NavItem icon={<History />} label="Meus Atendimentos" active={currentPath === 'history'} onClick={() => navigate('/history')} isCollapsed={isSidebarCollapsed} />}
             </>
           ) : (
             <>
               {systemMode === 'distributor' ? (
                 <>
-                  {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="PDV / Balcão" active={currentView === 'orders'} onClick={() => { setSelectedTable(null); setCurrentView('orders'); }} isCollapsed={isSidebarCollapsed} />}
-                  {canAccessView('dashboard') && <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} isCollapsed={isSidebarCollapsed} />}
-                  {isModuleEnabled('restaurant') && canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas (Garçom)" active={currentView === 'tables'} onClick={() => setCurrentView('tables')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="PDV / Balcão" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('dashboard') && <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} isCollapsed={isSidebarCollapsed} />}
+                  {isModuleEnabled('restaurant') && canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas (Garçom)" active={currentPath === 'tables'} onClick={() => navigate('/tables')} isCollapsed={isSidebarCollapsed} />}
                 </>
               ) : (
                 <>
-                  {canAccessView('dashboard') && <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('dashboard') && <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} isCollapsed={isSidebarCollapsed} />}
                   {isModuleEnabled('restaurant') && (
                     <>
-                      {canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas / Salão" active={currentView === 'tables'} onClick={() => setCurrentView('tables')} isCollapsed={isSidebarCollapsed} />}
+                      {canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas / Salão" active={currentPath === 'tables'} onClick={() => navigate('/tables')} isCollapsed={isSidebarCollapsed} />}
                       {canAccessView('pending_orders') && (
                         <NavItem 
                           icon={<ClipboardList />} 
-                          label="Pedidos Ativos" 
-                          active={currentView === 'pending_orders'} 
-                          onClick={() => setCurrentView('pending_orders')} 
-                          isCollapsed={isSidebarCollapsed} 
+                          label="Pedidos Ativos"
+                          active={currentPath === 'pending-orders'}
+                          onClick={() => navigate('/pending-orders')}
+                          isCollapsed={isSidebarCollapsed}
                           badge={orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length || undefined}
                         />
                       )}
-                      {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Venda Rápida" active={currentView === 'orders'} onClick={() => { setSelectedTable(null); setCurrentView('orders'); }} isCollapsed={isSidebarCollapsed} />}
+                      {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Venda Rápida" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />}
                     </>
                   )}
                 </>
@@ -2575,72 +2525,72 @@ export default function App() {
 
               {isModuleEnabled('restaurant') && (
                 <>
-                  {canAccessView('reservations') && <NavItem icon={<Calendar />} label="Reservas" active={currentView === 'reservations'} onClick={() => setCurrentView('reservations')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('reservations') && <NavItem icon={<Calendar />} label="Reservas" active={currentPath === 'reservations'} onClick={() => navigate('/reservations')} isCollapsed={isSidebarCollapsed} />}
                   {canAccessView('kitchen') && systemMode !== 'distributor' && (
-                    <NavItem 
-                      icon={<ClipboardList />} 
-                      label="Cozinha (KDS)" 
-                      active={currentView === 'kitchen'} 
-                      onClick={() => setCurrentView('kitchen')} 
+                    <NavItem
+                      icon={<ClipboardList />}
+                      label="Cozinha (KDS)"
+                      active={currentPath === 'kitchen'}
+                      onClick={() => navigate('/kitchen')}
                       isCollapsed={isSidebarCollapsed} 
                       badge={orders.filter(o => o.status === 'preparing' || o.status === 'pending').length || undefined}
                     />
                   )}
-                  {canAccessView('bar') && systemMode !== 'distributor' && <NavItem icon={<Beer />} label="Bar (BDS)" active={currentView === 'bar'} onClick={() => setCurrentView('bar')} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('bar') && systemMode !== 'distributor' && <NavItem icon={<Beer />} label="Bar (BDS)" active={currentPath === 'bar'} onClick={() => navigate('/bar')} isCollapsed={isSidebarCollapsed} />}
                 </>
               )}
 
               {isModuleEnabled('market') && (
                  <>
                    {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-4">Mercado</div>}
-                   {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Frente de Caixa" active={currentView === 'orders'} onClick={() => setCurrentView('orders')} isCollapsed={isSidebarCollapsed} />}
-                   {canAccessView('inventory') && <NavItem icon={<Package />} label="Estoque Loja" active={currentView === 'inventory'} onClick={() => setCurrentView('inventory')} isCollapsed={isSidebarCollapsed} />}
+                   {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Frente de Caixa" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />}
+                   {canAccessView('inventory') && <NavItem icon={<Package />} label="Estoque Loja" active={currentPath === 'inventory'} onClick={() => navigate('/inventory')} isCollapsed={isSidebarCollapsed} />}
                  </>
               )}
 
               {isModuleEnabled('construction') && (
                  <>
                    {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-4">Construção</div>}
-                   <NavItem icon={<HardHat />} label="Minhas Obras" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} isCollapsed={isSidebarCollapsed} />
-                   <NavItem icon={<Hammer />} label="Logística" active={currentView === 'history'} onClick={() => setCurrentView('history')} isCollapsed={isSidebarCollapsed} />
+                   <NavItem icon={<HardHat />} label="Minhas Obras" active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} isCollapsed={isSidebarCollapsed} />
+                   <NavItem icon={<Hammer />} label="Logística" active={currentPath === 'history'} onClick={() => navigate('/history')} isCollapsed={isSidebarCollapsed} />
                  </>
               )}
-              
-              {canAccessView('printer_mgmt') && <NavItem icon={<PrinterIcon />} label="Impressoras" active={currentView === 'printer_mgmt'} onClick={() => setCurrentView('printer_mgmt')} isCollapsed={isSidebarCollapsed} />}
+
+              {canAccessView('printer_mgmt') && <NavItem icon={<PrinterIcon />} label="Impressoras" active={currentPath === 'printer-mgmt'} onClick={() => navigate('/printer-mgmt')} isCollapsed={isSidebarCollapsed} />}
             </>
           )}
 
           {currentUser?.role !== 'waiter' && (canAccessView('menu_mgmt') || canAccessView('inventory') || canAccessView('reports') || canAccessView('history') || canAccessView('staff_mgmt') || canAccessView('schedule') || canAccessView('safety')) && (
             <div className={cn("pt-4 mt-4 border-t border-slate-800", isSidebarCollapsed && "px-0")}>
               {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2">Administração</div>}
-              {canAccessView('safety') && <NavItem icon={<ShieldCheck />} label="Saúde & Segurança" active={currentView === 'safety'} onClick={() => setCurrentView('safety')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('schedule') && <NavItem icon={<Clock />} label="Escala Semanal" active={currentView === 'schedule'} onClick={() => setCurrentView('schedule')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('menu_mgmt') && <NavItem icon={<UtensilsCrossed />} label="Gerenciar Itens" active={currentView === 'menu_mgmt'} onClick={() => setCurrentView('menu_mgmt')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('inventory') && <NavItem icon={<Package />} label="Estoque" active={currentView === 'inventory'} onClick={() => setCurrentView('inventory')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('reports') && <NavItem icon={<BarChart3 />} label="Relatórios" active={currentView === 'reports'} onClick={() => setCurrentView('reports')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('history') && <NavItem icon={<History />} label="Histórico" active={currentView === 'history'} onClick={() => setCurrentView('history')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('staff_mgmt') && <NavItem icon={<Users />} label="RH & Performance" active={currentView === 'staff_mgmt'} onClick={() => setCurrentView('staff_mgmt')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('finance_mgmt') && <NavItem icon={<Wallet />} label="Fluxo Financeiro" active={currentView === 'finance_mgmt'} onClick={() => setCurrentView('finance_mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('safety') && <NavItem icon={<ShieldCheck />} label="Saúde & Segurança" active={currentPath === 'safety'} onClick={() => navigate('/safety')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('schedule') && <NavItem icon={<Clock />} label="Escala Semanal" active={currentPath === 'schedule'} onClick={() => navigate('/schedule')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('menu_mgmt') && <NavItem icon={<UtensilsCrossed />} label="Gerenciar Itens" active={currentPath === 'menu-mgmt'} onClick={() => navigate('/menu-mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('inventory') && <NavItem icon={<Package />} label="Estoque" active={currentPath === 'inventory'} onClick={() => navigate('/inventory')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('reports') && <NavItem icon={<BarChart3 />} label="Relatórios" active={currentPath === 'reports'} onClick={() => navigate('/reports')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('history') && <NavItem icon={<History />} label="Histórico" active={currentPath === 'history'} onClick={() => navigate('/history')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('staff_mgmt') && <NavItem icon={<Users />} label="RH & Performance" active={currentPath === 'staff-mgmt'} onClick={() => navigate('/staff-mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('finance_mgmt') && <NavItem icon={<Wallet />} label="Fluxo Financeiro" active={currentPath === 'finance-mgmt'} onClick={() => navigate('/finance-mgmt')} isCollapsed={isSidebarCollapsed} />}
               {isModuleEnabled('service') && canAccessView('service_mgmt') && (
-                <NavItem 
-                  icon={<Briefcase />} 
-                  label="Unidade de Serviço" 
-                  active={currentView === 'service_mgmt'} 
-                  onClick={() => setCurrentView('service_mgmt')} 
+                <NavItem
+                  icon={<Briefcase />}
+                  label="Unidade de Serviço"
+                  active={currentPath === 'service-mgmt'}
+                  onClick={() => navigate('/service-mgmt')}
                   isCollapsed={isSidebarCollapsed} 
                   className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
                 />
               )}
-              {canAccessView('supplier_mgmt') && <NavItem icon={<Truck />} label="Fornecedores B2B" active={currentView === 'supplier_mgmt'} onClick={() => setCurrentView('supplier_mgmt')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('settings') && <NavItem icon={<Settings />} label="Configurações" active={currentView === 'settings'} onClick={() => setCurrentView('settings')} isCollapsed={isSidebarCollapsed} />}
-              {currentUser?.role === 'owner' && <NavItem icon={<Settings2 />} label="Customização Global" active={currentView === 'customization'} onClick={() => setCurrentView('customization')} isCollapsed={isSidebarCollapsed} />}
-              {<NavItem icon={<Building2 />} label="Gestão da Unidade" active={currentView === 'company_mgmt'} onClick={() => setCurrentView('company_mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('supplier_mgmt') && <NavItem icon={<Truck />} label="Fornecedores B2B" active={currentPath === 'supplier-mgmt'} onClick={() => navigate('/supplier-mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('settings') && <NavItem icon={<Settings />} label="Configurações" active={currentPath === 'settings'} onClick={() => navigate('/settings')} isCollapsed={isSidebarCollapsed} />}
+              {currentUser?.role === 'owner' && <NavItem icon={<Settings2 />} label="Customização Global" active={currentPath === 'customization'} onClick={() => navigate('/customization')} isCollapsed={isSidebarCollapsed} />}
+              {<NavItem icon={<Building2 />} label="Gestão da Unidade" active={currentPath === 'company-mgmt'} onClick={() => navigate('/company-mgmt')} isCollapsed={isSidebarCollapsed} />}
               {(currentUser?.role === 'owner' || currentUser?.role === 'admin') && (
                 <NavItem 
                   icon={<LayoutDashboard />} 
                   label="Selecionar Empresa" 
-                  active={false} 
-                  onClick={() => setHoldingActive(true)} 
+                  active={false}
+                  onClick={() => setHoldingActive(true)}
                   isCollapsed={isSidebarCollapsed} 
                   className="bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-4"
                 />
@@ -2902,35 +2852,56 @@ export default function App() {
 
         <section className="flex-1">
           <AnimatePresence mode="wait">
-            <motion.div
-              key={currentView}
-              initial={{ opacity: 0, scale: 0.99 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.99 }}
-              transition={{ duration: 0.15 }}
-            >
-              {renderContent()}
-            </motion.div>
+            <ErrorBoundary>
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>}>
+              <Routes>
+                <Route path="/dashboard" element={<RestaurantDashboard setCurrentView={(v) => navigate(`/${v}`)} setSelectedShopId={setSelectedShopId} />} />
+                <Route path="/tables" element={<RestaurantLayout defaultView="tables" />} />
+                <Route path="/pending-orders" element={<RestaurantLayout defaultView="pending_orders" />} />
+                <Route path="/orders" element={<RestaurantLayout defaultView="orders" />} />
+                <Route path="/kitchen" element={<RestaurantLayout defaultView="kitchen" />} />
+                <Route path="/bar" element={<RestaurantLayout defaultView="bar" />} />
+                <Route path="/inventory" element={<RestaurantLayout defaultView="inventory" />} />
+                <Route path="/reports" element={<RestaurantLayout defaultView="reports" />} />
+                <Route path="/history" element={<RestaurantLayout defaultView="history" />} />
+                <Route path="/staff-mgmt" element={<GeneralStaffView module="restaurant" />} />
+                <Route path="/finance-mgmt" element={<FinanceManagementView module="restaurant" shopId={selectedShopId} />} />
+                <Route path="/supplier-mgmt" element={<SupplierManagementView module="restaurant" />} />
+                <Route path="/service-mgmt" element={<ServiceLayout />} />
+                <Route path="/menu-mgmt" element={<RestaurantLayout defaultView="menu" />} /> {/* Auditoria: StaffDashboard precisa de schedules */}
+                <Route path="/reservations" element={<RestaurantLayout defaultView="reservations" />} />
+                <Route path="/printer-mgmt" element={<PrinterManagementView onNew={() => {}} onEdit={() => {}} />} />
+                <Route path="/schedule" element={<StaffScheduleView module={systemMode} />} />
+                <Route path="/safety" element={<RestaurantLayout defaultView="safety" />} />
+                <Route path="/settings" element={<GlobalSettingsView enterpriseId={enterpriseId} companySettings={companySettings} setCompanySettings={setCompanySettings} isDeviceLinked={isDeviceLinked} linkedDevices={linkedDevices} linkToken={linkToken} />} />
+                <Route path="/customization" element={<CustomizationView enterpriseId={enterpriseId} />} />
+                <Route path="/company-mgmt" element={<CompanyManagement />} />
+                <Route path="/staff-pnl" element={<StaffDashboard staff={currentUser} enterprise={enterprises.find(e => e.id === enterpriseId) || null} shops={shops} schedules={[]} />} /> {/* schedules agora é carregado dentro do StaffDashboard */}
+                <Route path="/holding" element={<HoldingDashboard onSelectEnterprise={handleSelectEnterprise} onLogout={handleLogout} />} />
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </Suspense>
+            </ErrorBoundary>
           </AnimatePresence>
         </section>
       </main>
 
       {/* Bottom Nav - Mobile */}
-      <nav className="lg:hidden fixed bottom-6 left-4 right-4 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-3 flex items-center justify-around z-50">
-        <MobileNavItem icon={<LayoutDashboard />} active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} />
-        <MobileNavItem icon={<TableIcon />} active={currentView === 'tables'} onClick={() => setCurrentView('tables')} />
+      <nav className="lg:hidden fixed bottom-6 left-4 right-4 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-3 flex items-center justify-around z-[160]">
+        <MobileNavItem icon={<LayoutDashboard />} active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} />
+        <MobileNavItem icon={<TableIcon />} active={currentPath === 'tables'} onClick={() => navigate('/tables')} />
         
         <button 
-          onClick={() => { setSelectedTable(null); setCurrentView('tables'); }}
+          onClick={() => { navigate('/tables'); }}
           className="bg-emerald-500 p-4 rounded-2xl shadow-lg -mt-12 border-4 border-slate-900 transform active:scale-90 transition-all"
         >
           <Plus className="w-6 h-6 text-white" />
         </button>
 
-        <MobileNavItem icon={<ClipboardList />} active={currentView === 'kitchen'} onClick={() => setCurrentView('kitchen')} />
-        <MobileNavItem icon={<History />} active={currentView === 'history'} onClick={() => {
-           if (currentUser?.role === 'waiter' || currentUser?.role === 'owner') setCurrentView('staff_management');
-           else setCurrentView('reports');
+        <MobileNavItem icon={<ClipboardList />} active={currentPath === 'kitchen'} onClick={() => navigate('/kitchen')} />
+        <MobileNavItem icon={<History />} active={currentPath === 'history' || currentPath === 'reports'} onClick={() => {
+           if (currentUser?.role === 'waiter' || currentUser?.role === 'owner') navigate('/staff-mgmt');
+           else navigate('/reports');
         }} />
       </nav>
     </div>
@@ -3011,6 +2982,3 @@ function CostBar({ label, value, total, color }: any) {
 }
 
 }
-
-
-

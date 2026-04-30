@@ -21,6 +21,7 @@ import { Printer, PrinterType } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
 import { cn } from '../../lib/utils';
+import { idGenerator } from '../utils/idGenerator';
 
 export const PrinterManagement: React.FC = () => {
   const [printers, setPrinters] = useState<Printer[]>([]);
@@ -41,30 +42,39 @@ export const PrinterManagement: React.FC = () => {
   });
 
   useEffect(() => {
-    loadPrinters();
+    if (!companyId) return;
+    
+    setLoading(true);
+    
+    // Auditoria: Implementação correta da subscrição em tempo real com limpeza de memória
+    const unsub = firebaseService.subscribeCollection<Printer>(
+      'printers',
+      companyId,
+      accountService.getSelectedShopId(),
+      (data) => {
+        setPrinters(data);
+        setLoading(false);
+      }
+    );
+
+    return () => unsub();
   }, [companyId]);
 
-  const loadPrinters = async () => {
+  const loadPrinters = () => {
+    // Apenas um trigger visual, pois o subscribe no useEffect já cuida dos dados
     setLoading(true);
-    try {
-      const data = await firebaseService.getAllDocs('printers', companyId);
-      setPrinters(data as Printer[]);
-    } catch (error) {
-      console.error('Failed to load printers:', error);
-    } finally {
-      setLoading(false);
-    }
+    setTimeout(() => setLoading(false), 500);
   };
 
   const handleAddPrinter = async (e: React.FormEvent) => {
     e.preventDefault();
-    const id = `ptr-${Math.random().toString(36).substr(2, 9)}`;
+    const id = idGenerator.generate('ptr');
     
     const printerData: Printer = {
       ...newPrinter,
       id,
       enterpriseId: companyId,
-      shopId: 'main-shop', // Simplified for now
+      shopId: accountService.getSelectedShopId() || 'main-shop', // Usar shopId selecionado
       status: 'online'
     };
 

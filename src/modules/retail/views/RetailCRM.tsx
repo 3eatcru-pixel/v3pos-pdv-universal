@@ -13,6 +13,8 @@ import { cn, formatCurrency } from '../../../lib/utils';
 import { RetailCustomer } from '../services/retailService';
 import { accountService } from '../../../core/services/accountService';
 import { firebaseService } from '../../../services/firebaseService';
+import { idGenerator } from '../../../core/utils/idGenerator';
+import { logger } from '../../../core/services/logger';
 import { AnimatePresence } from 'motion/react';
 
 type RetailCustomerRecord = RetailCustomer & {
@@ -22,15 +24,20 @@ type RetailCustomerRecord = RetailCustomer & {
   consentUpdatedAt?: number;
 };
 
-export const RetailCRM: React.FC = () => {
+interface RetailCRMProps {
+  enterpriseIdOverride?: string;
+  shopIdOverride?: string;
+}
+
+export const RetailCRM: React.FC<RetailCRMProps> = ({ enterpriseIdOverride, shopIdOverride }) => {
   const [customers, setCustomers] = useState<RetailCustomerRecord[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSavingCustomer, setIsSavingCustomer] = useState(false);
 
   const currentUser = accountService.getCurrentUser();
-  const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
-  const shopId = accountService.getSelectedShopId();
+  const enterpriseId = enterpriseIdOverride || currentUser?.companyId || accountService.getCurrentCompanyId();
+  const shopId = shopIdOverride || accountService.getSelectedShopId();
 
   useEffect(() => {
     if (!enterpriseId || !shopId) return;
@@ -69,7 +76,7 @@ export const RetailCRM: React.FC = () => {
 
     setIsSavingCustomer(true);
     try {
-      const customerId = `cust-${Date.now()}`;
+      const customerId = idGenerator.generate('cust');
       const payload: RetailCustomerRecord = {
         id: customerId,
         enterpriseId,
@@ -97,7 +104,7 @@ export const RetailCRM: React.FC = () => {
       });
       setIsAddModalOpen(false);
     } catch (error) {
-      console.error('Erro ao criar cliente:', error);
+      logger.error('crm', 'Erro ao criar cliente', { error });
       alert('Nao foi possivel criar cliente.');
     } finally {
       setIsSavingCustomer(false);

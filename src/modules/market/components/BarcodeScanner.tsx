@@ -4,6 +4,7 @@ import { Camera, Scan, X, Monitor, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useBarcodeScanner } from '../../../hooks/useBarcodeScanner';
 import { cn } from '../../../lib/utils';
+import { logger } from '../../../core/services/logger';
 
 interface BarcodeScannerProps {
   onScan: (barcode: string) => void;
@@ -59,7 +60,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan }) => {
       return () => {
         clearTimeout(initTimeout);
         if (scanner) {
-          scanner.clear().catch(err => console.error("Error clearing scanner:", err));
+          scanner.clear().catch(err => logger.warn('hardware', 'Erro ao liberar recurso de câmera', { err }));
           scannerRef.current = null;
         }
       };

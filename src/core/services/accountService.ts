@@ -16,13 +16,9 @@ import { SimulationEngine } from './SimulationEngine';
 import { BackupEngine } from './BackupEngine';
 import { CloudConfig, cloudLatencyMonitor } from './CloudLatencyMonitor';
 import { TourEngine } from './TourEngine';
+import { idGenerator } from '../utils/idGenerator';
 
 class AccountService {
-  private generateSafeId(prefix: string) {
-    const safePrefix = prefix || 'id';
-    return `${safePrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  }
-
   private mapRoleForLegacy(role: string): User['role'] {
     if (role === 'staff') return 'staff';
     if (role === 'manager') return 'manager';
@@ -127,7 +123,7 @@ class AccountService {
           'customer_core',
           isSolo ? 'solo_assistant_core' : ''
         ]).filter(Boolean))),
-        // Disponibiliza todos os módulos como "unlocked" para o dono gerenciar no futuro, ou herda do dev
+        // Disponibiliza módulos desbloqueados
         availableModules: ['restaurant', 'market', 'construction', 'retail', 'service', 'pharmacy', 'autoparts', 'solo_service', 'solo_retail', 'convenience', 'google_business_pro'], 
       },
       {
@@ -487,7 +483,7 @@ class AccountService {
         const newCompany = await this.registerCompany(
           `${authUser.name} Studio`,
           authUser.email!,
-          'solo_service', // Tipo padrão para autônomos
+          'solo_service', 
           authUser.name,
           '',
           ['hr_core', 'store_mgmt_core', 'solo_assistant_core']
@@ -495,7 +491,7 @@ class AccountService {
 
         // Requisito 3: Usuário suporte automático (ReadOnly para configurações)
         await HREngine.saveStaff(newCompany.id, {
-      id: `support-${this.generateSafeId('')}`,
+          id: idGenerator.generate('support'),
           name: 'Grid Support (Virtual)',
           role: 'manager',
           active: true,
@@ -546,6 +542,33 @@ class AccountService {
     if (!ok) return;
     localStorage.removeItem('pos_business_mode');
     window.location.reload();
+  }
+
+  /**
+   * Agrega métricas de todas as unidades da empresa para visão de Holding.
+   * Crucial para donos de redes de franquias ou múltiplas lojas.
+   */
+  public async getEnterpriseWideMetrics(enterpriseId: string) {
+    const shops = await this.getShopsByCompany(enterpriseId);
+    const startOfToday = new Date().setHours(0,0,0,0);
+
+    // Busca ordens de todas as lojas da empresa de uma vez (Otimizado)
+    const allOrders = await firebaseService.getDocsByQuery('orders', [
+      { field: 'enterpriseId', op: '==', value: enterpriseId },
+      { field: 'status', op: '==', value: 'delivered' },
+      { field: 'closedAt', op: '>=', value: startOfToday }
+    ]) as Order[];
+
+    const totalRevenue = allOrders.reduce((sum, o) => sum + o.total, 0);
+    const totalOrders = allOrders.length;
+    
+    return {
+      shopCount: shops.length,
+      totalRevenueToday: totalRevenue,
+      avgTicketHolding: totalOrders > 0 ? totalRevenue / totalOrders : 0,
+      activeShops: shops.filter(s => s.settings?.isActive).length,
+      lastUpdate: Date.now()
+    };
   }
 
   public getCurrentUser(): User | null {
@@ -1011,8 +1034,9 @@ class AccountService {
     return firebaseService.getAllDocs('support_messages');
   }
 
-  public getSupportMessages(): SupportMessage[] {
-    return JSON.parse(localStorage.getItem('pos_support_messages') || '[]');
+  public async getSupportMessages(): Promise<SupportMessage[]> {
+    const enterpriseId = this.getCurrentCompanyId();
+    return firebaseService.getAllDocs('support_messages', enterpriseId || undefined) as Promise<SupportMessage[]>;
   }
 
   public async pauseSystem(companyId: string, pin: string): Promise<boolean> {

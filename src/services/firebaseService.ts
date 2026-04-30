@@ -13,10 +13,12 @@ import {
   updateDoc,
   deleteDoc,
   Timestamp,
+  WhereFilterOp,
   writeBatch,
   runTransaction,
   increment
 } from 'firebase/firestore';
+import { isOfflineForFirestore } from '@firebase/firestore'; // Importar para verificar status offline
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, auth, storage } from '../firebase';
 import { logger } from '../core/services/logger';
@@ -37,6 +39,7 @@ import {
   Enterprise
 } from '../types';
 
+import { backgroundSyncManager } from './BackgroundSyncManager'; // Importar o BackgroundSyncManager
 import { dataPipeline } from './dataPipeline';
 
 interface FirestoreErrorInfo {
@@ -195,7 +198,13 @@ function normalizeRolePermissionDocId(id: string, data?: any): string {
 
 export const firebaseService = {
   // Generic collection listener scoped by enterprise and optionally shop
-  subscribeCollection: <T = any>(colName: string, enterpriseId: string | null, shopId: string | null, callback: (data: T[]) => void) => {
+  subscribeCollection: <T = any>(
+    colName: string, 
+    enterpriseId: string | null, 
+    shopId: string | null, 
+    callback: (data: T[]) => void, 
+    additionalQueryOptions?: { where?: Array<{ field: string; op: WhereFilterOp; value: any }>; orderBy?: { field: string; direction?: 'asc' | 'desc' } }
+  ) => {
     if (TENANT_SCOPED_COLLECTIONS.has(colName) && !enterpriseId) {
       callback([]);
       return () => {};
@@ -211,9 +220,16 @@ export const firebaseService = {
     if (shopId && colName !== 'shops' && colName !== 'staff') {
       conditions.push(where('shopId', '==', shopId));
     }
+
+    if (additionalQueryOptions?.where) {
+      conditions.push(...additionalQueryOptions.where.map(clause => where(clause.field, clause.op, clause.value)));
+    }
     
     if (conditions.length > 0) {
       q = query(collection(db, colName), ...conditions);
+      if (additionalQueryOptions?.orderBy?.field) {
+        q = query(q, orderBy(additionalQueryOptions.orderBy.field, additionalQueryOptions.orderBy.direction || 'asc'));
+      }
     }
 
     return onSnapshot(q, (snapshot) => {
@@ -286,8 +302,13 @@ export const firebaseService = {
         ? normalizeRolePermissionDocId(id, payload)
         : id;
       await setDoc(doc(db, colName, docId), payload, { merge: true });
-    } catch (e) {
-      handleFirestoreError(e, 'create', `${colName}/${id}`);
+    } catch (e: any) {
+      if (isOfflineForFirestore(e)) { // Auditoria: Enfileirar se offline
+        await backgroundSyncManager.enqueue(colName, id, 'save', payload);
+        logger.warn('sync', `Operação 'save' enfileirada para ${colName}/${id} devido a offline.`, { payload });
+      } else {
+        handleFirestoreError(e, 'create', `${colName}/${id}`);
+      }
     }
   },
 
@@ -297,8 +318,15 @@ export const firebaseService = {
       const payload = withTenantMetadata(colName, data);
       const docRef = await addDoc(collection(db, colName), payload);
       return docRef.id;
-    } catch (e) {
-      return handleFirestoreError(e, 'create', colName);
+    } catch (e: any) {
+      if (isOfflineForFirestore(e)) { // Auditoria: Enfileirar se offline
+        const tempId = idGenerator.generate('temp'); // Gerar um ID temporário para a fila
+        await backgroundSyncManager.enqueue(colName, tempId, 'save', payload);
+        logger.warn('sync', `Operação 'add' enfileirada para ${colName} devido a offline.`, { payload });
+        return tempId; // Retorna um ID temporário para o frontend
+      } else {
+        return handleFirestoreError(e, 'create', colName);
+      }
     }
   },
 
@@ -310,8 +338,13 @@ export const firebaseService = {
         ? normalizeRolePermissionDocId(id, payload)
         : id;
       await updateDoc(doc(db, colName, docId), payload);
-    } catch (e) {
-      handleFirestoreError(e, 'update', `${colName}/${id}`);
+    } catch (e: any) {
+      if (isOfflineForFirestore(e)) { // Auditoria: Enfileirar se offline
+        await backgroundSyncManager.enqueue(colName, id, 'update', payload);
+        logger.warn('sync', `Operação 'update' enfileirada para ${colName}/${id} devido a offline.`, { payload });
+      } else {
+        handleFirestoreError(e, 'update', `${colName}/${id}`);
+      }
     }
   },
 
@@ -335,8 +368,13 @@ export const firebaseService = {
         }
       }
       await deleteDoc(doc(db, colName, id));
-    } catch (e) {
-      handleFirestoreError(e, 'delete', `${colName}/${id}`);
+    } catch (e: any) {
+      if (isOfflineForFirestore(e)) { // Auditoria: Enfileirar se offline
+        await backgroundSyncManager.enqueue(colName, id, 'delete', null);
+        logger.warn('sync', `Operação 'delete' enfileirada para ${colName}/${id} devido a offline.`);
+      } else {
+        handleFirestoreError(e, 'delete', `${colName}/${id}`);
+      }
     }
   },
 
@@ -385,6 +423,58 @@ export const firebaseService = {
       return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
     } catch (e) {
       return handleFirestoreError(e, 'list', colName);
+    }
+  },
+
+  /**
+   * Auditoria: Processa a baixa de estoque baseada na Ficha Técnica (Ingredientes)
+   * de forma atômica para evitar erros de concorrência.
+   */
+  processInventoryRecipeAtomic: async (items: { productId: string; quantity: number }[], enterpriseId: string) => {
+    try {
+      await runTransaction(db, async (tx) => {
+        // Função auxiliar recursiva interna à transação
+        const processItem = async (pId: string, qty: number) => {
+          const productRef = doc(db, 'products', pId);
+          const productSnap = await tx.get(productRef);
+          
+          if (!productSnap.exists()) continue;
+          const product = productSnap.data() as Product;
+
+          // 1. Processa Composição (Combos/Kits) - Recursividade
+          if (product.composition && product.composition.length > 0) {
+            for (const comp of product.composition) {
+              await processItem(comp.productId, comp.quantity * qty);
+            }
+          }
+
+          // 2. Processa Ingredientes (Ficha Técnica Direta)
+          if (product.ingredients) {
+            for (const [invId, usage] of Object.entries(product.ingredients)) {
+              const invRef = doc(db, 'inventory', invId);
+              const invSnap = await tx.get(invRef);
+              
+              if (invSnap.exists()) {
+                const invData = invSnap.data() as InventoryItem;
+                const yieldFactor = invData.yieldFactor || 1;
+                // Cálculo: (Uso por unidade / Fator de Rendimento) * Quantidade Vendida
+                const totalDeduction = (Number(usage) / yieldFactor) * qty;
+                
+                tx.update(invRef, {
+                  currentStock: increment(-totalDeduction),
+                  updatedAt: Date.now()
+                });
+              }
+            }
+          }
+        };
+
+        for (const item of items) {
+          await processItem(item.productId, item.quantity);
+        }
+      });
+    } catch (e) {
+      handleFirestoreError(e, 'update', 'inventory/recipe_deduction');
     }
   },
 
@@ -447,9 +537,11 @@ export const firebaseService = {
       const ref = doc(db, 'dailySummaries', docId);
       await runTransaction(db, async (tx) => {
         const snap = await tx.get(ref);
+        const payload = withTenantMetadata('dailySummaries', data);
+
         if (!snap.exists()) {
           tx.set(ref, {
-            ...data,
+            ...payload,
             totalSales: data.amount,
             totalCost: data.cost,
             orderCount: 1,
@@ -664,6 +756,34 @@ export const firebaseService = {
         handleFirestoreError(e, 'update', `orders/${orderId}`);
       }
       throw e;
+    }
+  },
+
+  /**
+   * Auditoria: Entrega atômica de item para evitar race conditions em pedidos multi-garçom.
+   */
+  deliverItemAtomic: async (orderId: string, itemId: string) => {
+    const orderRef = doc(db, 'orders', orderId);
+    try {
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(orderRef);
+        if (!snap.exists()) throw new Error('Order not found');
+        
+        const order = snap.data() as Order;
+        const updatedItems = order.items.map(i => 
+          i.id === itemId ? { ...i, status: 'delivered' as const } : i
+        );
+        
+        const allDelivered = updatedItems.every(i => i.status === 'delivered' || i.status === 'voided');
+        
+        transaction.update(orderRef, { 
+          items: updatedItems,
+          status: allDelivered ? 'delivered' : order.status,
+          updatedAt: Date.now()
+        });
+      });
+    } catch (e) {
+      handleFirestoreError(e, 'update', `orders/${orderId}/items/${itemId}`);
     }
   },
 

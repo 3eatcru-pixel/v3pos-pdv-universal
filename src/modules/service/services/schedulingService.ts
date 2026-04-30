@@ -1,84 +1,53 @@
 import { ServiceAppointment, AppointmentStatus } from '../types';
 import { integrationLayer } from '../../../integration/integrationLayer';
+import { firebaseService } from '../../../services/firebaseService';
+import { idGenerator } from '../../../core/utils/idGenerator';
 import { logger } from '../../../core/services/logger';
+
+interface AppointmentFilters {
+  shopId?: string;
+  startDate?: number;
+  endDate?: number;
+}
 
 class SchedulingService {
   private appointments: ServiceAppointment[] = [];
+  private unsubscribe: (() => void) | null = null;
+  private listeners: Set<(data: ServiceAppointment[]) => void> = new Set();
+  private readonly COLLECTION = 'appointments';
 
-  constructor() {
-    this.loadAppointments();
-  }
-
-  private loadAppointments() {
+  public async initialize(enterpriseId: string, shopId: string | null = null) {
     try {
-      this.appointments = JSON.parse(localStorage.getItem('pos_service_appointments') || '[]');
-      if (this.appointments.length === 0) {
-        this.seedDemoData();
-      }
-    } catch {
-      this.appointments = [];
-      this.seedDemoData();
+      if (this.unsubscribe) this.unsubscribe();
+
+      this.unsubscribe = firebaseService.subscribeCollection<ServiceAppointment>(
+        this.COLLECTION,
+        enterpriseId,
+        shopId,
+        (data) => {
+          this.appointments = data;
+          this.notifyListeners();
+          logger.debug('service', 'Agendamentos sincronizados via Firestore', { count: data.length });
+        }
+      );
+    } catch (error) {
+      logger.error('service', 'Falha ao inicializar sincronização de agendamentos', { error });
     }
   }
 
-  private seedDemoData() {
-    const companyStr = localStorage.getItem('pos_companies');
-    let entId = 'demo-enterprise';
-    if (companyStr) {
-      const companies = JSON.parse(companyStr);
-      if (companies.length > 0) entId = companies[0].id;
-    }
-
-    const today = new Date();
-    today.setHours(9, 0, 0, 0); // start at 9:00 AM
-
-    const t1 = today.getTime();
-    const t2 = today.getTime() + (45 * 60000); // 9:45 AM
-    const t3 = today.getTime() + (60 * 60000); // 10:00 AM
-    const t4 = today.getTime() + (120 * 60000); // 11:00 AM
-
-    this.appointments = [
-      {
-        id: 'app-1',
-        enterpriseId: entId,
-        clientId: 'cli-1',
-        providerId: 'prov-1',
-        serviceId: 'srv-1',
-        resourceIds: ['res-1'],
-        startTime: t1,
-        endTime: t2,
-        status: 'completed',
-        totalPrice: 60,
-        createdAt: Date.now() - 86400000
-      },
-      {
-        id: 'app-2',
-        enterpriseId: entId,
-        clientId: 'cli-2',
-        providerId: 'prov-2',
-        serviceId: 'srv-3',
-        resourceIds: ['res-3'],
-        startTime: t3,
-        endTime: t4,
-        status: 'scheduled',
-        totalPrice: 150,
-        createdAt: Date.now() - 3600000
-      }
-    ];
-
-    this.saveAppointments();
+  private notifyListeners() {
+    this.listeners.forEach(listener => listener([...this.appointments]));
   }
 
-  private saveAppointments() {
-    localStorage.setItem('pos_service_appointments', JSON.stringify(this.appointments));
+  public subscribe(listener: (data: ServiceAppointment[]) => void) {
+    this.listeners.add(listener);
+    listener([...this.appointments]);
+    return () => this.listeners.delete(listener);
   }
 
-  public getAppointments(enterpriseId: string, shopIdOrStartDate?: string | number, startDateOrEndDate?: number, maybeEndDate?: number): ServiceAppointment[] {
-    const hasShop = typeof shopIdOrStartDate === 'string';
-    const shopId = hasShop ? shopIdOrStartDate : undefined;
-    const startDate = hasShop ? startDateOrEndDate : (shopIdOrStartDate as number | undefined);
-    const endDate = hasShop ? maybeEndDate : startDateOrEndDate;
-
+  public getAppointments(enterpriseId: string, filters: AppointmentFilters = {}): ServiceAppointment[] {
+    const { shopId, startDate, endDate } = filters;
+    
     let filtered = this.appointments.filter(a => a.enterpriseId === enterpriseId && (!shopId || !a.shopId || a.shopId === shopId));
     
     if (startDate && endDate) {
@@ -89,7 +58,7 @@ class SchedulingService {
   }
 
   public checkConflicts(enterpriseId: string, providerId: string, resourceIds: string[], startTime: number, endTime: number, excludeId?: string, shopId?: string): boolean {
-    const existing = this.getAppointments(enterpriseId, shopId);
+    const existing = this.getAppointments(enterpriseId, { shopId });
     
     return existing.some(app => {
       if (excludeId && app.id === excludeId) return false;
@@ -110,49 +79,71 @@ class SchedulingService {
     });
   }
 
-  public createAppointment(data: Omit<ServiceAppointment, 'id' | 'createdAt'>): ServiceAppointment {
-    if (this.checkConflicts(data.enterpriseId, data.providerId, data.resourceIds, data.startTime, data.endTime, undefined, data.shopId)) {
+  public async createAppointment(data: Omit<ServiceAppointment, 'id' | 'createdAt'>): Promise<ServiceAppointment> {
+    const { enterpriseId, providerId, resourceIds, startTime, endTime, shopId } = data;
+
+    if (this.checkConflicts(enterpriseId, providerId, resourceIds, startTime, endTime, undefined, shopId)) {
       logger.warn('service', 'Tentativa de agendamento com conflito', { providerId: data.providerId });
       throw new Error('Conflito de horário detectado. Profissional ou recurso já está em uso.');
     }
 
+    const appointmentId = idGenerator.generate('app');
     const newAppointment: ServiceAppointment = {
       ...data,
-      id: `app-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: appointmentId,
       createdAt: Date.now()
     };
 
-    this.appointments.push(newAppointment);
-    this.saveAppointments();
-    logger.info('service', 'Novo agendamento criado', { appointmentId: newAppointment.id });
+    await firebaseService.saveItem(this.COLLECTION, appointmentId, newAppointment);
+    
+    logger.info('service', 'Novo agendamento persistido no Firestore', { appointmentId: newAppointment.id });
 
     integrationLayer.publishSyncEvent('service:appointment_updated', newAppointment);
 
     return newAppointment;
   }
 
-  public updateAppointmentStatus(id: string, status: AppointmentStatus) {
+  public async updateAppointmentStatus(id: string, status: AppointmentStatus) {
     const app = this.appointments.find(a => a.id === id);
     if (!app) {
       logger.error('service', 'Falha ao atualizar status: agendamento não encontrado', { appointmentId: id });
       throw new Error('Agendamento não encontrado');
     }
 
-    app.status = status;
-    this.saveAppointments();
-    logger.info('service', `Status do agendamento atualizado para ${status}`, { appointmentId: id });
-    
-    integrationLayer.publishSyncEvent('service:appointment_updated', app);
-  }
+    await firebaseService.updateItem(this.COLLECTION, id, { 
+      status,
+      completedAt: status === 'completed' ? Date.now() : undefined
+    });
 
-  private handleAppointmentUpdate(app: ServiceAppointment) {
-    const index = this.appointments.findIndex(a => a.id === app.id);
-    if (index >= 0) {
-      this.appointments[index] = app;
-    } else {
-      this.appointments.push(app);
+    // Se o status for concluído, gerar um pedido (Order) automaticamente para o financeiro
+    if (status === 'completed') {
+      try {
+        const orderId = idGenerator.generate('ord-srv');
+        await firebaseService.saveItem('orders', orderId, {
+          enterpriseId: app.enterpriseId,
+          shopId: app.shopId,
+          customerId: app.clientId,
+          staffId: app.providerId,
+          items: [{
+            productId: app.serviceId,
+            quantity: 1,
+            price: app.totalPrice,
+            name: 'Serviço Executado'
+          }],
+          total: app.totalPrice,
+          status: 'paid', // Assume pago na conclusão do serviço no fluxo simplificado
+          createdAt: Date.now(),
+          source: 'service_appointment',
+          referenceId: app.id
+        });
+        logger.info('service', 'Pedido de venda gerado a partir de agendamento concluído', { orderId });
+      } catch (err) {
+        logger.error('service', 'Erro ao gerar pedido financeiro para agendamento', { error: err });
+      }
     }
-    this.saveAppointments();
+    
+    logger.info('service', `Status do agendamento atualizado para ${status}`, { appointmentId: id });
+    integrationLayer.publishSyncEvent('service:appointment_updated', { ...app, status });
   }
 }
 

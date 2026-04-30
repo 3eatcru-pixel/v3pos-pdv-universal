@@ -71,6 +71,11 @@ export interface StaffSchedule {
 
 export interface User extends CoreUser {
   createdAt: number;
+  providerData?: {
+    providerId: string;
+    displayName: string | null;
+    email: string | null;
+  }[];
 }
 
 export interface InviteCode {
@@ -85,6 +90,17 @@ export interface InviteCode {
 }
 
 export type Company = Enterprise;
+
+// Auditoria: Adicionado branding e configurações de backup à interface Company
+export interface Company extends Enterprise {
+  branding?: {
+    logo?: string;
+    customName?: string;
+    themeMode?: 'standard' | 'festive' | 'dark_neon';
+  };
+  googleDriveBackupEnabled?: boolean;
+  backupIntervalMinutes?: number;
+}
 
 export interface Region {
   id: string;
@@ -182,6 +198,7 @@ export interface ServiceItem {
   duration: number; // in minutes
   category: string;
   description?: string;
+  customCommissionRate?: number; // Auditoria: Taxa específica por serviço
   requiresApproval: boolean;
   active: boolean;
   commissionRate?: number; // Specific rate for this service
@@ -203,6 +220,13 @@ export interface ServiceResource {
   name: string;
   type: string; // e.g., 'chair', 'room', 'machine'
   active: boolean;
+}
+
+// Auditoria: Interface para Definição de Serviço (Unificada)
+export interface ServiceDefinition extends ServiceItem {
+  enterpriseId: string;
+  shopId?: string;
+  customCommissionRate?: number;
 }
 
 export interface Appointment {
@@ -394,6 +418,12 @@ export interface Staff extends CoreStaff {
     agency: string;
     account: string;
   };
+  serviceConfig?: {
+    rentalFee?: number;
+    serviceRate?: number;
+    productRate?: number;
+  };
+  businessModel?: 'commission' | 'rental' | 'hybrid' | 'freelancer';
   documents?: { name: string; url: string; uploadDate: number }[];
   skills?: string[]; // For Service Business
   commissionRate?: number; // Base rate for the professional
@@ -414,6 +444,26 @@ export interface PerformanceEvent {
   points: number;
   timestamp: number;
   createdBy: string;
+}
+
+export interface InternalMessage {
+  id: string;
+  userId: string;
+  enterpriseId: string;
+  type: 'info' | 'warning' | 'critical';
+  timestamp: number;
+  read: boolean;
+  content: string;
+}
+
+export interface InternalMessage {
+  id: string;
+  userId: string;
+  enterpriseId: string;
+  type: 'info' | 'warning' | 'critical';
+  timestamp: number;
+  read: boolean;
+  content: string;
 }
 
 export interface Order {
