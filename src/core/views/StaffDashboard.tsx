@@ -27,6 +27,7 @@ import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
 import { TourEngine, TourStep } from '../services/TourEngine';
 import { logger } from '../services/logger';
+import { formatCurrency } from '../../lib/utils';
 
 interface StaffDashboardProps {
   staff: Staff | null;

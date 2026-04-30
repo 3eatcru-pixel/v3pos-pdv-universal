@@ -17,6 +17,7 @@ import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../../hooks/useCollection';
 import { cn, formatCurrency } from '../../../lib/utils';
 import { Order, Table } from '../../../types';
+import { accountService } from '../../../core/services/accountService';
 
 export const RestaurantHistoryView: React.FC = () => {
   const [historyFilter, setHistoryFilter] = useState<'all' | 'open' | 'closed'>('all');

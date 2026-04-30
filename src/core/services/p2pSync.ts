@@ -87,7 +87,7 @@ class MeshNetwork {
       nextExpectedAt: this.nextSyncTimestamp,
       isDriveOnly: localStorage.getItem('pos_storage_strategy') === 'drive_only',
       status: 'eco_mode_active' // Avisa a UI que estamos economizando Firestore
-    });
+    } as any);
   }
 
   /**
@@ -317,7 +317,7 @@ class MeshNetwork {
         status: 'offline', 
         lastSync: this.lastSuccessfulSyncTime,
         reason: 'no_internet'
-      });
+      } as any);
       return;
     }
 
@@ -339,9 +339,10 @@ class MeshNetwork {
 
       // Lógica de Connection Switcher Automático
       // Se houver erro de permissão ou configuração na nuvem customizada, voltamos ao padrão
-      const isCustomCloudError = error.message?.includes('permission-denied') || 
-                                 error.message?.includes('not-found') ||
-                                 error.message?.includes('invalid-api-key');
+      const err = error as any;
+      const isCustomCloudError = err?.message?.includes('permission-denied') || 
+                                 err?.message?.includes('not-found') ||
+                                 err?.message?.includes('invalid-api-key');
 
       if (isCustomCloudError) {
         logger.warn('p2p', '⚠️ Falha crítica na GCP privada detectada. Ativando Switcher Automático.');
@@ -362,7 +363,7 @@ class MeshNetwork {
         });
       }
 
-      coreEventBus.emit('system:sync_status', { status: 'failed', lastSync: this.lastSyncTime, error: error.message });
+      coreEventBus.emit('system:sync_status', { status: 'failed', lastSync: this.lastSyncTime, error: err?.message || 'sync_error' } as any);
     } finally {
       this.syncInProgress = false;
     }

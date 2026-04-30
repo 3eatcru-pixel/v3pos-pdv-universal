@@ -258,6 +258,7 @@ export const RetailPOS: React.FC<RetailPOSProps> = ({ externalAddToCart, hideCar
                 id: `tr_${Date.now()}_${Math.random().toString(36).slice(2)}`,
                 saleId: saleId,
                 amount: p.amount,
+                shopId: shopId || 'default',
                 method: p.method as any,
                 externalId: p.transactionId || 'MANUAL-INPUT',
                 provider: p.cardBrand || 'System'

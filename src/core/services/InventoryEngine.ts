@@ -3,6 +3,8 @@ import { firebaseService } from '../../services/firebaseService';
 import { coreEventBus } from '../events/CoreEventBus';
 import { bomEngine } from './BOMEngine'; // Importar BOMEngine para explodir composição
 import { logger } from './logger';
+import { generateSafeId } from '../lib/utils';
+import { accountService } from './accountService';
 
 export interface StockBatch {
   id: string;
@@ -42,7 +44,7 @@ export class InventoryEngine {
 
     // Usar BOMEngine para explodir a composição e resolver substitutos
     const explodedItems = bomEngine.explodeCartToInsumos(
-      filteredItems.map(i => ({ id: i.id || (i as any).productId, quantity: i.quantity, name: i.name, composition: i.composition, modifiers: i.modifiers })),
+      filteredItems.map(i => ({ id: i.id || (i as any).productId, quantity: i.quantity, name: i.name, composition: i.composition, modifiers: i.modifiers })) as any,
       products, // Agora passa a lista correta para identificar ingredientes
       inventory
     );
@@ -297,7 +299,7 @@ export class InventoryEngine {
 
         // Fase 3: Registro de Auditoria Imutável para ajuste manual
         const auditId = `audit-manual-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-        const user = (await import('./accountService')).accountService.getCurrentUser();
+        const user = accountService.getCurrentUser();
         tx.set(firebaseService.getDocRef('audit_logs', auditId), {
           enterpriseId: data.enterpriseId,
           shopId: data.shopId,

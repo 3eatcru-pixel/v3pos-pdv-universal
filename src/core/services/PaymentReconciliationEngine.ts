@@ -38,10 +38,10 @@ class PaymentReconciliationEngine {
    * Realiza a Reconciliação (Match) entre o software e o relatório da adquirente
    */
   async reconcileWithProviderReport(externalReport: any[]) {
-    const ledger = await firebaseService.getAllDocs('payment_ledger');
+    const ledger = (await firebaseService.getAllDocs('payment_ledger')) as PaymentTransaction[];
     
     // Otimização: Criar um mapa para busca O(1) em vez de O(n) dentro do loop
-    const ledgerMap = new Map(ledger.map(l => [l.externalId, l]));
+    const ledgerMap = new Map<string, PaymentTransaction>(ledger.map((l) => [l.externalId || l.id, l]));
     
     const results = { matched: 0, missing: 0, totalAmount: 0 };
     const updatePromises: Promise<void>[] = [];

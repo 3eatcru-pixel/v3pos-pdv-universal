@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { MapPin, ChevronRight, Wallet, User, Phone, Navigation } from 'lucide-react';
+import { MapPin, ChevronRight, Wallet, User, Phone, Navigation, CheckCircle2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useCollection } from '../../hooks/useCollection';
 import { accountService } from '../services/accountService';

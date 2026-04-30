@@ -1,6 +1,7 @@
 import { registerSW } from 'virtual:pwa-register';
 
 export function registerServiceWorker() {
+  const log = (...args: any[]) => console.log('[PWA]', ...args);
   const updateSW = registerSW({
     immediate: true,
     onRegisteredSW(swScriptUrl) {

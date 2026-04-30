@@ -1,5 +1,4 @@
 import { integrationLayer } from '../../../integration/integrationLayer';
-import { meshNetwork } from '../../../services/p2pSync';
 import { SyncEvent } from '../../../core/types';
 
 export interface Sector {
@@ -49,7 +48,7 @@ class MarketService {
   }
 
   registerSyncListeners() {
-    meshNetwork.setOnSync((event: SyncEvent) => {
+    integrationLayer.onSyncEvent((event: SyncEvent) => {
       switch (event.type) {
         case 'MARKET_SALE':
           this.handleMarketSale(event.payload);
@@ -69,7 +68,7 @@ class MarketService {
 
   async processSale(saleData: any) {
     // 1. P2P Sync
-    meshNetwork.broadcast('MARKET_SALE', saleData);
+    integrationLayer.publishSyncEvent('MARKET_SALE', saleData);
     
     // 2. Persistent Storage through Integration
     return await integrationLayer.registerSale('market', saleData, saleData.items);

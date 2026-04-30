@@ -1,7 +1,9 @@
 import { coreSalesService, coreProductService } from '../core/services/coreServices';
 import { logger } from '../core/services/logger';
-import { CoreSale, CoreProduct } from '../core/types';
+import { CoreSale, SyncEvent } from '../core/types';
+import { SyncEventType } from '../core/events/eventCatalog';
 import { authService } from '../auth/authService';
+import { meshNetwork } from '../services/p2pSync';
 
 /**
  * Integration Layer
@@ -31,9 +33,24 @@ class IntegrationLayer {
     logger.log(origin, `Processing sale via Integration Layer (Company: ${companyId})`, { saleId: sale.id, companyId });
     
     // 1. Call core sales service
-    const result = await coreSalesService.processSale(sale, []);
+    const result = await coreSalesService.processSale(sale, items || []);
     
     return result;
+  }
+
+  // Unified sync publishing API
+  publishSyncEvent(type: SyncEventType, payload: any) {
+    meshNetwork.emitEvent(type, payload);
+  }
+
+  // Unified sync subscription API
+  onSyncEvent(callback: (event: SyncEvent) => void) {
+    return meshNetwork.setOnSync(callback);
+  }
+
+  // Connectivity probe for modules
+  isSyncConnected() {
+    return meshNetwork.isConnectedToLocalMesh;
   }
 
   // Inventory Integration

@@ -68,7 +68,7 @@ class SalesService {
 
         // 2. Auditoria: PROCESSAMENTO DE ESTOQUE
         if (items && items.length > 0) {
-          const multiplier = (sale.module === 'construction' && (sale as any).logistics?.type === 'scheduled_delivery') ? 0 : 1;
+          const multiplier = (((sale as any).module === 'construction') && (sale as any).logistics?.type === 'scheduled_delivery') ? 0 : 1;
           
           await InventoryEngine.adjustStockRecursive(
             items, 
@@ -218,7 +218,7 @@ class SalesService {
       const products = await firebaseService.getDocsByQuery('products', [{ field: 'enterpriseId', op: '==', value: enterpriseId }]);
 
       await InventoryEngine.adjustStockRecursive(
-        orderData.items, -1, enterpriseId, orderData.shopId, inventory as any, products as any, tx
+        orderData.items.map((i) => ({ id: i.productId || i.id || '', quantity: i.quantity, name: i.name })), -1, enterpriseId, orderData.shopId, inventory as any, products as any, tx
       );
 
       const auditRef = firebaseService.getDocRef('audit_logs', `void-${orderId}-${Date.now()}`);

@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Scan, Zap, CreditCard, Banknote, WifiOff, CloudUpload, Activity } from 'lucide-react';
-import { formatCurrency } from '../../../lib/utils';
-import { coreEventBus } from '../../events/CoreEventBus';
+import { formatCurrency } from '../../lib/utils';
+import { coreEventBus } from '../events/CoreEventBus';
 import { t } from '../services/LocaleEngine';
 import { PrinterEngine } from '../services/PrinterEngine';
+import { accountService } from '../services/accountService';
 
 interface CartItem {
   id: string;
@@ -19,6 +20,7 @@ export const FastCheckoutView: React.FC<{
   onAddByBarcode: (barcode: string) => void;
   onCheckout: (method: 'card' | 'cash') => Promise<void>;
 }> = ({ cart, total, onAddByBarcode, onCheckout }) => {
+  const enterpriseId = accountService.getCurrentCompanyId() || 'default';
   const scanInputRef = useRef<HTMLInputElement>(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [pendingSync, setPendingSync] = useState(0);
@@ -30,7 +32,8 @@ export const FastCheckoutView: React.FC<{
     // Fase 6: Monitor de estado de rede local
     const unsub = coreEventBus.on('system:sync_status', (data) => {
       setIsOffline(data.status !== 'synced');
-      if (data.pending !== undefined) setPendingSync(data.pending);
+      const pending = (data as any).pendingCount ?? (data as any).pending;
+      if (pending !== undefined) setPendingSync(Number(pending) || 0);
     });
 
     window.addEventListener('online', () => setIsOffline(false));

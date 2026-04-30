@@ -105,6 +105,7 @@ export class SimulationEngine {
 
     await HREngine.recordPerformance(enterpriseId, {
       staffId: randomStaff.id,
+      enterpriseId,
       type: incident.type as any,
       title: incident.title,
       description: incident.msg,

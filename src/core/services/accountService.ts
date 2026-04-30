@@ -1,6 +1,6 @@
 import { Company, SupportMessage, User, BusinessMode, Shop, Staff } from '../types';
 export type { Company, SupportMessage, User, BusinessMode, Shop };
-import { Order } from '../../types';
+import { Order, RolePermissions } from '../../types';
 import { meshNetwork } from '../../services/p2pSync';
 import { format } from 'date-fns';
 import { authService } from '../../auth/authService'; // Moved up for consistency
@@ -18,6 +18,11 @@ import { CloudConfig, cloudLatencyMonitor } from './CloudLatencyMonitor';
 import { TourEngine } from './TourEngine';
 
 class AccountService {
+  private generateSafeId(prefix: string) {
+    const safePrefix = prefix || 'id';
+    return `${safePrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
   private mapRoleForLegacy(role: string): User['role'] {
     if (role === 'staff') return 'staff';
     if (role === 'manager') return 'manager';
@@ -490,7 +495,7 @@ class AccountService {
 
         // Requisito 3: Usuário suporte automático (ReadOnly para configurações)
         await HREngine.saveStaff(newCompany.id, {
-          id: `support-${generateSafeId('')}`,
+      id: `support-${this.generateSafeId('')}`,
           name: 'Grid Support (Virtual)',
           role: 'manager',
           active: true,
@@ -581,7 +586,7 @@ class AccountService {
     location: string,
     options?: CloneOptions
   ) {
-    return ShopCloneEngine.cloneShop(enterpriseId, sourceShopId, { name, location } as any, options);
+    return ShopCloneEngine.cloneShop(enterpriseId, enterpriseId, sourceShopId, { name, location } as any, options);
   }
 
   public async initiateStockTransfer(
@@ -657,7 +662,7 @@ class AccountService {
     const profile = regionalProfiles[countryCode] || regionalProfiles['BR'];
     
     // Atualiza o motor de localização com os novos rótulos
-    localeEngine.settings = {
+    (localeEngine as any).settings = {
       ...localeEngine.settings,
       currencySymbol: profile.currency === 'EUR' ? '€' : profile.currency === 'GBP' ? '£' : '$',
       taxLabel: profile.taxLabel,
@@ -781,6 +786,14 @@ class AccountService {
     return 'none';
   }
 
+  public async setDeviceRole(role: 'host' | 'co-host' | 'none') {
+    localStorage.setItem('pos_device_role', role);
+  }
+
+  public async toggleLocalServerMode(enabled: boolean) {
+    localStorage.setItem('pos_local_server_mode', enabled ? 'true' : 'false');
+  }
+
   /**
    * Verifica se este hardware específico é um Servidor (Host ou Co-Host)
    */
@@ -868,13 +881,11 @@ class AccountService {
   }
 
   public getCloudConfig(): CloudConfig {
-    const tenant = authService.getCurrentTenant();
-    return tenant?.cloudConfig || { provider: 'system', tier: 'free' };
+    return { provider: 'system', tier: 'free' };
   }
 
   public getAutoCloudSwitchingPreference(): boolean {
-    const tenant = authService.getCurrentTenant();
-    return tenant?.autoCloudSwitchingEnabled || false;
+    return false;
   }
 
   /**

@@ -26,11 +26,33 @@ export interface AuthTenant {
   ownerName?: string;
   ownerPhone?: string;
   accessCode: string;
-  status: 'active' | 'inactive' | 'maintenance';
+  status: 'active' | 'inactive' | 'maintenance' | 'suspended';
+  suspensionReason?: string;
   createdAt: number;
   lockedModules?: string[];
   enabledModules?: string[];
+  availableModules?: string[];
   isPaused?: boolean;
+  isDemo?: boolean;
+  cloudConfig?: {
+    provider: 'system' | 'custom_firestore';
+    tier: 'free' | 'turbo';
+    customConfig?: { projectId: string; apiKey: string };
+  };
+  autoCloudSwitchingEnabled?: boolean;
+  googleDriveBackupEnabled?: boolean;
+  backupIntervalMinutes?: number;
+  monthlyUnitsLimit?: number;
+  trainingModeEnabled?: boolean;
+  blockOnZeroStock?: boolean;
+  branding?: {
+    logo?: string;
+    customName?: string;
+    dailyNotice?: string;
+    themeMode?: 'standard' | 'festive' | 'dark_neon';
+    receiptPhrases?: string[];
+  };
+  storageStrategy?: 'hybrid' | 'drive_only' | 'local_only';
 }
 
 export interface AuthUser {
@@ -70,6 +92,7 @@ export interface CreateOwnerTenantInput {
   ownerName: string;
   ownerPhone?: string;
   enabledModules?: string[];
+  availableModules?: string[];
 }
 
 export interface CreateOwnerUserInput {

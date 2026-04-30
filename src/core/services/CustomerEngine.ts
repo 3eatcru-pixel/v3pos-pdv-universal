@@ -42,7 +42,7 @@ export class CustomerEngine {
       await firebaseService.runTransaction(async (tx) => {
         const ref = firebaseService.getDocRef('customers', id);
         const snap = await tx.get(ref);
-        const current = snap.exists() ? snap.data() as Customer : {};
+        const current = (snap.exists() ? (snap.data() as Partial<Customer>) : ({} as Partial<Customer>));
 
         const customer: Customer = {
           ...current,

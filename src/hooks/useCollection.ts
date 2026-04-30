@@ -9,7 +9,7 @@ import { accountService } from '../core/services/accountService';
  */
 export function useCollection<T = any>(
   colName: string, 
-  options?: { enterpriseId?: string | null; shopId?: string | null }
+  options?: { enterpriseId?: string | null; shopId?: string | null; [key: string]: any }
 ) {
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,5 +41,10 @@ export function useCollection<T = any>(
     }
   }, [colName, enterpriseId, shopId]);
 
-  return { data, loading, error, setData };
+  const refresh = () => {
+    // Subscription-based hook refreshes automatically; this keeps API compatibility.
+    return;
+  };
+
+  return { data, loading, error, setData, refresh };
 }

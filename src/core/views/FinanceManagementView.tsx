@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -26,7 +26,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '../../lib/utils';
 import { StatCard } from '../components/CommonUI';
-import { RecountRequest, StockCountSession, Transaction } from '../../types';
+import { RecountRequest, StockCountSession, Transaction, Order, Product } from '../../types';
 import { accountService } from '../services/accountService';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';

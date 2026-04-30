@@ -36,7 +36,7 @@ export interface StaffMealEntry {
   totalAmount: number;
   authorizedBy: string;
   timestamp: number;
-  items: { name: string; quantity: number; cost: number }[];
+  items: { id?: string; name: string; quantity: number; cost: number }[];
 }
 
 export interface EODSession {
@@ -176,7 +176,8 @@ export class EndOfDayEngine {
         const session = snap.data() as EODSession;
 
         // 1. Abate estoque via InventoryEngine usando a mesma transação (Atômico)
-        await InventoryEngine.manualAdjustment(entry.itemId, -entry.quantity, entry.sourceType, tx);
+        const sourceCollection = entry.sourceType === 'product' ? 'products' : 'inventory';
+        await InventoryEngine.manualAdjustment(entry.itemId, -entry.quantity, sourceCollection, tx);
 
         // 2. Registra na sessão de fechamento
         tx.update(ref, {
@@ -272,10 +273,12 @@ export class EndOfDayEngine {
    */
   static async finalizeEOD(sessionId: string, finalData: Partial<EODSession>) {
     try {
+      let sessionSnapshot: EODSession | null = null;
       await firebaseService.runTransaction(async (tx) => {
         const ref = firebaseService.getDocRef('eod_sessions', sessionId);
         const snap = await tx.get(ref);
         const current = snap.data() as EODSession;
+        sessionSnapshot = current;
 
         // 1. Trava de Segurança: Exige fechamento de todas as operações
         const isClear = await this.validatePendingOperations(current.enterpriseId, current.shopId);
@@ -311,7 +314,9 @@ export class EndOfDayEngine {
       logger.info('system', 'Fechamento de dia concluído e auditado', { sessionId });
 
       // Auditoria Eco-Mode: Após o fechamento, dispara o Push Consolidado para a Nuvem
-      await EndOfDayEngine.syncFinalSummaryToCloud(current.enterpriseId, current.shopId);
+      if (sessionSnapshot) {
+        await EndOfDayEngine.syncFinalSummaryToCloud(sessionSnapshot.enterpriseId, sessionSnapshot.shopId);
+      }
     } catch (error) {
       logger.error('system', 'Falha ao finalizar fechamento EOD', { error });
       throw error;

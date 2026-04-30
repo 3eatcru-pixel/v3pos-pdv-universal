@@ -23,6 +23,7 @@ export const StaffFoodPortal: React.FC<{ sessionId: string; staff: any }> = ({ s
         staffName: staff.name,
         totalAmount: total,
         authorizedBy: `STAFF_ADMIN`, 
+        timestamp: Date.now(),
         items: cart.map(i => ({ name: i.name, quantity: 1, cost: i.price }))
       }, pin); 
 

@@ -1,5 +1,5 @@
 import { ServiceAppointment, AppointmentStatus } from '../types';
-import { meshNetwork } from '../../../services/p2pSync';
+import { integrationLayer } from '../../../integration/integrationLayer';
 import { logger } from '../../../core/services/logger';
 
 class SchedulingService {
@@ -73,8 +73,13 @@ class SchedulingService {
     localStorage.setItem('pos_service_appointments', JSON.stringify(this.appointments));
   }
 
-  public getAppointments(enterpriseId: string, startDate?: number, endDate?: number): ServiceAppointment[] {
-    let filtered = this.appointments.filter(a => a.enterpriseId === enterpriseId);
+  public getAppointments(enterpriseId: string, shopIdOrStartDate?: string | number, startDateOrEndDate?: number, maybeEndDate?: number): ServiceAppointment[] {
+    const hasShop = typeof shopIdOrStartDate === 'string';
+    const shopId = hasShop ? shopIdOrStartDate : undefined;
+    const startDate = hasShop ? startDateOrEndDate : (shopIdOrStartDate as number | undefined);
+    const endDate = hasShop ? maybeEndDate : startDateOrEndDate;
+
+    let filtered = this.appointments.filter(a => a.enterpriseId === enterpriseId && (!shopId || !a.shopId || a.shopId === shopId));
     
     if (startDate && endDate) {
       filtered = filtered.filter(a => a.startTime >= startDate && a.startTime < endDate);
@@ -83,8 +88,8 @@ class SchedulingService {
     return filtered;
   }
 
-  public checkConflicts(enterpriseId: string, providerId: string, resourceIds: string[], startTime: number, endTime: number, excludeId?: string): boolean {
-    const existing = this.getAppointments(enterpriseId);
+  public checkConflicts(enterpriseId: string, providerId: string, resourceIds: string[], startTime: number, endTime: number, excludeId?: string, shopId?: string): boolean {
+    const existing = this.getAppointments(enterpriseId, shopId);
     
     return existing.some(app => {
       if (excludeId && app.id === excludeId) return false;
@@ -106,7 +111,7 @@ class SchedulingService {
   }
 
   public createAppointment(data: Omit<ServiceAppointment, 'id' | 'createdAt'>): ServiceAppointment {
-    if (this.checkConflicts(data.enterpriseId, data.providerId, data.resourceIds, data.startTime, data.endTime)) {
+    if (this.checkConflicts(data.enterpriseId, data.providerId, data.resourceIds, data.startTime, data.endTime, undefined, data.shopId)) {
       logger.warn('service', 'Tentativa de agendamento com conflito', { providerId: data.providerId });
       throw new Error('Conflito de horário detectado. Profissional ou recurso já está em uso.');
     }
@@ -121,7 +126,7 @@ class SchedulingService {
     this.saveAppointments();
     logger.info('service', 'Novo agendamento criado', { appointmentId: newAppointment.id });
 
-    meshNetwork.broadcast('service:appointment_updated', newAppointment);
+    integrationLayer.publishSyncEvent('service:appointment_updated', newAppointment);
 
     return newAppointment;
   }
@@ -137,7 +142,7 @@ class SchedulingService {
     this.saveAppointments();
     logger.info('service', `Status do agendamento atualizado para ${status}`, { appointmentId: id });
     
-    meshNetwork.broadcast('service:appointment_updated', app);
+    integrationLayer.publishSyncEvent('service:appointment_updated', app);
   }
 
   private handleAppointmentUpdate(app: ServiceAppointment) {

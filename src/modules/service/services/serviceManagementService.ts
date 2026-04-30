@@ -65,8 +65,8 @@ class ServiceManagementService {
   }
 
   // --- Services ---
-  public getServices(enterpriseId: string): ServiceDefinition[] {
-    return this.services.filter(s => s.enterpriseId === enterpriseId);
+  public getServices(enterpriseId: string, shopId?: string): ServiceDefinition[] {
+    return this.services.filter(s => s.enterpriseId === enterpriseId && (!shopId || !s.shopId || s.shopId === shopId));
   }
 
   public addService(data: Omit<ServiceDefinition, 'id'>) {
@@ -77,8 +77,8 @@ class ServiceManagementService {
   }
 
   // --- Providers ---
-  public getProviders(enterpriseId: string): ServiceProvider[] {
-    return this.providers.filter(p => p.enterpriseId === enterpriseId);
+  public getProviders(enterpriseId: string, shopId?: string): ServiceProvider[] {
+    return this.providers.filter(p => p.enterpriseId === enterpriseId && (!shopId || !p.shopId || p.shopId === shopId));
   }
 
   public addProvider(data: Omit<ServiceProvider, 'id'>) {
@@ -89,8 +89,8 @@ class ServiceManagementService {
   }
 
   // --- Resources ---
-  public getResources(enterpriseId: string): ServiceResource[] {
-    return this.resources.filter(r => r.enterpriseId === enterpriseId);
+  public getResources(enterpriseId: string, shopId?: string): ServiceResource[] {
+    return this.resources.filter(r => r.enterpriseId === enterpriseId && (!shopId || !r.shopId || r.shopId === shopId));
   }
 
   public addResource(data: Omit<ServiceResource, 'id'>) {

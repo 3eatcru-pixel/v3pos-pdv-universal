@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Search, ChevronLeft, Check, Plus, Minus, Package, Zap, Undo2, AlertTriangle, RefreshCw } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useCollection } from '../../hooks/useCollection';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
 import { InventoryEngine } from '../services/InventoryEngine';
 import { cn, formatCurrency } from '../../lib/utils';
 import { t } from '../services/LocaleEngine';
+import { logger } from '../services/logger';
 
 export const InventoryCollectorView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const enterpriseId = accountService.getCurrentCompanyId() || '';

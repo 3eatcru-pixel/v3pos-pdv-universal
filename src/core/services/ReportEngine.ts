@@ -38,8 +38,8 @@ class ReportEngine {
     
     let csvContent = `Relatório de Vendas - ${shopName},Período: ${periodLabel},Gerado em: ${date}\n`;
     csvContent += `Métrica,Valor\n`;
-    csvContent += `Total de Vendas,${localeEngine.formatMoney(stats.totalSalesToday, false).replace(localeEngine.settings.currency, '').trim()}\n`; // Remover símbolo para CSV
-    csvContent += `Ticket Médio,${localeEngine.formatMoney(stats.avgTicketToday, false).replace(localeEngine.settings.currency, '').trim()}\n`; // Remover símbolo para CSV
+    csvContent += `Total de Vendas,${localeEngine.formatMoney(stats.totalSalesToday).replace(localeEngine.settings.currency, '').trim()}\n`; // Remover símbolo para CSV
+    csvContent += `Ticket Médio,${localeEngine.formatMoney(stats.avgTicketToday).replace(localeEngine.settings.currency, '').trim()}\n`; // Remover símbolo para CSV
     csvContent += `Margem de Lucro,${stats.profitMargin.toFixed(2)}%\n`;
     csvContent += `Pedidos no Período,${stats.orderCount}\n`;
     csvContent += `Custo de Mão de Obra,${stats.laborCostPercentage.toFixed(2)}%\n`;

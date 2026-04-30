@@ -11,6 +11,8 @@
     "lint": "tsc --noEmit",
     "audit": "node scripts/audit-project.mjs",
     "audit:orphans": "node scripts/audit-orphans.mjs",
+    "install:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/install-v3pos.ps1",
+    "start:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/start-v3pos.ps1",
     "setup:hooks": "node scripts/setup-hooks.mjs",
     "pre-commit": "node scripts/pre-commit.mjs",
     "postinstall": "node scripts/setup-hooks.mjs"

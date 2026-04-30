@@ -356,6 +356,38 @@ export const firebaseService = {
     }
   },
 
+  getDoc: async (colName: string, id: string) => {
+    try {
+      const snap = await getDoc(doc(db, colName, id));
+      if (!snap.exists()) return null;
+      return { ...snap.data(), id: snap.id };
+    } catch (e) {
+      return handleFirestoreError(e, 'get', `${colName}/${id}`);
+    }
+  },
+
+  getDocsByQuery: async (
+    colName: string,
+    clauses: Array<{ field: string; op: any; value: any }> = [],
+    options?: { limit?: number; orderBy?: { field: string; direction?: 'asc' | 'desc' } }
+  ) => {
+    try {
+      const queryParts: any[] = clauses.map((clause) => where(clause.field, clause.op, clause.value));
+      if (options?.orderBy?.field) {
+        queryParts.push(orderBy(options.orderBy.field, options.orderBy.direction || 'asc'));
+      }
+      if (typeof options?.limit === 'number') {
+        queryParts.push(limit(options.limit));
+      }
+
+      const q = query(collection(db, colName), ...queryParts);
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }));
+    } catch (e) {
+      return handleFirestoreError(e, 'list', colName);
+    }
+  },
+
   reserveInventoryStocksAtomic: async (
     items: { productId: string; quantity: number }[],
     context: { enterpriseId: string }

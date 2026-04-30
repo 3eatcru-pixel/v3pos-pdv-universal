@@ -16,10 +16,11 @@ import {
   ChevronRight,
   Server,
   Wifi,
-  CloudSync,
+  Cloud,
+  RefreshCw,
+  Wallet,
   CloudUpload,
   Chrome,
-  Cloud,
   Cpu,
   Calendar,
   Map as MapIcon,
@@ -35,6 +36,7 @@ import { PayoutApprovalDashboard } from '../views/PayoutApprovalDashboard'; // I
 import { CommunicationEngine, InternalMessage } from '../services/CommunicationEngine';
 import { BackupManagerView } from '../views/BackupManagerView';
 import { CloudConfigEngine } from '../services/CloudConfigEngine';
+import { meshNetwork } from '../../services/p2pSync';
 
 interface GlobalSettingsProps {
   context?: string;
@@ -52,6 +54,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
   const [isPaused, setIsPaused] = useState(false);
   const [companyName, setCompanyName] = useState('...');
   const [deviceRole, setDeviceRole] = useState<'host' | 'co-host' | 'none'>('none');
+  const [isLocalServer, setIsLocalServer] = useState(false);
   const [googleBackupEnabled, setGoogleBackupEnabled] = useState(false);
   const [backupInterval, setBackupInterval] = useState(10); // Default 10min
   const [isGoogleLinked, setIsGoogleLinked] = useState(false);
@@ -122,6 +125,23 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({ context }) => {
     const next = !googleBackupEnabled;
     await accountService.updateBackupSettings(companyId, next);
     setGoogleBackupEnabled(next);
+  };
+
+  const handleToggleStockBlock = async () => {
+    const next = !blockOnZeroStock;
+    await accountService.updateStockPolicy(companyId, next);
+    setBlockOnZeroStock(next);
+  };
+
+  const handleSetDeviceRole = async (role: 'host' | 'co-host' | 'none') => {
+    await accountService.setDeviceRole(role);
+    setDeviceRole(role);
+  };
+
+  const handleUpdateBackup = async (enabled: boolean, intervalMinutes: number) => {
+    await accountService.updateBackupSettings(companyId, enabled, intervalMinutes);
+    setGoogleBackupEnabled(enabled);
+    setBackupInterval(intervalMinutes);
   };
 
   const handleUpdateBranding = async () => {

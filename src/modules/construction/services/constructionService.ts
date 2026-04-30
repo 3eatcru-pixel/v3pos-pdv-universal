@@ -1,6 +1,5 @@
 import { integrationLayer } from '../../../integration/integrationLayer';
 import { CoreProduct, SyncEvent, CustomFieldDefinition } from '../../../core/types';
-import { meshNetwork } from '../../../services/p2pSync';
 
 export interface Quote {
   id: string;
@@ -100,7 +99,7 @@ class ConstructionService {
       createdAt: Date.now()
     };
     this.customFields.push(newField);
-    meshNetwork.emitEvent('ADD_CUSTOM_FIELD', newField);
+    integrationLayer.publishSyncEvent('ADD_CUSTOM_FIELD', newField);
     return newField;
   }
 
@@ -115,7 +114,7 @@ class ConstructionService {
       createdAt: Date.now()
     };
     this.customers.push(newCustomer);
-    meshNetwork.emitEvent('ADD_CUSTOMER', newCustomer);
+    integrationLayer.publishSyncEvent('ADD_CUSTOMER', newCustomer);
     return newCustomer;
   }
   /**
@@ -123,7 +122,7 @@ class ConstructionService {
    * This is where a Host or Client reacts to incoming events.
    */
   public registerSyncListeners() {
-    meshNetwork.setOnSync((event: SyncEvent) => {
+    integrationLayer.onSyncEvent((event: SyncEvent) => {
       switch (event.type) {
         case 'UPDATE_STOCK':
           this.handleLocalStockUpdate(event.payload);
@@ -142,13 +141,13 @@ class ConstructionService {
     await integrationLayer.sendLog('construction', 'Created new quote', { quoteId: quote.id });
     
     // Broadcast for other salesman or host visibility
-    meshNetwork.emitEvent('CREATE_QUOTE', quote);
+    integrationLayer.publishSyncEvent('CREATE_QUOTE', quote);
     
     return { success: true, quoteId: quote.id };
   }
 
   async approveQuote(quoteId: string) {
-    meshNetwork.emitEvent('APPROVE_QUOTE', { quoteId, approvedAt: Date.now() });
+    integrationLayer.publishSyncEvent('APPROVE_QUOTE', { quoteId, approvedAt: Date.now() });
   }
 
   async processSale(saleData: any) {
@@ -158,17 +157,17 @@ class ConstructionService {
     });
 
     await integrationLayer.registerSale('construction', saleData, saleData.items);
-    meshNetwork.emitEvent('CREATE_SALE', saleData);
+    integrationLayer.publishSyncEvent('CREATE_SALE', saleData);
   }
 
   async updateStock(productId: string, delta: number) {
     const payload = { productId, delta, timestamp: Date.now() };
-    meshNetwork.emitEvent('UPDATE_STOCK', payload);
+    integrationLayer.publishSyncEvent('UPDATE_STOCK', payload);
   }
 
   async processDelivery(orderId: string, vehicleId: string) {
     await integrationLayer.sendLog('construction', 'Dispatched delivery', { orderId, vehicleId });
-    meshNetwork.emitEvent('REGISTER_DELIVERY', { orderId, vehicleId, status: 'dispatched' });
+    integrationLayer.publishSyncEvent('REGISTER_DELIVERY', { orderId, vehicleId, status: 'dispatched' });
   }
 
   // Event Handlers

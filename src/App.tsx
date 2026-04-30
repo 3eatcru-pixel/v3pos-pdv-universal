@@ -165,6 +165,7 @@ import { StaffDashboard } from './core/views/StaffDashboard';
 
 import { meshNetwork } from './services/p2pSync';
 import { dbLocal } from './services/db';
+import { integrationLayer } from './integration/integrationLayer';
 
 export default function App() {
   const [enterpriseId, setEnterpriseId] = useState<string | null>(() => {
@@ -638,7 +639,7 @@ export default function App() {
 
   useEffect(() => {
     // Mesh Network Listener
-    meshNetwork.setOnSync((data) => {
+    const unsubscribe = integrationLayer.onSyncEvent((data) => {
       const { type, payload } = data;
       switch (type) {
         case 'table:update':
@@ -659,6 +660,8 @@ export default function App() {
           break;
       }
     });
+
+    return unsubscribe;
   }, []);
 
   // Sync state to IndexedDB when it changes - Disabled for Firebase mode

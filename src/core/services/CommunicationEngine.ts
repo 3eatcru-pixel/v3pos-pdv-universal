@@ -5,6 +5,7 @@ import { logger } from './logger';
 export interface InternalMessage {
   id: string;
   enterpriseId: string;
+  companyId?: string;
   userId: string;
   senderId?: string;
   senderName?: string;

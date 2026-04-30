@@ -112,10 +112,20 @@ class AuthService {
     return user;
   }
 
-  async getCurrentTenant(): Promise<AuthTenant | null> {
+  getCurrentTenant(): AuthTenant | null {
     const session = sessionManager.getSession();
     if (!session?.tenantId) return null;
-    return this.getTenantById(session.tenantId);
+    return {
+      id: session.tenantId,
+      name: localStorage.getItem('rm_company_name') || 'Tenant',
+      businessType: (localStorage.getItem('pos_business_mode') as any) || 'generic',
+      ownerId: session.userId,
+      ownerEmail: '',
+      accessCode: '',
+      status: 'active',
+      createdAt: Date.now(),
+      enabledModules: [],
+    };
   }
 
   logout(): void {
@@ -639,6 +649,16 @@ class AuthService {
     }
 
     return migrated;
+  }
+
+  async linkGoogleProvider(): Promise<boolean> {
+    // Compatibility stub: OAuth linking flow is not wired in this checkout.
+    return false;
+  }
+
+  async signInWithGoogle(): Promise<boolean> {
+    // Compatibility stub: OAuth sign-in flow is not wired in this checkout.
+    return false;
   }
 }
 

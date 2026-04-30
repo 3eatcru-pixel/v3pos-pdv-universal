@@ -1,9 +1,9 @@
 import { coreEventBus } from '../events/CoreEventBus';
-import { meshNetwork } from '../../services/p2pSync';
 import { firebaseService } from '../../services/firebaseService';
 import { logger } from '../services/logger';
 import { InventoryEngine } from './InventoryEngine';
 import { accountService } from '../services/accountService';
+import { integrationLayer } from '../../integration/integrationLayer';
 
 /**
  * Orchestrates synchronization between Local Storage, P2P Mesh, and Cloud (Firebase).
@@ -37,7 +37,7 @@ class CoreSyncService {
       }
       
       // P2P Mesh Sync
-      meshNetwork.emitEvent('STOCK_UPDATE', { 
+      integrationLayer.publishSyncEvent('STOCK_UPDATE', {
         eventId: saleId || `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         productId, 
         quantity, 
@@ -51,7 +51,7 @@ class CoreSyncService {
       if (!this.companyId) return;
 
       // P2P Mesh Sync
-      meshNetwork.emitEvent('PRODUCT_UPDATE', product);
+      integrationLayer.publishSyncEvent('PRODUCT_UPDATE', product);
       
       // Cloud Sync
       try {
@@ -65,7 +65,7 @@ class CoreSyncService {
     coreEventBus.on('sale:created', async (sale) => {
       if (!this.companyId) return;
 
-      meshNetwork.emitEvent('SALE_CREATED', sale);
+      integrationLayer.publishSyncEvent('SALE_CREATED', sale);
       
       try {
         await firebaseService.saveItem('sales', sale.id, sale);

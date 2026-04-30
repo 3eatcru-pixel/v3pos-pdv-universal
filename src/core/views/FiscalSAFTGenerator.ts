@@ -149,6 +149,7 @@ export class FiscalSAFTGenerator {
         <CustomerID>Consumidor Final</CustomerID>\n`;
         
       order.items.forEach((item, idx) => {
+        const lineTotal = Number((item as any).totalPrice ?? ((item as any).price || 0) * (item.quantity || 0));
         xml += `        <Line>
           <LineNumber>${idx + 1}</LineNumber>
           <ProductCode>${(item as any).productId?.slice(-8).toUpperCase() || 'SKU-001'}</ProductCode>
@@ -157,7 +158,7 @@ export class FiscalSAFTGenerator {
           <UnitPrice>${(item as any).unitPrice?.toFixed(2) || '0.00'}</UnitPrice>
           <TaxPointDate>${format(order.closedAt!, 'yyyy-MM-dd')}</TaxPointDate>
           <Description>${item.name}</Description>
-          <CreditAmount>${item.totalPrice.toFixed(2)}</CreditAmount>
+          <CreditAmount>${lineTotal.toFixed(2)}</CreditAmount>
           <Tax>
             <TaxType>IVA</TaxType>
             <TaxCountryRegion>PT</TaxCountryRegion>

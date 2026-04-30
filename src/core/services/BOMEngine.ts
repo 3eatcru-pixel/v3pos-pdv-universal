@@ -33,10 +33,11 @@ class BOMEngine {
 
           // Lógica de Substituto: Se o estoque do insumo principal for <= 0 e houver um substituto no cadastro
           const invItem = inventory.find(i => i.id === insumoId);
-          if (invItem && invItem.currentStock <= 0 && invItem.substituteId) {
-            const subItem = inventory.find(i => i.id === invItem.substituteId);
+          const substituteId = (invItem as any)?.substituteId as string | undefined;
+          if (invItem && invItem.currentStock <= 0 && substituteId) {
+            const subItem = inventory.find(i => i.id === substituteId);
             if (subItem && subItem.currentStock > 0) {
-              targetInsumoId = invItem.substituteId;
+              targetInsumoId = substituteId;
               logger.warn('inventory', 'Usando insumo substituto devido a falta de estoque', { 
                 original: invItem.name,
                 substitute: subItem.name,

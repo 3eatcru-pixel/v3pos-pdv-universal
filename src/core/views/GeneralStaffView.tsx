@@ -28,6 +28,8 @@ import {
   History,
   Trash2,
   Calendar,
+  Clock,
+  Download,
   MapPin,
   HardHat,
   CheckSquare,
@@ -42,7 +44,7 @@ import { accountService } from '../services/accountService';
 import { HREngine } from '../services/HREngine';
 import { CommunicationEngine } from '../services/CommunicationEngine';
 import { ImageProcessorEngine } from '../services/ImageProcessorEngine';
-import { format } from 'date-fns';
+import { addDays, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../hooks/useCollection';
 import { logger } from '../services/logger';
@@ -133,6 +135,15 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   }, [currentUser, roles]);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [activeTab, setActiveTab] = useState<string>('Resumo');
+  const [selectedStaff, setSelectedStaff] = useState<any | null>(null);
+  const [selectedRole, setSelectedRole] = useState<RolePermissions | null>(null);
+  const [selectedBusinessModel, setSelectedBusinessModel] = useState<string>('commission');
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const loading = loadingStaff || loadingEvents || loadingRoles;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const staffPhotoRef = useRef<HTMLInputElement>(null);
@@ -156,11 +167,12 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
     try {
       const result = await firebaseService.uploadFile(filePath, file);
       if (!result) throw new Error('Upload falhou');
+      const uploaded = result as any;
       
       const newDoc = {
         name: file.name,
-        url: result.url,
-        path: result.path,
+        url: uploaded.url,
+        path: uploaded.path,
         size: (file.size / 1024 / 1024).toFixed(1) + 'MB',
         date: format(new Date(), 'dd/MM/yyyy'),
         uploadedAt: Date.now()
@@ -240,7 +252,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
   const handleDeleteStaff = async (id: string) => {
     if (!confirm('Tem certeza que deseja remover este colaborador permanentemente?')) return;
     try {
-      await HREngine.deleteStaff(id);
+      await firebaseService.deleteItem('staff', id);
       setSelectedStaff(null);
     } catch (err) {
       logger.error('staff', 'Falha ao remover colaborador', { staffId: id, error: err });
@@ -334,6 +346,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
 
     try {
       await HREngine.recordPerformance(companyId, { // HREngine ainda é responsável por performance
+      enterpriseId: companyId,
       staffId: selectedStaff.id,
       type: formData.get('type') as any,
       title: formData.get('title') as string,
@@ -1107,7 +1120,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                          </select>
                       </div>
                       <div className="space-y-3">
-                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">{LocaleEngine.settings.identityLabel}</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">{(LocaleEngine.settings as any).identityLabel || 'Registro'}</label>
                          <input name="cpf" defaultValue={selectedStaff?.cpf} className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl p-5 font-bold italic focus:border-blue-500 outline-none transition-all" />
                       </div>
                       <div className="space-y-3">

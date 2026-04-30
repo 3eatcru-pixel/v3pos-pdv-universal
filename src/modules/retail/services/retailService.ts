@@ -1,5 +1,4 @@
 import { integrationLayer } from '../../../integration/integrationLayer';
-import { meshNetwork } from '../../../services/p2pSync';
 import { SyncEvent } from '../../../core/types';
 import { logger } from '../../../core/services/logger';
 import { saleRepository } from '../../../core/storage/repositories/saleRepository';
@@ -98,7 +97,7 @@ class RetailService {
   }
 
   registerSyncListeners() {
-    meshNetwork.setOnSync((event: SyncEvent) => {
+    integrationLayer.onSyncEvent((event: SyncEvent) => {
       switch (event.type) {
         case 'RETAIL_SALE':
           void this.handleRetailSale(event.payload);
@@ -131,9 +130,9 @@ class RetailService {
     this.logProductUpdates(sale.items, 'local_process');
     await this.tryRegisterRetailFinanceTransaction(sale, 'sale');
 
-    if (meshNetwork.isConnectedToLocalMesh) {
+    if (integrationLayer.isSyncConnected()) {
       this.lastSyncAttemptAt = Date.now();
-      meshNetwork.emitEvent('RETAIL_SALE', sale);
+      integrationLayer.publishSyncEvent('RETAIL_SALE', sale);
       logger.log('retail', 'SALE_SYNC_SENT', { saleId: sale.id, items: sale.items.length });
       await saleRepository.update({ ...sale, synced: true });
       this.lastSyncSuccessAt = Date.now();
@@ -209,9 +208,9 @@ class RetailService {
     await productRepository.revertSaleItems(returnSale.items);
     await this.tryRegisterRetailFinanceTransaction(returnSale, 'return');
 
-    if (meshNetwork.isConnectedToLocalMesh) {
+    if (integrationLayer.isSyncConnected()) {
       this.lastSyncAttemptAt = Date.now();
-      meshNetwork.emitEvent('RETAIL_SALE', returnSale);
+      integrationLayer.publishSyncEvent('RETAIL_SALE', returnSale);
       await saleRepository.update({ ...returnSale, synced: true });
       this.lastSyncSuccessAt = Date.now();
       this.pushSyncEvent({
@@ -284,14 +283,14 @@ class RetailService {
 
   private async retryUnsyncedSales() {
     if (this.isRetryingUnsynced) return;
-    if (!meshNetwork.isConnectedToLocalMesh) return;
+    if (!integrationLayer.isSyncConnected()) return;
 
     this.isRetryingUnsynced = true;
     this.lastSyncAttemptAt = Date.now();
     try {
       const unsyncedSales = await saleRepository.findUnsynced();
       for (const sale of unsyncedSales) {
-        meshNetwork.emitEvent('RETAIL_SALE', sale);
+        integrationLayer.publishSyncEvent('RETAIL_SALE', sale);
         logger.log('retail', 'SALE_SYNC_SENT', { saleId: sale.id, retry: true });
         await saleRepository.update({ ...sale, synced: true });
         this.lastSyncSuccessAt = Date.now();
@@ -320,7 +319,7 @@ class RetailService {
       status: 'active'
     };
 
-    meshNetwork.emitEvent('WARRANTY_GEN', warranty);
+    integrationLayer.publishSyncEvent('WARRANTY_GEN', warranty);
   }
 
   private async handleRetailSale(payload: any) {
@@ -413,7 +412,7 @@ class RetailService {
   public async getSyncQueueStatus(): Promise<RetailSyncStatus> {
     const pendingSales = await saleRepository.findUnsynced();
     return {
-      connected: meshNetwork.isConnectedToLocalMesh,
+      connected: integrationLayer.isSyncConnected(),
       pendingCount: pendingSales.length,
       lastAttemptAt: this.lastSyncAttemptAt,
       lastSuccessAt: this.lastSyncSuccessAt,

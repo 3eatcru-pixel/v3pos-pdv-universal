@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Utensils, ShoppingCart, Briefcase, Hammer, Tag, Check, X, Shield, Layout, AlertCircle } from 'lucide-react';
+import { Utensils, ShoppingCart, Briefcase, Hammer, Tag, Check, X, Shield, Layout, AlertCircle, Zap, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BusinessConfig } from '../../types';
 import { firebaseService } from '../../services/firebaseService';

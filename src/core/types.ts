@@ -3,7 +3,21 @@
  * Shared across all industry modules (Restaurant, Retail, Market, etc.)
  */
 
-export type BusinessMode = 'restaurant' | 'construction' | 'retail' | 'market' | 'generic' | 'service';
+import type { SyncEventType } from './events/eventCatalog';
+
+export type BusinessMode =
+  | 'restaurant'
+  | 'construction'
+  | 'retail'
+  | 'market'
+  | 'generic'
+  | 'service'
+  | 'solo_service'
+  | 'solo_retail'
+  | 'convenience'
+  | 'pharmacy'
+  | 'autoparts'
+  | 'google_business_pro';
 export type DeviceRole = 'host' | 'client';
 export type DeviceMode = 'cashier' | 'salesperson' | 'stock' | 'admin' | 'logistics' | 'retail_sales' | 'retail_cashier' | 'market_pos' | 'market_scanner' | 'central_server';
 export type UserRole = 'dev' | 'owner' | 'manager' | 'staff' | 'operator' | 'waiter' | 'chef' | 'admin' | 'regional_manager' | (string & {});
@@ -15,11 +29,15 @@ export interface Enterprise {
   ownerId: string;
   businessType: BusinessMode;
   ownerEmail: string;
+  cnpj?: string;
+  nif?: string;
   ownerPhone?: string;
   ownerName?: string;
   accessCode: string;
-  status: 'active' | 'inactive' | 'maintenance';
+  status: 'active' | 'inactive' | 'maintenance' | 'suspended';
+  suspensionReason?: string;
   isPaused?: boolean;
+  isDemo?: boolean;
   createdAt: number;
   lockedModules?: string[];
   enabledModules?: string[];
@@ -56,6 +74,8 @@ export interface Staff extends User {
   assignedShopIds: string[];
   companyId?: string;
   enterpriseId?: string;
+  businessModel?: string;
+  isVirtualSupport?: boolean;
   phone?: string;
   salary?: number;
   contractType?: 'clt' | 'pj' | 'freelancer' | 'intern';
@@ -77,6 +97,7 @@ export interface CoreProduct {
 }
 
 export interface CoreSaleItem {
+  id?: string;
   productId: string;
   name: string;
   quantity: number;
@@ -89,6 +110,7 @@ export interface CoreSale {
   enterpriseId: string;
   shopId: string;
   staffId: string;
+  module?: BusinessMode;
   items: CoreSaleItem[];
   total: number;
   subtotal: number;
@@ -96,7 +118,7 @@ export interface CoreSale {
   discount: number;
   paymentMethod: string;
   timestamp: number;
-  status: 'pending' | 'completed' | 'cancelled';
+  status: 'pending' | 'completed' | 'cancelled' | 'voided';
 }
 
 export interface AppNotification {
@@ -112,7 +134,7 @@ export interface AppNotification {
 
 export interface SyncEvent {
   id: string;
-  type: string;
+  type: SyncEventType;
   payload: any;
   sourceDevice: string;
   companyId: string;
@@ -121,7 +143,7 @@ export interface SyncEvent {
 
 export interface SystemLog {
   timestamp: number;
-  origin: BusinessMode | 'system' | 'core';
+  origin: BusinessMode | 'system' | 'core' | (string & {});
   action: string;
   data?: any;
   userId?: string;

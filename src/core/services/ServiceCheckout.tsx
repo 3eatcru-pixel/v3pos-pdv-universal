@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Wallet, Ticket, CheckCircle2, ArrowRight, CreditCard, User, Info, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { BookingDeposit, BookingDepositEngine } from '../../../core/services/BookingDepositEngine';
-import { formatCurrency, cn } from '../../../lib/utils';
-import { logger } from '../../../core/services/logger';
+import { BookingDeposit, BookingDepositEngine } from './BookingDepositEngine';
+import { formatCurrency, cn } from '../../lib/utils';
+import { logger } from './logger';
 
 interface ServiceCheckoutProps {
   enterpriseId: string;

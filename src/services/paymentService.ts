@@ -89,7 +89,7 @@ class PaymentService {
     itemsSummary?: string;
     orderId: string;
     module: 'restaurant' | 'market' | 'retail' | 'construction' | 'service';
-    onSuccess?: (payments: {method: 'cash'|'card'|'pix', amount: number, change?: number}[]) => Promise<void>;
+    onSuccess?: (payments: {method: 'cash'|'card'|'pix'|'other', amount: number, change?: number, transactionId?: string, cardBrand?: string}[]) => Promise<void>;
   }) {
     const event = new CustomEvent('request-payment-ui', { detail: options });
     window.dispatchEvent(event);

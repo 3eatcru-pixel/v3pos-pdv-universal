@@ -164,7 +164,9 @@ export interface Shift {
 
 export interface Product extends CoreProduct {
   image?: string;
+  photo?: string;
   unit?: 'un' | 'kg' | 'lt' | 'g';
+  unitType?: 'un' | 'kg' | 'lt' | 'g';
   expiration?: number;
   ingredients?: Record<string, number>;
   composition?: { productId: string, quantity: number }[]; // For combos/kits
@@ -183,6 +185,15 @@ export interface ServiceItem {
   requiresApproval: boolean;
   active: boolean;
   commissionRate?: number; // Specific rate for this service
+}
+
+export interface Category {
+  id: string;
+  enterpriseId: string;
+  shopId?: string;
+  name: string;
+  color?: string;
+  active?: boolean;
 }
 
 export interface ServiceResource {
@@ -424,7 +435,7 @@ export interface Order {
   pricePerPerson?: number; // Helpful for split tracking
   notes?: string;
   paymentMethod?: 'cash' | 'card' | 'pix' | 'split';
-  payments?: { method: 'cash' | 'card' | 'pix', amount: number, change?: number }[];
+  payments?: { method: 'cash' | 'card' | 'pix' | 'other', amount: number, change?: number, transactionId?: string, cardBrand?: string }[];
   orderType?: 'table' | 'takeaway' | 'delivery';
   takeawayNumber?: number;
   deliveryEstimate?: string;
@@ -555,7 +566,9 @@ export interface InventoryItem {
   location: InventoryLocation;
   lastRecountDate?: number;
   batch?: string;
+  batches?: { id: string; batchNumber: string; expiryDate: number; quantity: number; receivedAt: number }[];
   expirationDate?: number;
+  substituteId?: string;
 }
 
 export interface DailyStats {
@@ -588,6 +601,7 @@ export interface AppNotification extends CoreNotification {
 export interface CompanySettings {
   name: string;
   cnpj?: string;
+  nif?: string;
   address?: string;
   logo?: string;
   requireAllergyDoubleConfirmation?: boolean;

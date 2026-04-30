@@ -3,6 +3,8 @@ import { Staff, PerformanceEvent, RolePermissions } from '../../types';
 import { logger } from './logger';
 import { generateSafeId } from '../lib/utils'; // Assumindo que moveremos a utilidade para cá
 import { ImageProcessorEngine } from './ImageProcessorEngine';
+import { format } from 'date-fns';
+import { coreEventBus } from '../events/CoreEventBus';
 
 export const ROLE_HIERARCHY: Record<string, number> = {
   'staff': 1,
@@ -48,7 +50,8 @@ export class HREngine {
         if (photoFile) {
           const processedBlob = await ImageProcessorEngine.processForUpload(photoFile);
           const upload = await firebaseService.uploadFile(`staff_photos/${enterpriseId}/${id}`, processedBlob as File);
-          if (upload) photoUrl = upload.url;
+          const uploaded = Array.isArray(upload) ? upload[0] : upload;
+          if (uploaded?.url) photoUrl = uploaded.url;
         }
         const pendingId = `pending-hr-${id}`;
         await firebaseService.saveItem('pending_staff_updates', pendingId, {
@@ -69,7 +72,8 @@ export class HREngine {
         if (photoFile) {
           const processedBlob = await ImageProcessorEngine.processForUpload(photoFile);
           const upload = await firebaseService.uploadFile(`staff_photos/${enterpriseId}/${id}`, processedBlob as File);
-          if (upload) photoUrl = upload.url;
+          const uploaded = Array.isArray(upload) ? upload[0] : upload;
+          if (uploaded?.url) photoUrl = uploaded.url;
         }
 
         const finalData = {
@@ -367,5 +371,29 @@ export class HREngine {
     } catch (error) {
       logger.error('hr', 'Falha ao publicar escala no Drive', { error });
     }
+  }
+
+  static async sendInternalMessage(
+    enterpriseId: string,
+    userId: string,
+    title: string,
+    content: string,
+    type: 'info' | 'warning' | 'critical' = 'info'
+  ) {
+    return firebaseService.saveItem('internal_messages', generateSafeId('msg'), {
+      enterpriseId,
+      userId,
+      title,
+      content,
+      type,
+      timestamp: Date.now()
+    });
+  }
+
+  static getDigitalGuideTemplate(transfer: any) {
+    const items = (transfer.items || [])
+      .map((i: any) => `- ${i.name}: ${i.quantity} ${i.unit || 'UN'}`)
+      .join('\n');
+    return `Guia ${transfer.digitalGuideId}\nOrigem: ${transfer.sourceShopId}\nDestino: ${transfer.destinationShopId}\n\nItens:\n${items}`;
   }
 }

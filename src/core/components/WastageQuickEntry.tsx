@@ -23,6 +23,7 @@ export const WastageQuickEntry: React.FC<{ sessionId: string; enterpriseId: stri
       name: selectedItem.name,
       quantity: qty,
       unit: selectedItem.unit || 'UN',
+      sourceType: 'inventory',
       cost: selectedItem.costPerUnit || 0,
       reason: 'damaged'
     });

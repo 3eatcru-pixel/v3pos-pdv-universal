@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { StockTransfer, StockTransferEngine } from '../core/services/StockTransferEngine';
-import { firebaseService } from '../services/firebaseService';
-import { logger } from '../core/services/logger';
+import { StockTransfer, StockTransferEngine } from './StockTransferEngine';
+import { firebaseService } from '../../services/firebaseService';
+import { logger } from './logger';
 
 /**
  * Hook especializado para gerenciar o fluxo de transferências de estoque.

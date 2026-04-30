@@ -1,6 +1,7 @@
 export interface ServiceClient {
   id: string;
   enterpriseId: string;
+  shopId?: string;
   name: string;
   phone: string;
   email?: string;
@@ -12,6 +13,7 @@ export interface ServiceClient {
 export interface ServiceDefinition {
   id: string;
   enterpriseId: string;
+  shopId?: string;
   name: string;
   description?: string;
   durationMinutes: number;
@@ -24,6 +26,7 @@ export interface ServiceDefinition {
 export interface ServiceProvider {
   id: string; // Links to global staff ID if needed
   enterpriseId: string;
+  shopId?: string;
   name: string;
   role: string;
   skills: string[]; // List of ServiceDefinition IDs they can perform
@@ -35,6 +38,7 @@ export interface ServiceProvider {
 export interface ServiceResource {
   id: string;
   enterpriseId: string;
+  shopId?: string;
   name: string; // e.g., "Sala 1", "Cadeira de Barbeiro A"
   type: string;
   active: boolean;
@@ -45,6 +49,7 @@ export type AppointmentStatus = 'scheduled' | 'in_progress' | 'completed' | 'can
 export interface ServiceAppointment {
   id: string;
   enterpriseId: string;
+  shopId?: string;
   clientId: string;
   providerId: string;
   serviceId: string;

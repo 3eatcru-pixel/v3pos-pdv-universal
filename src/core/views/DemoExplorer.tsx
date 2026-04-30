@@ -14,7 +14,8 @@ import {
   Settings,
   RefreshCw,
   CheckCircle2,
-  CloudDownload
+  CloudDownload,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useCollection } from '../../hooks/useCollection';

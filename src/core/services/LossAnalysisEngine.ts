@@ -62,7 +62,7 @@ export class LossAnalysisEngine {
           const received = t.receivedQuantities?.[item.id] ?? sent;
           const diff = sent - received;
           // Correção: Utiliza o custo unitário real do item registrado na transferência
-          return itemAcc + (diff > 0 ? diff * (Number((item as any).unitCost || item.cost || 0)) : 0); 
+          return itemAcc + (diff > 0 ? diff * (Number((item as any).unitCost || 0)) : 0); 
         }, 0);
         return acc + itemsLoss;
       }, 0);

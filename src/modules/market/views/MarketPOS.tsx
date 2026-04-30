@@ -137,11 +137,12 @@ export const MarketPOS: React.FC = () => {
           const saleId = `market_sale_${Date.now()}`;
 
           for (const p of payments) {
-            if (p.transactionId || (p.method !== 'cash' && p.method !== 'other')) {
+            if (p.transactionId || p.method !== 'cash') {
               await paymentReconciliationEngine.registerPayment({
                 id: `tr_${Date.now()}_${Math.random().toString(36).slice(2)}`,
                 saleId: saleId,
                 amount: p.amount,
+                shopId: shopId || 'default',
                 method: p.method as any,
                 externalId: p.transactionId || 'MANUAL',
                 provider: p.cardBrand || 'MarketPOS'

@@ -6,10 +6,54 @@ import { firebaseService } from '../../services/firebaseService';
 import { logger } from './logger';
 
 export class FinanceEngine {
+  static async createTransaction(params: {
+    enterpriseId: string;
+    shopId?: string;
+    module: Transaction['module'];
+    staffId: string;
+    staffName: string;
+    type: Transaction['type'];
+    amount: number;
+    category: string;
+    description: string;
+    date?: string;
+    paymentMethod?: Transaction['paymentMethod'];
+    referenceId?: string;
+  }) {
+    const timestamp = params.date ? new Date(params.date).getTime() : Date.now();
+    const tx: Transaction = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      enterpriseId: params.enterpriseId,
+      shopId: params.shopId,
+      module: params.module,
+      staffId: params.staffId,
+      staffName: params.staffName,
+      type: params.type,
+      amount: params.amount,
+      category: params.category,
+      description: params.description,
+      timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+      status: 'completed',
+      paymentMethod: params.paymentMethod || 'other',
+      referenceId: params.referenceId,
+    };
+
+    await firebaseService.saveItem('transactions', tx.id, tx);
+    return tx;
+  }
+
   static summarize(transactions: Transaction[]) {
     const totalIncome = transactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
     const totalExpense = transactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
     return { totalIncome, totalExpense, balance: totalIncome - totalExpense };
+  }
+
+  static async listTransactions(enterpriseId: string, shopId?: string | null) {
+    const txs = await firebaseService.getDocsByQuery('transactions', [
+      { field: 'enterpriseId', op: '==', value: enterpriseId }
+    ]) as Transaction[];
+    if (!shopId) return txs;
+    return txs.filter((tx) => !tx.shopId || tx.shopId === shopId);
   }
 
   /**
@@ -27,12 +71,16 @@ export class FinanceEngine {
       id: `util-${Date.now()}`,
       enterpriseId: params.enterpriseId,
       shopId: params.shopId,
+      module: 'generic',
+      staffId: 'system',
       type: 'expense',
       category: params.category,
       amount: params.amount,
       description: `Conta de ${params.category} ref. ${params.referenceMonth}`,
       staffName: params.adminName,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      status: 'completed',
+      paymentMethod: 'other',
     };
 
     await firebaseService.saveItem('transactions', transaction.id, transaction);

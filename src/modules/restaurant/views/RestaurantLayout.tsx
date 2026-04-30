@@ -16,7 +16,8 @@ import {
   Clock,
   History,
   Truck,
-  AlertCircle
+  AlertCircle,
+  Landmark
 } from 'lucide-react';
 import { startOfDay } from 'date-fns';
 import { RestaurantDashboard } from './RestaurantDashboard';

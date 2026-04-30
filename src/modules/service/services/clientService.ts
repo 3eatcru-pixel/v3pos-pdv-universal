@@ -39,8 +39,8 @@ class ClientService {
     localStorage.setItem('pos_service_clients', JSON.stringify(this.clients));
   }
 
-  public getClients(enterpriseId: string): ServiceClient[] {
-    return this.clients.filter(c => c.enterpriseId === enterpriseId);
+  public getClients(enterpriseId: string, shopId?: string): ServiceClient[] {
+    return this.clients.filter(c => c.enterpriseId === enterpriseId && (!shopId || !c.shopId || c.shopId === shopId));
   }
 
   public getClientById(id: string): ServiceClient | null {

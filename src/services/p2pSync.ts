@@ -118,7 +118,7 @@ class MeshNetwork {
     console.log('[MeshNetwork] Resync complete. Buffer cleared.');
   }
 
-  public emitEvent(type: string, payload: any) {
+  public emitEvent(type: SyncEvent['type'], payload: any) {
     const companyId = this.getCurrentUser()?.companyId || '';
     if (!companyId) {
       console.warn('[MeshNetwork] Event blocked: missing companyId context.');
@@ -150,7 +150,22 @@ class MeshNetwork {
   }
 
   public broadcast(type: string, payload: any) {
-    this.emitEvent(type, payload);
+    this.emitEvent(type as SyncEvent['type'], payload);
+  }
+
+  public startCloudSync(_enterpriseId: string, _cloudConfig?: any, _autoSwitch?: boolean) {
+    // Compatibility shim for services that still call cloud sync controls on meshNetwork.
+    return;
+  }
+
+  public stopCloudSync() {
+    // Compatibility shim for services that still call cloud sync controls on meshNetwork.
+    return;
+  }
+
+  public async requestCloudSync(_enterpriseId: string, _force: boolean = false) {
+    // Compatibility shim for services that still call cloud sync controls on meshNetwork.
+    return;
   }
 
   public setOnSync(callback: (data: SyncEvent) => void) {
