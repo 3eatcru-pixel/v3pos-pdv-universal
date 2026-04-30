@@ -24,9 +24,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == "audtrilha@gmail.com" ||
-        request.auth.token.email == "3eatcru@gmail.com" || 
-        request.auth.token.email == "marcelokbite@gmail.com"
+        request.auth.token.admin == true ||
+        request.auth.token.role == "admin" ||
+        request.auth.token.role == "dev"
       );
     }
 
@@ -164,37 +164,79 @@ service cloud.firestore {
     // Tables
     match /tables/{tableId} {
       allow read: if isSignedIn() && (isAdmin() || (resource.data.enterpriseId != null && hasRole(resource.data.enterpriseId, ['owner', 'manager', 'waiter', 'chef', 'regional_manager'])));
-      allow write: if isSignedIn() && (isAdmin() || (
-        (incoming().enterpriseId != null ? hasRole(incoming().enterpriseId, ['owner', 'manager', 'waiter']) : true) &&
-        (existing() != null && existing().enterpriseId != null ? hasRole(existing().enterpriseId, ['owner', 'manager', 'waiter']) : true)
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager', 'waiter'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager', 'waiter']) &&
+        incoming().enterpriseId == existing().enterpriseId
       ));
     }
 
     // Inventory
     match /inventory/{itemId} {
       allow read: if isSignedIn() && (isAdmin() || (resource.data.enterpriseId != null && hasRole(resource.data.enterpriseId, ['owner', 'manager', 'waiter', 'chef', 'regional_manager'])));
-      allow write: if isSignedIn() && (isAdmin() || hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager', 'chef']));
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager', 'chef'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager', 'chef']) &&
+        incoming().enterpriseId == existing().enterpriseId
+      ));
     }
 
     // Business Configs
     match /businessConfigs/{id} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || (isSignedIn() && hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager']));
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        (resource.data.enterpriseId != null &&
+          hasRole(resource.data.enterpriseId, ['owner', 'manager', 'regional_manager', 'staff', 'operator', 'waiter', 'chef']))
+      );
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager']) &&
+        incoming().enterpriseId == existing().enterpriseId
+      ));
     }
 
     // Notifications
     match /notifications/{id} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['read', 'updatedAt']);
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        (resource.data.enterpriseId != null &&
+          hasRole(resource.data.enterpriseId, ['owner', 'manager', 'regional_manager', 'staff', 'operator', 'waiter', 'chef']))
+      );
+      allow create: if isSignedIn() && (
+        isAdmin() ||
+        (incoming().enterpriseId != null &&
+          hasRole(incoming().enterpriseId, ['owner', 'manager', 'regional_manager', 'staff', 'operator', 'waiter', 'chef']))
+      );
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (existing().enterpriseId != null &&
+          hasRole(existing().enterpriseId, ['owner', 'manager', 'regional_manager', 'staff', 'operator', 'waiter', 'chef']))
+      ) && incoming().enterpriseId == existing().enterpriseId &&
+      incoming().diff(existing()).affectedKeys().hasOnly(['read', 'updatedAt']);
       allow delete: if isAdmin();
     }
 
     // Master Keys (Internal)
     match /masterKeys/{keyId} {
-      allow get: if isValidId(keyId);
+      allow get: if isValidId(keyId) && isAdmin();
       allow create: if isAdmin();
       allow update: if isValidId(keyId) && (isAdmin() || (
+        isSignedIn() &&
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager']) &&
+        incoming().enterpriseId == existing().enterpriseId &&
         existing().used == false &&
         incoming().used == true &&
         incoming().diff(existing()).affectedKeys().hasOnly(['used', 'usedBy', 'usedAt', 'enterpriseId', 'companyId', 'usedByDevice', 'updatedAt'])
@@ -202,12 +244,81 @@ service cloud.firestore {
     }
 
     // Catch-all for other collections defined in blueprint
-    match /staffSchedules/{id} { allow read: if isSignedIn(); allow write: if isAdmin() || hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager']); }
-    match /shifts/{id} { allow read: if isSignedIn(); allow write: if isAdmin() || hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager']); }
-    match /reservations/{id} { allow read: if isSignedIn(); allow write: if isAdmin() || hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager', 'waiter']); }
-    match /incidentReports/{id} { allow read: if isSignedIn(); allow write: if isAdmin() || hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager']); }
-    match /recountRequests/{id} { allow read: if isSignedIn(); allow write: if isAdmin() || hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager']); }
-    match /printers/{id} { allow read: if isSignedIn(); allow write: if isAdmin() || hasRole(incoming().enterpriseId || existing().enterpriseId, ['owner', 'manager']); }
-    match /rolePermissions/{id} { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /staffSchedules/{id} {
+      allow read: if isSignedIn() && (isAdmin() || hasRole(existing().enterpriseId, ['owner', 'manager']));
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager']) &&
+        incoming().enterpriseId == existing().enterpriseId
+      ));
+    }
+    match /shifts/{id} {
+      allow read: if isSignedIn() && (isAdmin() || hasRole(existing().enterpriseId, ['owner', 'manager']));
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager']) &&
+        incoming().enterpriseId == existing().enterpriseId
+      ));
+    }
+    match /reservations/{id} {
+      allow read: if isSignedIn() && (isAdmin() || hasRole(existing().enterpriseId, ['owner', 'manager', 'waiter']));
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager', 'waiter'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager', 'waiter']) &&
+        incoming().enterpriseId == existing().enterpriseId
+      ));
+    }
+    match /incidentReports/{id} {
+      allow read: if isSignedIn() && (isAdmin() || hasRole(existing().enterpriseId, ['owner', 'manager']));
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager']) &&
+        incoming().enterpriseId == existing().enterpriseId
+      ));
+    }
+    match /recountRequests/{id} {
+      allow read: if isSignedIn() && (isAdmin() || hasRole(existing().enterpriseId, ['owner', 'manager']));
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager']) &&
+        incoming().enterpriseId == existing().enterpriseId
+      ));
+    }
+    match /printers/{id} {
+      allow read: if isSignedIn() && (isAdmin() || hasRole(existing().enterpriseId, ['owner', 'manager']));
+      allow create: if isSignedIn() && (isAdmin() || (
+        incoming().enterpriseId != null &&
+        hasRole(incoming().enterpriseId, ['owner', 'manager'])
+      ));
+      allow update: if isSignedIn() && (isAdmin() || (
+        existing().enterpriseId != null &&
+        hasRole(existing().enterpriseId, ['owner', 'manager']) &&
+        incoming().enterpriseId == existing().enterpriseId
+      ));
+    }
+    match /rolePermissions/{id} {
+      allow read: if isSignedIn() && (isAdmin() || hasRole(existing().enterpriseId, ['owner', 'manager']));
+      allow write: if isAdmin();
+    }
   }
 }

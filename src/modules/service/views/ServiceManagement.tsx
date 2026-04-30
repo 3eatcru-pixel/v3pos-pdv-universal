@@ -52,7 +52,7 @@ export const ServiceManagement: React.FC = () => {
       setServices(servicesData as ServiceItem[]);
       setStaff((staffData as Staff[]).filter(s => {
         const role = String(s.role || '').toLowerCase();
-        return role === 'professional' || role === 'waiter';
+        return role === 'professional' || role === 'staff' || role === 'operator';
       }));
       setResources(resourcesData as ServiceResource[]);
     } catch (err) {

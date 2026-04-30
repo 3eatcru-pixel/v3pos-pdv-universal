@@ -1,75 +1,95 @@
-export type CountryCode = 'BR' | 'PT' | 'US' | 'GB';
+import { accountService } from './accountService';
 
-export interface RegionalSettings {
-  currencySymbol: string;
-  currency: string;
-  locale: string;
-  taxLabel: string;
-  identityLabel: string;
-  dateFormat: string;
-  measurementSystem: 'metric' | 'imperial';
-}
-
-const REGIONAL_CONFIGS: Record<CountryCode, RegionalSettings> = {
-  BR: { currency: 'BRL', locale: 'pt-BR', taxLabel: 'Impostos', identityLabel: 'CPF/CNPJ', dateFormat: 'dd/MM/yyyy', measurementSystem: 'metric' },
-  PT: { currency: 'EUR', locale: 'pt-PT', taxLabel: 'IVA', identityLabel: 'NIF', dateFormat: 'dd/MM/yyyy', measurementSystem: 'metric' },
-  US: { currency: 'USD', locale: 'en-US', taxLabel: 'Sales Tax', identityLabel: 'SSN/EIN', dateFormat: 'MM/dd/yyyy', measurementSystem: 'imperial' },
-  GB: { currency: 'GBP', locale: 'en-GB', taxLabel: 'VAT', identityLabel: 'National Insurance', dateFormat: 'dd/MM/yyyy', measurementSystem: 'metric' },
+const translations: Record<string, Record<string, string>> = {
+  pt: {
+    'dashboard.title': 'Dashboard',
+    'dashboard.audit_passed': 'Dados Auditados',
+    'checkout.card': 'CARTÃO',
+    'checkout.cash': 'DINHEIRO',
+    'checkout.total': 'Total Venda',
+    'finance.revenue': 'Receita Bruta',
+    'finance.tax': 'Impostos',
+    'printer.footer': 'OBRIGADO PELA PREFERENCIA',
+    'printer.copy': 'Via do Cliente',
+    'staff.title': 'Central do Colaborador',
+    'staff.members': 'Membros do Time',
+    'staff.roles': 'Cargos & Permissões',
+    'inventory.collector_mode': 'Modo Coleta',
+    'inventory.scanner_active': 'Scanner Ativo',
+  },
+  en: {
+    'dashboard.title': 'Analytics',
+    'dashboard.audit_passed': 'Audited Data',
+    'checkout.card': 'CREDIT CARD',
+    'checkout.cash': 'CASH',
+    'checkout.total': 'Order Total',
+    'finance.revenue': 'Gross Revenue',
+    'finance.tax': 'Taxes',
+    'printer.footer': 'THANK YOU FOR YOUR BUSINESS',
+    'printer.copy': 'Customer Copy',
+    'staff.title': 'Staff Center',
+    'staff.members': 'Team Members',
+    'staff.roles': 'Roles & Permissions',
+    'inventory.collector_mode': 'Collector Mode',
+    'inventory.scanner_active': 'Scanner Active',
+  }
 };
 
-class LocaleEngine {
-  private currentCountry: CountryCode = 'BR';
+export class LocaleEngine {
+  private static lang: string = 'pt';
+  private static currency: string = 'BRL';
+  private static customTaxLabel: string | null = null;
 
-  setCountry(code: CountryCode) {
-    this.currentCountry = code;
+  static initialize(config: { lang?: string; currency?: string; taxLabel?: string }) {
+    this.lang = config.lang || 'pt';
+    this.currency = config.currency || 'BRL';
+    this.customTaxLabel = config.taxLabel || null;
   }
 
-  get settings(): RegionalSettings {
-    return REGIONAL_CONFIGS[this.currentCountry] || REGIONAL_CONFIGS.BR;
+  static t(key: string): string {
+    return translations[this.lang]?.[key] || key;
   }
 
-  formatMoney(value: number, abbreviate: boolean = false): string {
-    const formatter = new Intl.NumberFormat(this.settings.locale, {
+  static formatCurrency(value: number): string {
+    return new Intl.NumberFormat(this.lang === 'pt' ? 'pt-BR' : 'en-US', {
       style: 'currency',
-      currency: this.settings.currency,
-    });
-
-    if (!abbreviate || Math.abs(value) < 1000) {
-      return formatter.format(value);
-    }
-
-    let shortValue = value;
-    let suffix = '';
-
-    if (Math.abs(value) >= 1000000) {
-      shortValue = value / 1000000;
-      suffix = 'M';
-    } else {
-      shortValue = value / 1000;
-      suffix = 'k';
-    }
-
-    const numPart = new Intl.NumberFormat(this.settings.locale, {
-      maximumFractionDigits: 1,
-    }).format(shortValue) + suffix;
-
-    // Detecta a posição do símbolo da moeda para o locale atual
-    const parts = formatter.formatToParts(1);
-    const symbol = parts.find(p => p.type === 'currency')?.value || '';
-    const isPrefix = parts.findIndex(p => p.type === 'currency') < parts.findIndex(p => p.type === 'integer');
-
-    return isPrefix ? `${symbol} ${numPart}` : `${numPart} ${symbol}`;
+      currency: this.currency,
+    }).format(value);
   }
 
-  formatDate(date: number | Date): string {
-    return new Intl.DateTimeFormat(this.settings.locale).format(date);
-  }
-
-  translateIdentity(label: string): string {
-    if (label.toLowerCase().includes('cpf')) return this.settings.identityLabel;
-    if (label.toLowerCase().includes('imposto')) return this.settings.taxLabel;
-    return label;
+  static get settings() {
+    return {
+      lang: this.lang,
+      currency: this.currency,
+      taxLabel: this.customTaxLabel || (this.lang === 'pt' ? 'Impostos' : 'Taxes')
+    };
   }
 }
 
-export const localeEngine = new LocaleEngine();
+export const t = (key: string) => LocaleEngine.t(key);
+
+// Compat layer for legacy services that still import `localeEngine`.
+export type CountryCode = 'BR' | 'US' | 'PT' | 'ES' | 'AO' | 'MZ';
+export const localeEngine = {
+  get settings() {
+    return LocaleEngine.settings;
+  },
+  set settings(value: { lang?: string; currency?: string; taxLabel?: string }) {
+    LocaleEngine.initialize(value || {});
+  },
+  setCountry(country: CountryCode) {
+    const map: Record<CountryCode, { lang: string; currency: string }> = {
+      BR: { lang: 'pt', currency: 'BRL' },
+      US: { lang: 'en', currency: 'USD' },
+      PT: { lang: 'pt', currency: 'EUR' },
+      ES: { lang: 'en', currency: 'EUR' },
+      AO: { lang: 'pt', currency: 'AOA' },
+      MZ: { lang: 'pt', currency: 'MZN' },
+    };
+    const cfg = map[country] || map.BR;
+    LocaleEngine.initialize({ ...LocaleEngine.settings, lang: cfg.lang, currency: cfg.currency });
+  },
+  formatMoney(value: number) {
+    return LocaleEngine.formatCurrency(value);
+  },
+};

@@ -89,6 +89,19 @@ export class InventoryEngine {
 
             if (snap && snap.exists()) {
               const data = snap.data();
+              
+              // Fase 4: Garantia de isolamento Multi-tenancy
+              // Bloqueia a operação se o item não pertencer à loja ou empresa informada
+              if (data.enterpriseId !== enterpriseId || (data.shopId && data.shopId !== shopId)) {
+                throw new Error(`Violação de segurança: Item ${adj.id} não pertence a esta unidade.`);
+              }
+
+              // Fase 5: Verificação de Idempotência (Mesh Failover)
+              // Impede que o mesmo evento de malha processe estoque duas vezes
+              if (adj.type === 'inventory' && (adj as any).eventId && data.lastProcessedEventId === (adj as any).eventId) {
+                return; // Pula este ajuste, já foi processado
+              }
+
               const stockField = adj.type === 'inventory' ? 'currentStock' : 'stock';
               const reservedField = adj.type === 'inventory' ? 'reservedStock' : 'reserved';
               const currentTotal = Number(data[stockField]) || 0;
@@ -134,11 +147,13 @@ export class InventoryEngine {
                 }
               } else if (multiplier === 0) {
                 // RESERVA: Incrementa o saldo reservado sem mexer no estoque físico
+                // Fase 5: Idempotência em reservas para evitar duplicidade via scanner/mesh
                 tx.update(ref, { 
                   [reservedField]: currentReserved + adj.amount,
+                  lastProcessedEventId: (adj as any).eventId || null,
                   updatedAt: Date.now() 
                 });
-                continue; // Processa o próximo item da transação
+                return; // Processa o próximo item da transação
               }
 
               // Auditoria: Permitimos estoque negativo se blockOnZero for false para indicar erro de gestão
@@ -150,7 +165,7 @@ export class InventoryEngine {
                 updatedAt: Date.now() 
               });
             }
-          }
+          });
         };
 
         if (existingTx) {
@@ -172,6 +187,7 @@ export class InventoryEngine {
         logger.error('core', 'INVENTORY_ADJUSTMENT_FAILED', { error });
         throw error;
       }
+    }
   }
 
   /**
@@ -221,8 +237,11 @@ export class InventoryEngine {
     try {
       if (existingTx) await logic(existingTx);
       else await firebaseService.runTransaction(logic);
+      
+      logger.info('core', 'Reserva liberada com sucesso', { itemId, quantity });
     } catch (error) {
-      logger.error('core', 'Falha ao converter reserva em venda', { itemId, error });
+      logger.error('core', 'CRITICAL: Falha ao converter reserva em venda. Estoque pode estar inconsistente.', { itemId, error });
+      throw error; // Repropaga para o chamador tratar a UI
     }
   }
 
@@ -275,6 +294,20 @@ export class InventoryEngine {
 
         const nextTotal = currentTotal + delta;
         tx.update(ref, { [field]: nextTotal, batches, updatedAt: Date.now() });
+
+        // Fase 3: Registro de Auditoria Imutável para ajuste manual
+        const auditId = `audit-manual-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+        const user = (await import('./accountService')).accountService.getCurrentUser();
+        tx.set(firebaseService.getDocRef('audit_logs', auditId), {
+          enterpriseId: data.enterpriseId,
+          shopId: data.shopId,
+          staffId: user?.id || 'system',
+          staffName: user?.name || 'Sistema',
+          action: 'MANUAL_STOCK_ADJUSTMENT',
+          referenceId: itemId,
+          details: `Ajuste manual em ${data.name}: ${currentTotal} -> ${nextTotal} (Delta: ${delta})`,
+          timestamp: Date.now()
+        });
       }
     };
 

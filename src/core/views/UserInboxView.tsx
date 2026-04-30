@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Inbox, CheckCheck, Trash2, X, AlertCircle, Info, MailOpen, Reply, Send } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { CommunicationEngine, InternalMessage } from '../services/CommunicationEngine'; // Usar o novo motor
 import { cn } from '../../lib/utils';
 import { format } from 'date-fns';
@@ -11,18 +11,18 @@ interface UserInboxViewProps {
   enterpriseId: string;
   userId: string;
   userName: string;
-  messages: any[];
+  messages: InternalMessage[];
   onClose: () => void;
 }
 
 export const UserInboxView: React.FC<UserInboxViewProps> = ({ enterpriseId, userId, userName, messages, onClose }) => {
-  const [selectedMessage, setSelectedMessage] = useState<any | null>(null);
+  const [selectedMessage, setSelectedMessage] = useState<InternalMessage | null>(null);
   const [isReplying, setIsReplying] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [localMessages, setLocalMessages] = useState<InternalMessage[]>(messages); // Estado local para gerenciar exclusões
 
-  const handleOpenMessage = async (msg: any) => {
+  const handleOpenMessage = async (msg: InternalMessage) => {
     setSelectedMessage(msg);
     setIsReplying(false);
     setReplyText('');
@@ -204,10 +204,12 @@ export const UserInboxView: React.FC<UserInboxViewProps> = ({ enterpriseId, user
                     )}
                   </AnimatePresence>
 
-                  <div 
-                    className="prose prose-slate max-w-none text-slate-600 leading-relaxed font-medium text-lg italic"
-                    dangerouslySetInnerHTML={{ __html: selectedMessage.content }}
-                  />
+                  {/* Nota: O conteúdo deve ser sanitizado no backend ou via biblioteca como DOMPurify antes do render */}
+                  <div className="prose prose-slate max-w-none text-slate-600 leading-relaxed font-medium text-lg italic">
+                    {typeof selectedMessage.content === 'string' ? 
+                      <div dangerouslySetInnerHTML={{ __html: selectedMessage.content }} /> : 
+                      selectedMessage.content}
+                  </div>
                 </motion.div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-slate-200 gap-6 grayscale opacity-50">

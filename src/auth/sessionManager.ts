@@ -15,6 +15,22 @@ interface LegacyUser {
 }
 
 class SessionManager {
+  private clearTenantScopedCaches(keepTenantId: string | null): void {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      const isTenantCache =
+        key.startsWith('pos_backup_hist_') ||
+        key.startsWith('pos_last_backup_hash_') ||
+        key.startsWith('pos_drive_cache_');
+      if (!isTenantCache) continue;
+      if (keepTenantId && key.endsWith(keepTenantId)) continue;
+      keysToRemove.push(key);
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  }
+
   getSession(): AuthSession | null {
     try {
       const raw = localStorage.getItem(SESSION_KEY);
@@ -25,6 +41,10 @@ class SessionManager {
   }
 
   setSession(session: AuthSession, user: AuthUser | null): void {
+    const previousSession = this.getSession();
+    if (previousSession?.tenantId !== session.tenantId) {
+      this.clearTenantScopedCaches(session.tenantId);
+    }
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     if (user) {
       localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -55,6 +75,7 @@ class SessionManager {
   }
 
   clearSession(): void {
+    this.clearTenantScopedCaches(null);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(LEGACY_USER_KEY);

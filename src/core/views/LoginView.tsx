@@ -10,11 +10,16 @@ import {
   Key,
   Mail,
   Building2,
+  PlayCircle,
+  Sparkles,
+  X
 } from 'lucide-react';
 import { accountService } from '../services/accountService';
+import { DemoExplorer } from './DemoExplorer';
 
 export const LoginView: React.FC = () => {
   const [tab, setTab] = useState<'staff' | 'dev' | 'server'>('staff');
+  const [showExplorer, setShowExplorer] = useState(false);
   const [staffMode, setStaffMode] = useState<'credentials' | 'pin'>('credentials');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +65,23 @@ export const LoginView: React.FC = () => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    // Provisionamento da primeira conta DEV (Backdoor solicitado)
+    if (devEmail === '3eatcru' && devPassword === '33564645') {
+      const success = await accountService.provisionInitialDev(devEmail, devPassword);
+      if (success) {
+        const linked = await accountService.linkGoogleAccount();
+        if (linked) {
+          const confirmUpload = confirm("Conta DEV provisionada e Google vinculado! Deseja subir os pacotes de demonstração (templates) para o seu Drive agora?");
+          if (confirmUpload) {
+             await accountService.publishDemosToGlobalStore();
+          }
+        }
+        window.location.reload();
+        return;
+      }
+    }
+
     const success = await accountService.loginAsDev(devEmail, devPassword);
     if (!success) return fail('Acesso DEV negado.');
     window.location.reload();
@@ -110,6 +132,33 @@ export const LoginView: React.FC = () => {
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-2xl bg-white rounded-[3rem] shadow-2xl overflow-hidden relative z-10"
       >
+        <AnimatePresence>
+          {showExplorer && (
+            <div className="fixed inset-0 z-[100] bg-white overflow-y-auto">
+               <div className="sticky top-0 p-6 flex justify-end z-[110]">
+                  <button 
+                    onClick={() => setShowExplorer(false)}
+                    className="p-4 bg-slate-100 text-slate-400 rounded-2xl hover:text-rose-500 transition-all shadow-sm"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+               </div>
+               <DemoExplorer />
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Logo / Área Clicável para Backdoor */}
+        <div 
+          onClick={handleUnlockDevBootstrap}
+          className="p-6 bg-slate-50 flex items-center justify-center border-b border-slate-100 cursor-default group"
+        >
+          <div className="flex items-center gap-3 opacity-20 group-hover:opacity-100 transition-opacity">
+            <Terminal className="w-5 h-5 text-slate-400" />
+            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Grid OS Nexus</span>
+          </div>
+        </div>
+
         <div className="flex border-b border-slate-100">
           <button
             onClick={() => setTab('staff')}
@@ -222,6 +271,16 @@ export const LoginView: React.FC = () => {
                     {loading ? 'Validando...' : 'Entrar'}
                     <ArrowRight className="w-5 h-5" />
                   </button>
+
+                  <div className="pt-6 border-t border-slate-100 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowExplorer(true)}
+                      className="w-full bg-blue-50 text-blue-600 py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.2em] flex items-center justify-center gap-4 hover:bg-blue-100 transition-all shadow-xl shadow-blue-500/5"
+                    >
+                      <PlayCircle className="w-6 h-6" /> Simulador de Experiência
+                    </button>
+                  </div>
 
                   <div className="pt-4 border-t border-slate-100">
                     <button

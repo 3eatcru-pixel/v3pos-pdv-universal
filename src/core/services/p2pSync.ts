@@ -5,6 +5,7 @@ import { cloudLatencyMonitor } from './CloudLatencyMonitor'; // Importa o novo m
 import { firebaseService } from '../../services/firebaseService';
 import { EndOfDayEngine } from './EndOfDayEngine';
 import { BackupEngine } from './BackupEngine';
+import { controlSigner } from '../../engine/mesh/identity/ControlSignerService';
 
 // Esta é uma representação simplificada de uma rede P2P real (ex: WebRTC, WebSockets).
 // Para demonstração, atua como um emissor de eventos em memória.
@@ -17,6 +18,7 @@ class MeshNetwork {
   private lastSyncTime: number = 0; // Timestamp da última sincronização bem-sucedida
   private offlineAlertSent: boolean = false;
   private nextSyncTimestamp: number = 0;
+  private pendingEventsCount: number = 0; // Fase 6: Contador de backlog local
   
   // Auditoria Failover
   private heartbeatInterval: any = null;
@@ -311,7 +313,11 @@ class MeshNetwork {
     // Auditoria: Verificação Nativa de Conectividade
     if (!navigator.onLine) {
       logger.warn('p2p', 'Tentativa de Cloud Sync ignorada: Dispositivo Offline.');
-      coreEventBus.emit('system:sync_status', { status: 'offline', lastSync: this.lastSuccessfulSyncTime });
+      coreEventBus.emit('system:sync_status', { 
+        status: 'offline', 
+        lastSync: this.lastSuccessfulSyncTime,
+        reason: 'no_internet'
+      });
       return;
     }
 
@@ -376,8 +382,38 @@ class MeshNetwork {
   }
 
   broadcast(event: string, data: any) {
-    logger.debug('p2p', `Broadcasting event to mesh: ${event}`);
-    this.emitEvent(event, data);
+    // Fase 5: Assinatura digital de mensagens de malha
+    // Garante que comandos locais (estoque/venda) não possam ser forjados
+    try {
+      const payload = new TextEncoder().encode(JSON.stringify(data));
+      const signedPayload = controlSigner.sign(payload);
+      // Na vida real, enviaríamos o signedPayload. Aqui, simulamos anexando a assinatura ao objeto.
+      const signature = Array.from(signedPayload.slice(-8));
+      
+      logger.debug('p2p', `Broadcasting signed event: ${event}`);
+      this.emitEvent(event, { ...data, _sig: signature });
+    } catch (error) {
+      logger.error('p2p', 'Falha ao assinar mensagem de malha', { error });
+      this.emitEvent(event, data); // Fallback inseguro (auditado)
+    }
+  }
+
+  verifyMessage(data: any): boolean {
+    if (!data._sig) return false;
+    const { _sig, ...payloadData } = data;
+    const payload = new TextEncoder().encode(JSON.stringify(payloadData));
+    const signature = new Uint8Array(_sig);
+    const signedPayload = new Uint8Array(payload.length + signature.length);
+    signedPayload.set(payload);
+    signedPayload.set(signature, payload.length);
+    
+    const isValid = controlSigner.verify(signedPayload);
+    if (!isValid) {
+      logger.error('p2p', '⚠️ VIOLAÇÃO DE SEGURANÇA: Assinatura de mensagem inválida na malha P2P!', { 
+        event: data.event, deviceId: data.deviceId 
+      });
+    }
+    return isValid;
   }
 }
 

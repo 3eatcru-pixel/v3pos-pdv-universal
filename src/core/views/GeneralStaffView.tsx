@@ -46,7 +46,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../hooks/useCollection';
 import { logger } from '../services/logger';
-import { localeEngine } from '../services/LocaleEngine';
+import { LocaleEngine, t } from '../services/LocaleEngine';
 
 const MODULE_CHECKLISTS: Record<string, { id: string; label: string; description: string }[]> = {
   restaurant: [
@@ -101,28 +101,38 @@ const generateSafeId = (prefix: string) => {
   return `${prefix}-${Date.now()}-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
 };
 
+// Fase 10: Utilitário de mascaramento para LGPD
+const maskSensitive = (val: string, type: 'cpf' | 'phone') => {
+  if (!val) return '---';
+  if (type === 'cpf') return val.replace(/(\d{3})\.\d{3}\.\d{3}-(\d{2})/, "$1.***.***-$2");
+  // Mascara o meio do telefone: (11) 9****-1234
+  if (type === 'phone') return val.replace(/(\(\d{2}\)) \d(\d{4})-(\d{4})/, "$1 9****-$3");
+  return '********';
+};
+
 export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module }) => {
   const [activeMainTab, setActiveMainTab] = useState<'members' | 'roles'>('members');
   const companyId = accountService.getCurrentCompanyId() || 'default';
   
-  // Forçamos a busca no nível da Empresa (Enterprise) para centralização total
-  const { data: staff, loading: loadingStaff } = useCollection<Staff>('staff', { enterpriseId: companyId });
+  const currentUser = accountService.getCurrentUser();
+  const selectedShopId = accountService.getSelectedShopId();
+
+  // Fase 4: Multi-tenancy - Gerentes só veem staff da sua loja
+  const staffQuery = (currentUser?.role === 'owner' || currentUser?.role === 'dev') 
+    ? { enterpriseId: companyId } 
+    : { enterpriseId: companyId, assignedShopIds: { op: 'array-contains', value: selectedShopId } };
+
+  const { data: staff, loading: loadingStaff } = useCollection<Staff>('staff', staffQuery);
   const { data: performanceEvents, loading: loadingEvents } = useCollection<PerformanceEvent>('performance_events', { enterpriseId: companyId });
   const { data: roles, loading: loadingRoles } = useCollection<RolePermissions>('rolePermissions', { enterpriseId: companyId });
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
-  const [selectedRole, setSelectedRole] = useState<RolePermissions | null>(null);
-  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
-  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
-  const [selectedBusinessModel, setSelectedBusinessModel] = useState<'commission' | 'rental' | 'hybrid' | 'freelancer'>('commission');
-  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'Resumo' | 'Contratual' | 'Documentação' | 'Performance' | 'Folha' | 'Checklist' | 'Escalas'>('Resumo');
+  // Fase 10: Verifica permissão de visualização de dados brutos
+  const canSeePlainData = useMemo(() => {
+    if (currentUser?.role === 'owner' || currentUser?.role === 'dev') return true;
+    return roles.find(r => r.role === currentUser?.role)?.actions?.canManageStaff || false;
+  }, [currentUser, roles]);
 
-  const selectedShopId = accountService.getSelectedShopId();
-  const currentUser = accountService.getCurrentUser();
-  const loading = loadingStaff || loadingEvents || loadingRoles;
+  const [searchTerm, setSearchTerm] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const staffPhotoRef = useRef<HTMLInputElement>(null);
@@ -188,6 +198,17 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       
       await firebaseService.saveItem('staff', selectedStaff.id, { ...selectedStaff, documents: updatedDocs });
       setSelectedStaff(prev => prev ? { ...prev, documents: updatedDocs } : null);
+      
+      // Fase 11: Auditoria de exclusão de evidência sensível
+      await firebaseService.addAuditLog({
+        enterpriseId: companyId,
+        shopId: selectedShopId || 'global',
+        staffId: currentUser?.id || 'system',
+        staffName: currentUser?.name || 'Sistema',
+        action: 'STAFF_DOCUMENT_DELETED',
+        details: `Documento "${docToDelete.name}" removido do perfil de ${selectedStaff.name}`
+      });
+
       logger.info('staff', 'Documento removido', { staffId: selectedStaff.id });
     } catch (error) {
       logger.error('staff', 'Erro ao remover documento', { error });
@@ -323,7 +344,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
       
       setIsEventModalOpen(false);
     } catch (err) {
-      console.error('Event save failed:', err);
+      logger.error('staff', 'Falha ao registrar evento de performance', { error: err });
     }
   };
 
@@ -350,7 +371,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
             activeMainTab === 'members' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
           )}
         >
-          Membros do Time
+          {t('staff.members')}
         </button>
         <button 
           onClick={() => setActiveMainTab('roles')}
@@ -359,7 +380,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
             activeMainTab === 'roles' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
           )}
         >
-          Cargos & Permissões
+          {t('staff.roles')}
         </button>
       </div>
 
@@ -368,7 +389,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
           {/* Header & Main Actions */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div>
-               <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic">Central do Colaborador</h2>
+               <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic">{t('staff.title')}</h2>
                <p className="text-slate-500 font-medium italic">Gestão estratégica de capital humano ({module.toUpperCase()}).</p>
             </div>
             <div className="flex gap-4">
@@ -627,7 +648,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                         <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center group-hover:bg-blue-500 transition-colors">
                            <Phone className="w-4 h-4" />
                         </div>
-                        <span className="text-xs font-bold">{selectedStaff.phone || '(00) 00000-0000'}</span>
+                        <span className="text-xs font-bold">{canSeePlainData ? selectedStaff.phone : maskSensitive(selectedStaff.phone, 'phone')}</span>
                      </div>
                      <div className="flex items-center gap-4 text-slate-400 hover:text-white transition-colors cursor-pointer group">
                         <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center group-hover:bg-blue-500 transition-colors">
@@ -896,9 +917,19 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                     <div className="animate-in fade-in zoom-in-95 duration-500">
                        <div className="mb-10 flex items-center justify-between">
                           <h4 className="text-2xl font-black text-slate-900 tracking-tighter uppercase italic">Portfólio de Documentos</h4>
-                          <button className="flex items-center gap-3 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[9px] tracking-widest hover:bg-slate-800 transition-all shadow-xl">
+                         <button 
+                           onClick={() => fileInputRef.current?.click()}
+                           className="flex items-center gap-3 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[9px] tracking-widest hover:bg-slate-800 transition-all shadow-xl"
+                         >
                              <Plus className="w-4 h-4" /> Novo Upload
                           </button>
+                         <input 
+                           type="file" 
+                           ref={fileInputRef} 
+                           className="hidden" 
+                           accept=".pdf" 
+                           onChange={handleFileUpload} 
+                         />
                        </div>
 
                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -1076,7 +1107,7 @@ export const GeneralStaffView: React.FC<StaffManagementViewProps> = ({ module })
                          </select>
                       </div>
                       <div className="space-y-3">
-                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">{localeEngine.settings.identityLabel}</label>
+                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest pl-2">{LocaleEngine.settings.identityLabel}</label>
                          <input name="cpf" defaultValue={selectedStaff?.cpf} className="w-full bg-slate-50 border-2 border-slate-50 rounded-2xl p-5 font-bold italic focus:border-blue-500 outline-none transition-all" />
                       </div>
                       <div className="space-y-3">

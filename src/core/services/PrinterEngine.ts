@@ -1,99 +1,78 @@
-import { firebaseService } from '../../services/firebaseService';
+import { t, LocaleEngine } from './LocaleEngine';
 import { logger } from './logger';
-import { Printer } from '../../types';
 
-/**
- * PrinterEngine - Motor de Orquestração de Impressão e Failover.
- * Gerencia o envio de jobs para hardware e a lógica de Impressão em Cascata.
- */
+export interface PrintJob {
+  id: string;
+  type: 'receipt' | 'order' | 'label' | 'report';
+  content: string;
+  timestamp: number;
+}
+
 export class PrinterEngine {
-  /**
-   * Envia um trabalho de impressão para a impressora alvo.
-   * Implementa a lógica de cascata: Kitchen -> Bar -> Receipt.
-   */
-  static async sendToPrinter(
-    enterpriseId: string, 
-    shopId: string, 
-    targetType: 'kitchen' | 'bar' | 'receipt', 
-    content: string,
-    existingPrinters?: Printer[] // Auditoria: Evita re-leitura do banco em cascata
-  ): Promise<boolean> {
-    try {
-      const printers = existingPrinters || await firebaseService.getDocsByQuery('printers', [
-        { field: 'enterpriseId', op: '==', value: enterpriseId },
-        { field: 'shopId', op: '==', value: shopId }
-      ]) as Printer[];
-
-      // 1. Localiza a impressora principal do tipo solicitado
-      let printer = printers.find(p => p.type === targetType && p.isDefault && p.status === 'online');
-      
-      if (!printer) {
-        // Fallback: Tenta qualquer uma online do mesmo tipo antes de mudar a rota
-        printer = printers.find(p => p.type === targetType && p.status === 'online');
-      }
-
-      if (printer) {
-        const success = await this.executePhysicalPrint(printer, content);
-        if (success) return true;
-
-        // Se falhou fisicamente, marca como erro para o dashboard e segue para cascata
-        await firebaseService.updateItem('printers', printer.id, { status: 'error', updatedAt: Date.now() });
-        logger.error('printer', `Falha física na impressora ${printer.name}. Iniciando cascata.`);
-      }
-
-      // 2. Aciona Lógica de Cascata (Failover)
-      return await this.handleCascadeFailover(enterpriseId, shopId, targetType, content, printers);
-    } catch (error) {
-      logger.error('printer', 'Falha crítica no motor de impressão', { error });
-      return false;
-    }
-  }
+  private static queue: PrintJob[] = [];
 
   /**
-   * Define a rota de fuga caso a impressora principal falhe.
+   * Formata um recibo de venda padrão
    */
-  private static async handleCascadeFailover(
-    enterpriseId: string, 
-    shopId: string, 
-    failedType: string, 
-    content: string, 
-    allPrinters: Printer[]
-  ): Promise<boolean> {
-    // Rota: Kitchen -> Bar -> Receipt (Caixa)
-    let nextFallback: 'kitchen' | 'bar' | 'receipt' | null = null;
-    if (failedType === 'kitchen') nextFallback = 'bar';
-    else if (failedType === 'bar') nextFallback = 'receipt';
-
-    if (!nextFallback) {
-      logger.error('printer', 'Fim da linha: Nenhuma impressora disponível na cascata.');
-      return false;
-    }
-
-    logger.warn('printer', `CASCATA ATIVA: Redirecionando ${failedType} para ${nextFallback}`);
+  static async printReceipt(orderData: any): Promise<boolean> {
+    const { items, total, paymentMethod, shopName } = orderData;
     
-    // Adiciona cabeçalho de aviso no papel para a equipe humana
-    const failoverNotice = `\n================================\n*** AVISO: FALHA NA IMPRESSORA ***\nESTE PEDIDO EH DA ${failedType.toUpperCase()}\n================================\n\n`;
-    const augmentedContent = failoverNotice + content;
+    let receipt = `\n[C]${shopName.toUpperCase()}\n`;
+    receipt += `[C]--------------------------------\n`;
+    receipt += `[L]${t('checkout.total').toUpperCase()}: [R]${LocaleEngine.formatCurrency(total)}\n`;
+    receipt += `[L]PAGAMENTO: [R]${paymentMethod.toUpperCase()}\n`;
+    receipt += `[C]--------------------------------\n`;
+    
+    items.forEach((item: any) => {
+      receipt += `[L]${item.quantity}x ${item.name.slice(0, 18)} [R]${LocaleEngine.formatCurrency(item.price * item.quantity)}\n`;
+    });
+    
+    receipt += `[C]--------------------------------\n`;
+    receipt += `[C]${new Date().toLocaleString()}\n`;
+    receipt += `[C]OBRIGADO PELA PREFERENCIA\n\n\n\n`;
 
-    // Recursão: tenta imprimir no próximo nível da cascata
-    return await this.sendToPrinter(enterpriseId, shopId, nextFallback, augmentedContent);
+    return this.sendToQueue({
+      id: `print-${Date.now()}`,
+      type: 'receipt',
+      content: receipt,
+      timestamp: Date.now()
+    });
   }
 
   /**
-   * Simula a execução do protocolo ESC/POS via rede ou USB.
+   * Formata etiqueta de gôndola (Uso em Mercado/Varejo)
    */
-  private static async executePhysicalPrint(printer: Printer, content: string): Promise<boolean> {
+  static async printProductLabel(product: any): Promise<boolean> {
+    let label = `\n[L]${product.name.toUpperCase()}\n`;
+    label += `[L]PRECO: [R]${LocaleEngine.formatCurrency(product.price)}\n`;
+    label += `[C][BARCODE]${product.barcode}\n\n`;
+    
+    return this.sendToQueue({
+      id: `label-${product.id}`,
+      type: 'label',
+      content: label,
+      timestamp: Date.now()
+    });
+  }
+
+  private static async sendToQueue(job: PrintJob): Promise<boolean> {
     try {
-      // Simulação de latência de hardware
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('HW_TIMEOUT')), 5000);
-        // 15% de chance de falha para testar a resiliência do sistema
-        const isSuccess = Math.random() > 0.15; 
-        setTimeout(() => { clearTimeout(timeout); isSuccess ? resolve(true) : reject(); }, 800);
-      });
+      this.queue.push(job);
+      logger.info('printer', 'Tarefa enviada para fila de impressão', { type: job.type, id: job.id });
+      
+      // Simula envio para driver nativo (ou via Web Serial API/Bluetooth)
+      console.log('%c PRINTING START ', 'background: #000; color: #fff; font-weight: bold;');
+      console.log(job.content);
+      console.log('%c PRINTING END ', 'background: #000; color: #fff; font-weight: bold;');
+      
       return true;
-    } catch (e) {
+    } catch (error) {
+      logger.error('printer', 'Falha ao processar impressão', { error });
       return false;
     }
+  }
+
+  static getPendingJobsCount(): number {
+    return this.queue.length;
   }
 }

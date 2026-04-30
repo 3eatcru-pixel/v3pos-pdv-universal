@@ -15,7 +15,7 @@ export const ServiceClientsPage: React.FC = () => {
       e.preventDefault();
       clientService.addClient({
          ...formData,
-         enterpriseId
+         enterpriseId,
          shopId
       });
       setClients(clientService.getClients(enterpriseId, shopId));

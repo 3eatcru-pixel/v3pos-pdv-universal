@@ -65,7 +65,10 @@ export const ServicePOS: React.FC = () => {
         firebaseService.getAllDocs('staff', enterpriseId, shopId),
         firebaseService.getAllDocs('products', enterpriseId, shopId) // Serviços ficam no catálogo de produtos
       ]);
-      setProfessionals(staffData.filter((s: any) => s.role === 'staff' || s.role === 'operator'));
+      setProfessionals(staffData.filter((s: any) => {
+        const role = String(s.role || '').toLowerCase();
+        return role === 'professional' || role === 'staff' || role === 'operator';
+      }));
       setServices(serviceData.filter((p: any) => p.category === 'Serviço' || p.type === 'service'));
     };
 
@@ -151,7 +154,7 @@ export const ServicePOS: React.FC = () => {
 
           // Unificação: Vincula venda ao caixa para conferência de saldo
           if (cashierSession) {
-            void cashierEngine.addTransactionToSession(cashierSession.id, total, saleId);
+            void cashierEngine.addTransactionToSession(cashierSession.id, total, saleData.id);
           }
 
           // Emissão Fiscal (Serviços no Brasil geralmente usam NFS-e, mas alguns estados permitem NFC-e com itens mistos)

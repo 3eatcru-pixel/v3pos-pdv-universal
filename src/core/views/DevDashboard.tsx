@@ -17,15 +17,19 @@ import {
   UserPlus,
   Mail,
   Phone,
-  Briefcase
+  Briefcase,
+  Eye,
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { accountService } from '../services/accountService';
 import { formatCurrency } from '../../lib/utils';
 import { BusinessMode, Company } from '../types';
+import { firebaseService } from '../../services/firebaseService';
 
 export const DevDashboard: React.FC = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [resettingId, setResettingId] = useState<string | null>(null);
   const messages = accountService.getSupportMessages();
   
   const refreshData = async () => {
@@ -40,6 +44,7 @@ export const DevDashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [lastCreated, setLastCreated] = useState<{ company: Company; credentials: { password: string; pin: string } } | null>(null);
+  const [revealCredentials, setRevealCredentials] = useState(false);
   
   // New account form state
   const [newComp, setNewComp] = useState({
@@ -92,6 +97,41 @@ export const DevDashboard: React.FC = () => {
     setShowAddCompany(false);
     refreshData();
     setNewComp({ name: '', ownerName: '', ownerEmail: '', ownerPhone: '', type: 'generic', enabledModules: ['restaurant'] });
+  };
+
+  const handleResetDemo = async (company: Company) => {
+    if (!confirm(`Deseja realmente resetar todos os dados da demo ${company.name}? Isso apagará pedidos e estoque atuais.`)) return;
+    
+    setResettingId(company.id);
+    try {
+      await accountService.resetDemoData(company.id, company.businessType);
+      refreshData();
+    } catch (error) {
+      console.error(error);
+      alert('Falha ao resetar dados.');
+    } finally {
+      setResettingId(null);
+    }
+  };
+
+  // Fase 10: Auditoria de acesso privilegiado (Impersonation)
+  const handleImpersonate = async (company: Company) => {
+    const reason = prompt(`MOTIVO DO ACESSO (LGPD): Você está prestes a acessar dados sensíveis da empresa ${company.name}. Justifique o acesso técnico:`);
+    
+    if (!reason || reason.length < 10) {
+      alert("Acesso negado: Justificativa insuficiente para auditoria.");
+      return;
+    }
+
+    const dev = accountService.getCurrentUser();
+    await firebaseService.saveItem('audit_logs', `access_${Date.now()}`, {
+      action: 'DEV_IMPERSONATION_ACCESS',
+      staffName: dev?.name || 'Unknown Dev',
+      details: `Acesso à empresa ${company.id} (${company.name}). Motivo: ${reason}`,
+      timestamp: Date.now()
+    });
+
+    accountService.loginAsManager(company.id);
   };
 
   return (
@@ -206,6 +246,22 @@ export const DevDashboard: React.FC = () => {
                      >
                         Lock All Nodes
                      </button>
+                     <button 
+                       onClick={async () => {
+                         const demoNodes = companies.filter(c => (c as any).isDemo);
+                         if(confirm(`Deseja resetar ${demoNodes.length} ambientes de demonstração simultaneamente?`)) {
+                           setResettingId('all-demos');
+                           for(const node of demoNodes) await accountService.resetDemoData(node.id, node.businessType);
+                           setResettingId(null);
+                           refreshData();
+                         }
+                       }}
+                       disabled={resettingId === 'all-demos'}
+                       className="px-6 py-4 bg-blue-50 text-blue-600 border border-blue-200 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-100 transition-all flex items-center gap-2"
+                     >
+                        <RefreshCw className={cn("w-4 h-4", resettingId === 'all-demos' && "animate-spin")} />
+                        Reset Demos
+                     </button>
                   </div>
                </div>
             </div>
@@ -261,6 +317,19 @@ export const DevDashboard: React.FC = () => {
                         </td>
                         <td className="py-8 px-4 text-right">
                           <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
+                             {(c as any).isDemo && (
+                               <button 
+                                 onClick={() => handleResetDemo(c)}
+                                 disabled={resettingId === c.id}
+                                 className={cn(
+                                   "p-3 rounded-xl transition-all text-blue-500 bg-blue-50 hover:bg-blue-100 border border-blue-100",
+                                   resettingId === c.id && "animate-pulse"
+                                 )}
+                                 title="Reset Demo Data"
+                               >
+                                 <RefreshCw className={cn("w-4 h-4", resettingId === c.id && "animate-spin")} />
+                               </button>
+                             )}
                              <button 
                                 onClick={() => {
                                   const modules = ['restaurant', 'market', 'construction', 'retail', 'service'];
@@ -282,7 +351,7 @@ export const DevDashboard: React.FC = () => {
                               {c.status === 'maintenance' ? 'Unlock' : 'Lock'}
                             </button>
                             <button 
-                              onClick={() => accountService.loginAsManager(c.id)}
+                            onClick={() => handleImpersonate(c)}
                               className="px-6 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-blue-700 transition-all tracking-widest shadow-xl shadow-blue-500/20"
                             >
                               Impersonate Owner
@@ -525,6 +594,27 @@ export const DevDashboard: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-1.5 col-span-full">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Importar Template de Demonstração (Drive)</label>
+                    <select 
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setNewComp({
+                            ...newComp,
+                            name: `Demo ${e.target.options[e.target.selectedIndex].text}`,
+                            type: e.target.value as BusinessMode
+                          });
+                        }
+                      }}
+                      className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none text-blue-600"
+                    >
+                      <option value="">Nenhum (Começar do zero)</option>
+                      <option value="restaurant">Restaurante Gourmet (Menu + KDS)</option>
+                      <option value="retail">Varejo Store (Estoque + Grade)</option>
+                      <option value="market">Mercado/Distribuidora (Lotes)</option>
+                      <option value="service">Services/Tattoo (Agenda)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5 col-span-full">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Ativar Módulos Base</label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                       {['restaurant', 'market', 'construction', 'retail', 'service'].map(mod => (
@@ -600,12 +690,22 @@ export const DevDashboard: React.FC = () => {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Password</span>
-                    <span className="font-mono font-black text-slate-800 bg-white px-2 py-1 rounded border border-slate-200">{lastCreated.credentials.password}</span>
+                    <div className="flex items-center gap-2">
+                       <span className="font-mono font-black text-slate-800 bg-white px-2 py-1 rounded border border-slate-200">
+                          {revealCredentials ? lastCreated.credentials.password : '********'}
+                       </span>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Master PIN</span>
-                    <span className="font-mono font-black text-emerald-600 text-lg">{lastCreated.credentials.pin}</span>
+                    <span className="font-mono font-black text-emerald-600 text-lg">{revealCredentials ? lastCreated.credentials.pin : '****'}</span>
                   </div>
+                  <button 
+                    onClick={() => setRevealCredentials(!revealCredentials)}
+                    className="w-full py-2 text-[9px] font-black uppercase text-blue-500 bg-blue-50 rounded-lg hover:bg-blue-100 transition-all"
+                  >
+                    {revealCredentials ? 'Ocultar Dados' : 'Revelar Credenciais'}
+                  </button>
                 </div>
               </div>
 

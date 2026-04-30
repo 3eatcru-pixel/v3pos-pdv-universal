@@ -10,11 +10,12 @@ import { logger } from './logger';
 import { ShopCloneEngine, CloneOptions } from './ShopCloneEngine';
 import { StockTransferEngine, TransferItem } from './StockTransferEngine';
 import { CommunicationEngine } from './CommunicationEngine';
-import { ROLE_HIERARCHY } from './HREngine';
+import { HREngine, ROLE_HIERARCHY } from './HREngine';
 import { EndOfDayEngine } from './EndOfDayEngine';
 import { SimulationEngine } from './SimulationEngine';
 import { BackupEngine } from './BackupEngine';
 import { CloudConfig, cloudLatencyMonitor } from './CloudLatencyMonitor';
+import { TourEngine } from './TourEngine';
 
 class AccountService {
   private mapRoleForLegacy(role: string): User['role'] {
@@ -91,8 +92,15 @@ class AccountService {
       throw new Error('Acesso negado: Você não tem permissão para provisionar novas empresas.');
     }
 
-    const ownerPassword = Math.random().toString(36).slice(2, 10);
-    const ownerPin = Math.floor(1000 + Math.random() * 9000).toString();
+    // Fase 11: Geração criptograficamente segura de credenciais
+    const generateSecureString = (len: number) => {
+      const array = new Uint8Array(len);
+      crypto.getRandomValues(array);
+      return Array.from(array, (b) => b.toString(36).charAt(0)).join('');
+    };
+
+    const ownerPassword = generateSecureString(8);
+    const ownerPin = (1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000)).toString();
 
     // Se for um dono criando outra empresa, mantemos o vínculo de ownerId
     const targetOwnerId = currentUser?.role === 'owner' ? currentUser.id : undefined;
@@ -237,7 +245,7 @@ class AccountService {
     const tenant = tenants.find((t) => t.accessCode === accessCode && (t.status === 'active' || t.status === 'maintenance'));
     if (!tenant) return false;
 
-    const tempPin = Math.floor(1000 + Math.random() * 9000).toString();
+    const tempPin = (1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000)).toString();
     const created = await authService.createStaff({
       tenantId: tenant.id,
       name,
@@ -256,6 +264,160 @@ class AccountService {
 
   public async loginWithDevBootstrap(code: string): Promise<boolean> {
     return authService.loginWithDevBootstrap(code);
+  }
+
+  /**
+   * Retorna os templates de demonstração disponíveis no Drive/Global
+   */
+  public async getAvailableDemoTemplates() {
+    // Simula busca de metadados de demos oficiais no Google Drive ou Firestore Global
+    return [
+      { id: 'template-res-01', name: 'Restaurante Premium', type: 'restaurant', description: 'Menu completo com KDS e Mesas configuradas.' },
+      { id: 'template-ret-01', name: 'Varejo Moda', type: 'retail', description: 'Estoque de roupas, grades de tamanhos e CRM.' },
+      { id: 'template-mkt-01', name: 'Mercado Express', type: 'market', description: 'Frente de caixa rápido com 2000 SKUs.' },
+      { id: 'template-srv-01', name: 'Estúdio de Tattoo/Beauty', type: 'service', description: 'Agenda de serviços e controle de comissões.' }
+    ];
+  }
+
+  /**
+   * Cria um ambiente de teste (Sandbox) para uma empresa existente ou novo usuário.
+   * Salva localmente e espelha no Drive para modo Curso.
+   */
+  public async createTrainingEnvironment(name: string, templateId: string) {
+    const templates = await this.getAvailableDemoTemplates();
+    const template = templates.find(t => t.id === templateId);
+    if (!template) throw new Error('Template não encontrado');
+
+    logger.info('auth', 'Provisionando ambiente de curso/treinamento', { templateId });
+
+    // Provisiona uma empresa com flags de treinamento
+    const company = await this.registerCompany(
+      `[TREINO] ${name}`,
+      `training_${Date.now()}@gridos.com`,
+      template.type as BusinessMode,
+      'Instrutor Virtual',
+      '',
+      ['hr_core', 'store_mgmt_core', 'solo_assistant_core']
+    );
+
+    // Ativa o modo live no Drive para este nó
+    await authService.updateTenant(company.id, { 
+      isDemo: true, 
+      trainingModeEnabled: true,
+      storageStrategy: 'drive_only' 
+    });
+
+    // Popula dados base do template
+    await SimulationEngine.bootstrapFullSimulation(company.id, 'main-shop', template.type as any);
+    
+    return company;
+  }
+
+  /**
+   * Realiza login instantâneo em uma empresa demo com um cargo específico para simulação.
+   * Permite que qualquer usuário teste a interface sob diferentes perspectivas.
+   */
+  public async simulateRoleAccess(companyId: string, role: 'owner' | 'manager' | 'staff') {
+    logger.info('auth', `Simulando acesso como ${role} na empresa ${companyId}`);
+    
+    // Busca o primeiro staff que corresponda ao cargo na empresa demo (via SimulationEngine)
+    const staffDocs = await firebaseService.getDocsByQuery('staff', [
+      { field: 'enterpriseId', op: '==', value: companyId },
+      { field: 'role', op: '==', value: role === 'staff' ? 'waiter' : role } 
+    ]) as Staff[];
+
+    if (staffDocs.length > 0) {
+      // Fase 11: Registra necessidade de tour educativo para o primeiro acesso à simulação
+      TourEngine.markRoleSimulated(role);
+
+      // Se encontrou o cargo mocado, entra com o PIN padrão de simulação (1234)
+      return authService.loginWithPIN('1234', companyId);
+    }
+
+    // Fallback: Se não houver staff mocado, tenta entrar no modo Manager/Owner direto
+    TourEngine.markRoleSimulated(role);
+    return authService.impersonateTenant(companyId);
+  }
+
+  /**
+   * Sobe todas as empresas marcadas como DEMO para o Drive e registra links globais.
+   */
+  public async publishDemosToGlobalStore(): Promise<void> {
+    const companies = await this.getAllCompanies();
+    const demoCompanies = companies.filter(c => c.isDemo);
+
+    logger.info('auth', `Iniciando publicação de ${demoCompanies.length} pacotes demo no Drive...`);
+
+    for (const company of demoCompanies) {
+      // Garante que o sistema trate este nó como Host para permitir o backup
+      localStorage.setItem('pos_device_role', 'host');
+      localStorage.setItem(`pos_is_demo_${company.id}`, 'true');
+
+      const result = await BackupEngine.runEnterpriseBackup(company.id);
+      
+      if (result.success && result.driveFileId) {
+        await firebaseService.saveItem('global_demo_templates', company.businessType, {
+          templateName: company.name,
+          businessType: company.businessType,
+          driveFileId: result.driveFileId,
+          lastUpdated: Date.now(),
+          description: `Template oficial Nexus para ${company.businessType}`
+        });
+      }
+    }
+    logger.info('auth', '✅ Loja de Demos atualizada com sucesso no Drive e Firestore.');
+  }
+
+  /**
+   * Provisionamento da primeira conta DEV via backdoor de segurança.
+   */
+  public async provisionInitialDev(email: string, password: string): Promise<boolean> {
+    try {
+      logger.warn('auth', 'Provisionamento inicial de DEV e Ambiente de Demonstração solicitado via backdoor');
+      
+      // Cria a conta dev e vincula o tenant padrão de infraestrutura
+      const success = await authService.loginAsDev(email, password); 
+      if (!success) return false;
+
+      // Definição dos cenários de demonstração (Tutorial/Training)
+      const demoScenarios = [
+        { name: 'Nexus Gourmet (Restaurante)', type: 'restaurant' as const, modules: ['restaurant', 'hr_core', 'store_mgmt_core'] },
+        { name: 'Nexus Concept Store (Varejo)', type: 'retail' as const, modules: ['retail', 'customer_core', 'store_mgmt_core'] },
+        { name: 'Nexus Professional Services', type: 'service' as const, modules: ['service', 'customer_core', 'hr_core'] },
+        { name: 'Ink & Art Studio (Tattoo)', type: 'service' as const, modules: ['service', 'settings_custom_core', 'hr_core'] },
+        { name: 'Glow & Style (BeautyShop)', type: 'service' as const, modules: ['service', 'customer_core', 'hr_core'] },
+        { name: 'Nexus Logística (Distribuidora)', type: 'market' as const, modules: ['market', 'retail', 'store_mgmt_core'] }
+      ];
+
+      // Provisionamento em lote para o Dev Dashboard
+      for (const scenario of demoScenarios) {
+        logger.info('auth', `Provisionando ambiente de teste: ${scenario.name}`);
+        
+        const company = await this.registerCompany(
+          scenario.name,
+          `demo_${scenario.type}_${Math.random().toString(36).slice(2, 5)}@gridos.com`,
+          scenario.type,
+          'Instrutor Nexus',
+          '11900000000',
+          scenario.modules
+        );
+
+        // Popula com Menu, Staff trabalhando e Estoque Mocado
+        await SimulationEngine.bootstrapFullSimulation(company.id, 'main-shop', scenario.type);
+        
+        // Configura metadados de Treinamento
+        await authService.updateTenant(company.id, { 
+          status: 'active',
+          isDemo: true, // Tag para filtro no dashboard dev
+          trainingModeEnabled: true 
+        });
+      }
+
+      return true;
+    } catch (error) {
+      logger.error('auth', 'Falha no provisionamento inicial', { error });
+      return false;
+    }
   }
 
   public async loginAsMasterDev(): Promise<boolean> {
@@ -295,6 +457,7 @@ class AccountService {
     localStorage.removeItem('pos_sync_mode');
     localStorage.removeItem('pos_notifications');
     localStorage.removeItem('rm_selected_shop_id');
+    localStorage.removeItem('rm_enterprise_id');
     window.location.reload();
   }
 
@@ -400,8 +563,15 @@ class AccountService {
       lockedModules: t.lockedModules || [],
       enabledModules: t.enabledModules || [],
       isPaused: t.isPaused || false,
+      isDemo: t.isDemo || false,
       owners: t.owners || [t.ownerId],
     }));
+  }
+
+  public async resetDemoData(companyId: string, mode: BusinessMode) {
+    logger.warn('auth', 'Iniciando reset de dados demo', { companyId });
+    await SimulationEngine.clearSimulationData(companyId);
+    await SimulationEngine.bootstrapFullSimulation(companyId, 'main-shop', mode);
   }
 
   public async cloneExistingShop(
@@ -776,6 +946,13 @@ class AccountService {
 
   public async loginAsManager(companyId: string) {
     const user = this.getCurrentUser();
+
+    // Fase 10: Hardening - Impede impersonação se o usuário logado não for DEV ou OWNER
+    if (!user || (user.role !== 'dev' && user.role !== 'owner')) {
+      logger.error('auth', 'Tentativa de impersonação não autorizada detectada', { userId: user?.id });
+      throw new Error('Ação não permitida para o seu nível de acesso.');
+    }
+
     const ok = await authService.impersonateTenant(companyId);
     if (!ok) {
       logger.error('auth', 'Falha na impersonação de gerente', { companyId });

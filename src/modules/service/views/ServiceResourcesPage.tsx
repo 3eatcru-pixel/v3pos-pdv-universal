@@ -17,7 +17,7 @@ export const ServiceResourcesPage: React.FC = () => {
       serviceManagementService.addResource({
          ...formData,
          enterpriseId,
-         active: true
+         active: true,
          shopId
       });
       setResources(serviceManagementService.getResources(enterpriseId, shopId));

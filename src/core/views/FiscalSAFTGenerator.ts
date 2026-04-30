@@ -1,8 +1,8 @@
 import { firebaseService } from '../../services/firebaseService';
-import { accountService } from './accountService';
+import { accountService } from '../services/accountService';
 import { Order, Product, Shop } from '../../types';
 import { format } from 'date-fns';
-import { logger } from './logger';
+import { logger } from '../services/logger';
 
 /**
  * FiscalSAFTGenerator - Motor de conformidade fiscal para Portugal (SAFT-PT)
@@ -196,15 +196,17 @@ export class FiscalSAFTGenerator {
       logger.debug('fiscal', 'String preparada para Assinatura AT', { rawString });
 
       // Simulando o Hash assinado (Base64) para fins de estrutura XML
-      // Em um ambiente certificado, este valor seria o resultado da cifra RSA.
-      const mockHash = btoa(rawString).slice(0, 40); 
+      // EM PRODUÇÃO: Este valor DEVE ser o resultado da assinatura RSA-SHA1 da rawString
+      // usando uma chave privada PEM de 1024 bits, conforme Portaria n.º 302/2016.
+      const mockHash = btoa(rawString).slice(0, 40).padEnd(40, 'A'); // Mock mais robusto
       
       /**
-       * TODO: Implementação Real
-       * const sig = new KJUR.crypto.Signature({"alg": "SHA1withRSA"});
-       * sig.init(privateKeyPEM);
-       * sig.updateString(rawString);
-       * return hextob64(sig.sign());
+       * TODO: Implementação Real com biblioteca criptográfica (ex: 'jsrsasign' ou 'node-forge'):
+       * import { KJUR } from 'jsrsasign';
+       * const sig = new KJUR.crypto.Signature({ "alg": "SHA1withRSA" });
+       * sig.init(privateKeyPEM); // privateKeyPEM deve ser carregada de forma segura
+       * sig.updateString(rawString); // A string a ser assinada
+       * return KJUR.hextob64(sig.sign()); // Retorna o hash assinado em Base64
        */
       
       return mockHash;

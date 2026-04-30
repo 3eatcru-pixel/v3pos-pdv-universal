@@ -15,7 +15,8 @@ import {
   ChevronRight,
   History,
   Target,
-  Tag
+  Tag,
+  ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Enterprise, Shop, Staff, StaffSchedule, Order } from '../../types';
@@ -24,6 +25,7 @@ import { ptBR } from 'date-fns/locale';
 import { useCollection } from '../../hooks/useCollection';
 import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
+import { TourEngine, TourStep } from '../services/TourEngine';
 import { logger } from '../services/logger';
 
 interface StaffDashboardProps {
@@ -37,9 +39,29 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
   const enterpriseId = currentUser?.companyId || accountService.getCurrentCompanyId();
   const shopId = accountService.getSelectedShopId();
   const { data: orders } = useCollection<Order>('orders', { enterpriseId: enterpriseId || null, shopId: shopId || null });
-  const [clockedIn, setClockedIn] = useState(() => {
-    return localStorage.getItem(`pos_clock_in_${staff?.id}`) !== null;
+
+  // Fase 11: Tutorial Interativo para Staff
+  const [activeTourStep, setActiveTourStep] = useState<number | null>(null);
+  const [tourSteps, setTourSteps] = useState<TourStep[]>([]);
+
+  useEffect(() => {
+    if (TourEngine.isTourPending()) {
+      const role = TourEngine.consumeTour();
+      if (role === 'staff') {
+        setTourSteps(TourEngine.getStepsForRole('staff'));
+        setActiveTourStep(0);
+      }
+    }
+  }, []);
+
+  // Fase 2: Ler status de atividade diretamente do Firebase (Real-time)
+  const { data: activity } = useCollection<any>('staff_activity', { 
+    staffId: staff?.id || null,
+    status: 'working'
   });
+
+  const clockedIn = activity.length > 0;
+  const clockStartTime = clockedIn ? activity[0].startTime : null;
 
   // Cálculo de Ganhos Extras (Comissões/Taxa de Serviço)
   const staffPerformance = useMemo(() => {
@@ -50,10 +72,6 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
     return { totalTips, salesCount: myOrders.length, totalSales };
   }, [orders, staff]);
 
-  const [clockStartTime, setClockStartTime] = useState<number | null>(() => {
-    const saved = localStorage.getItem(`pos_clock_in_${staff?.id}`);
-    return saved ? parseInt(saved) : null;
-  });
   const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
 
   useEffect(() => {
@@ -81,15 +99,12 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
     if (!clockedIn) {
       const now = Date.now();
       try {
-        setClockedIn(true);
-        setClockStartTime(now);
-        localStorage.setItem(`pos_clock_in_${staff?.id}`, now.toString());
-        
         await firebaseService.saveItem('staff_activity', `clock_${staff?.id}`, {
           staffId: staff?.id,
           startTime: now,
           status: 'working',
-          lastUpdate: now
+          lastUpdate: now,
+          enterpriseId
         });
         logger.info('staff', 'Início de expediente registrado', { staffId: staff?.id });
       } catch (error) {
@@ -97,12 +112,9 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
       }
     } else {
       try {
-        setClockedIn(false);
-        setClockStartTime(null);
-        localStorage.removeItem(`pos_clock_in_${staff?.id}`);
-        
         await firebaseService.updateItem('staff_activity', `clock_${staff?.id}`, {
           status: 'offline',
+          lastUpdate: Date.now(),
           endTime: Date.now()
         });
         logger.info('staff', 'Encerramento de expediente registrado', { staffId: staff?.id });
@@ -134,7 +146,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/10 rounded-full blur-[100px] -ml-32 -mb-32" />
 
         <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
-          <div className="relative">
+          <div id="staff-header-profile" className="relative">
             <div className="w-24 h-24 md:w-32 md:h-32 rounded-[2.5rem] bg-slate-800 border-4 border-slate-700 overflow-hidden flex items-center justify-center">
                {staff.photo ? (
                  <img src={staff.photo} alt={staff.name} className="w-full h-full object-cover" />
@@ -176,7 +188,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
           </div>
 
           <div className="flex flex-col items-center md:items-end gap-4">
-             <div className={`px-8 py-6 rounded-[2rem] border-2 transition-all flex flex-col items-center ${clockedIn ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-slate-800/50 border-slate-700'}`}>
+             <div id="clock-timer-box" className={`px-8 py-6 rounded-[2rem] border-2 transition-all flex flex-col items-center ${clockedIn ? 'bg-emerald-500/10 border-emerald-500/50' : 'bg-slate-800/50 border-slate-700'}`}>
                 <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Tempo de Expediente</span>
                 <span className={`text-3xl font-mono font-black ${clockedIn ? 'text-emerald-400' : 'text-slate-500'}`}>{elapsedTime}</span>
              </div>
@@ -270,7 +282,7 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
               Meu Desempenho
            </h3>
 
-           <div className="bg-slate-900 rounded-[3rem] p-8 text-white space-y-8 shadow-xl">
+           <div id="performance-score-card" className="bg-slate-900 rounded-[3rem] p-8 text-white space-y-8 shadow-xl">
               <div>
                  <div className="flex items-center justify-between mb-4">
                     <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Score de Performance</span>
@@ -324,6 +336,43 @@ export const StaffDashboard: React.FC<StaffDashboardProps> = ({ staff, enterpris
            </div>
         </div>
       </div>
+
+      {/* Fase 11: Overlay do Tour Interativo Staff */}
+      <AnimatePresence>
+        {activeTourStep !== null && tourSteps[activeTourStep] && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[1000] bg-slate-950/60 backdrop-blur-sm pointer-events-none flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-white max-w-sm rounded-[3rem] p-12 shadow-4xl pointer-events-auto border-b-8 border-emerald-500"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center font-black text-xs">
+                   {activeTourStep + 1}/{tourSteps.length}
+                </div>
+                <h4 className="text-xl font-black uppercase italic tracking-tighter text-slate-900">{tourSteps[activeTourStep].title}</h4>
+              </div>
+              
+              <p className="text-sm text-slate-500 font-medium italic leading-relaxed mb-10">
+                {tourSteps[activeTourStep].content}
+              </p>
+
+              <button 
+                onClick={() => {
+                  if (activeTourStep < tourSteps.length - 1) setActiveTourStep(activeTourStep + 1);
+                  else setActiveTourStep(null);
+                }}
+                className="w-full py-5 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/20"
+              >
+                {activeTourStep < tourSteps.length - 1 ? 'Próximo' : 'Começar a Trabalhar!'}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

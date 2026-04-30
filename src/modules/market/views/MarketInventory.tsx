@@ -58,7 +58,8 @@ export const MarketInventory: React.FC = () => {
   const loadProducts = async () => {
     try {
       const entId = accountService.getCurrentCompanyId();
-      const data = await firebaseService.getAllDocs('products', entId || undefined);
+      const sId = accountService.getSelectedShopId();
+      const data = await firebaseService.getAllDocs('products', entId || undefined, sId || undefined);
       setProducts(data as Product[]);
     } catch (err) {
       console.error('Error loading inventory:', err);
@@ -91,7 +92,7 @@ export const MarketInventory: React.FC = () => {
 
     try {
       const entId = accountService.getCurrentCompanyId();
-      const sId = localStorage.getItem('rm_selected_shop_id') || null;
+      const sId = accountService.getSelectedShopId();
       await firebaseService.saveItem('products', scannedProduct.id, { ...scannedProduct, stock: newStock, enterpriseId: entId, shopId: sId });
       setShowCountModal(false);
       setScannedProduct(null);
@@ -109,7 +110,7 @@ export const MarketInventory: React.FC = () => {
 
     try {
       const entId = accountService.getCurrentCompanyId();
-      const sId = localStorage.getItem('rm_selected_shop_id') || null;
+      const sId = accountService.getSelectedShopId();
       await firebaseService.addItem('products', { ...newProduct, enterpriseId: entId, shopId: sId } as Product);
       setShowAddModal(false);
       setNewProduct({

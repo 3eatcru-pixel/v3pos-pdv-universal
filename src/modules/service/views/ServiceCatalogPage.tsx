@@ -16,7 +16,7 @@ export const ServiceCatalogPage: React.FC = () => {
       serviceManagementService.addService({
          ...formData,
          enterpriseId,
-         active: true
+         active: true,
          shopId
       });
       setServices(serviceManagementService.getServices(enterpriseId, shopId));

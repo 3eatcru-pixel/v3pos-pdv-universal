@@ -32,7 +32,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { FinanceEngine } from '../services/FinanceEngine';
 import { StockReconciliationEngine, StockReconciliationItem } from '../services/StockReconciliationEngine';
-import { localeEngine } from '../services/LocaleEngine';
+import { LocaleEngine, t } from '../services/LocaleEngine';
 import { useCollection } from '../../hooks/useCollection';
 
 interface FinanceManagementViewProps {
@@ -79,11 +79,18 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime();
 
+  // Fase 4: Carregar configurações fiscais do banco de dados (Compliance)
+  const { data: configs } = useCollection<any>('enterprise_configs', { enterpriseId: companyId });
   const { data: roles } = useCollection<any>('rolePermissions');
   const { data: orders } = useCollection<Order>('orders', { enterpriseId: companyId, shopId: shopId || null, dateRange: { field: 'closedAt', start: startOfMonth, end: endOfMonth } });
   const { data: products } = useCollection<Product>('products', { enterpriseId: companyId, dateRange: { field: 'updatedAt', start: startOfMonth, end: endOfMonth } }); // Products might not need date range, but for consistency
 
-  const config = useMemo(() => ({ taxRate: 0.05 }), []); // Exemplo de config vinda de contexto no futuro
+  const fiscalConfig = configs[0] || { taxRate: 0.05, currency: 'BRL' };
+  
+  // Fase 8: Inicializa motor de localização com dados do Tenant
+  useEffect(() => {
+    LocaleEngine.initialize({ currency: fiscalConfig.currency });
+  }, [fiscalConfig.currency]);
 
   const userPermissions = useMemo(() => {
     if (currentUser?.role === 'owner' || currentUser?.role === 'admin' || currentUser?.role === 'dev') return { canViewSales: true, canManageInventory: true };
@@ -247,8 +254,8 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
   }, {});
 
   const dre = useMemo(() => 
-    FinanceEngine.summarizeDre(transactions, recountRequests, orders, products, stockItems, config?.taxRate || 0.05),
-    [transactions, recountRequests, orders, products, stockItems, config.taxRate]
+    FinanceEngine.summarizeDre(transactions, recountRequests, orders, products, stockItems, fiscalConfig.taxRate),
+    [transactions, recountRequests, orders, products, stockItems, fiscalConfig.taxRate]
   );
 
   const inventoryCount = stockItems.filter((item) => item.sourceType === 'inventory').length;
@@ -345,11 +352,11 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
                <div className="space-y-6">
                   <div className="flex justify-between items-center py-4 border-b border-white/5">
-                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">Receita Bruta de Vendas</span>
+                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">{t('finance.revenue')}</span>
                      <span className="text-xl font-black text-emerald-400">{formatCurrency(dre.receitaBruta)}</span>
                   </div>
                   <div className="flex justify-between items-center py-4 border-b border-white/5 text-rose-400">
-                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">(-) {localeEngine.settings.taxLabel} & Deduções</span>
+                     <span className="text-xs font-black uppercase text-slate-400 tracking-widest">(-) {LocaleEngine.settings.taxLabel} & Deduções</span>
                      <span className="text-sm font-bold">({formatCurrency(dre.impostos)})</span>
                   </div>
                   <div className="flex justify-between items-center py-4 border-b border-white/5 font-black">
@@ -713,13 +720,13 @@ export const FinanceManagementView: React.FC<FinanceManagementViewProps> = ({ mo
 
                 <button
                   type="submit"
-                  disabled={reconciling}
+                  disabled={reconciling || (approvalRequiredPreview && !approverName.trim())}
                   className={cn(
                     "w-full py-5 rounded-[1.5rem] font-black uppercase text-[11px] tracking-widest transition-all",
-                    reconciling ? "bg-slate-400 text-white cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-700"
+                    (reconciling || (approvalRequiredPreview && !approverName.trim())) ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-700"
                   )}
                 >
-                  {reconciling ? 'Aplicando...' : 'Aplicar Reconciliação'}
+                  {reconciling ? 'Processando...' : approvalRequiredPreview ? 'Confirmar com Aprovação' : 'Aplicar Reconciliação'}
                 </button>
               </form>
             </motion.div>

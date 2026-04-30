@@ -109,7 +109,12 @@ export class ThirdPartyConnectorGateway {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Falha no gateway (${response.status}): ${body || response.statusText}`);
+      const errorMsg = import.meta.env.DEV 
+        ? `Falha no gateway ${input.provider} (${response.status}): ${body}`
+        : `Não foi possível processar a decisão com o parceiro logístico (${input.provider}).`;
+      
+      console.error('ThirdParty Gateway Error:', { status: response.status, body });
+      throw new Error(errorMsg);
     }
   }
 
@@ -146,7 +151,12 @@ export class ThirdPartyConnectorGateway {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Falha no sync de ${input.type} (${response.status}): ${body || response.statusText}`);
+      const errorMsg = import.meta.env.DEV 
+        ? `Falha no sync de ${input.type} (${response.status}): ${body}`
+        : `Ocorreu uma falha na sincronização de ${input.type === 'menu' ? 'cardápio' : 'estoque'} com o parceiro ${input.provider}.`;
+      
+      console.error('ThirdParty Sync Error:', { provider: input.provider, type: input.type, status: response.status });
+      throw new Error(errorMsg);
     }
   }
 }

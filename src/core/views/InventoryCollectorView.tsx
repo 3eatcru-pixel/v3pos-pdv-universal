@@ -6,6 +6,7 @@ import { firebaseService } from '../../services/firebaseService';
 import { accountService } from '../services/accountService';
 import { InventoryEngine } from '../services/InventoryEngine';
 import { cn, formatCurrency } from '../../lib/utils';
+import { t } from '../services/LocaleEngine';
 
 export const InventoryCollectorView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const enterpriseId = accountService.getCurrentCompanyId() || '';
@@ -19,6 +20,33 @@ export const InventoryCollectorView: React.FC<{ onBack: () => void }> = ({ onBac
   const [justification, setJustification] = useState('');
   const [lastAdjustment, setLastAdjustment] = useState<{ id: string, delta: number, name: string } | null>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
+  
+  // Fase 9: Recuperação de sessão de contagem após queda/refresh
+  useEffect(() => {
+    const savedSession = localStorage.getItem(`inventory_session_${shopId}`);
+    if (savedSession) {
+      try {
+        const { itemId, currentCount } = JSON.parse(savedSession);
+        const item = inventory.find(i => i.id === itemId);
+        if (item) {
+          setSelectedItem(item);
+          setCount(currentCount);
+        }
+      } catch (e) {
+        console.error("Erro ao restaurar sessão de inventário", e);
+      }
+    }
+  }, [inventory, shopId]);
+
+  // Fase 9: Persistência em tempo real do estado da contagem
+  useEffect(() => {
+    if (selectedItem) {
+      localStorage.setItem(`inventory_session_${shopId}`, JSON.stringify({ itemId: selectedItem.id, currentCount: count }));
+    } else {
+      localStorage.removeItem(`inventory_session_${shopId}`);
+    }
+  }, [selectedItem, count, shopId]);
+
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   // Motor de Feedback Sonoro (Web Audio API)
@@ -143,8 +171,8 @@ export const InventoryCollectorView: React.FC<{ onBack: () => void }> = ({ onBac
       setShowHighDiffWarning(false);
       setJustification('');
     } catch (error) {
-      console.error(error);
-      alert('Falha ao salvar contagem.');
+      logger.error('inventory', 'Falha ao salvar contagem no coletor', { error });
+      playFeedbackSound('error');
     }
   };
 
@@ -164,10 +192,10 @@ export const InventoryCollectorView: React.FC<{ onBack: () => void }> = ({ onBac
       <div className="bg-slate-900 p-6 pt-12 text-white flex items-center gap-4 shadow-xl">
         <button onClick={onBack} className="p-2 hover:bg-white/10 rounded-xl transition-all"><ChevronLeft /></button>
         <div>
-           <h2 className="text-xl font-black uppercase italic tracking-tighter leading-none">Modo Coleta</h2>
+           <h2 className="text-xl font-black uppercase italic tracking-tighter leading-none">{t('inventory.collector_mode')}</h2>
            <div className="flex items-center gap-2 mt-1">
               <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Scanner Ativo</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{t('inventory.scanner_active')}</p>
            </div>
         </div>
       </div>

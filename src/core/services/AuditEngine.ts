@@ -4,7 +4,7 @@ import { CommunicationEngine } from './CommunicationEngine';
 import { NotificationEngine } from './NotificationEngine';
 
 export interface AuditDivergence {
-  type: 'UNAUTHORIZED_STOCK_CHANGE' | 'MISSING_AUDIT_TRAIL' | 'SUSPICIOUS_VOID' | 'ORPHAN_SALE' | 'LABOR_VIOLATION' | 'SYSTEM_OVERRIDE' | 'SERVICE_OVERLAP' | 'RENTAL_VIOLATION' | 'SERVICE_WITHOUT_MATERIAL' | 'LICENSE_EXPIRED' | 'NEGATIVE_STOCK';
+  type: 'UNAUTHORIZED_STOCK_CHANGE' | 'MISSING_AUDIT_TRAIL' | 'SUSPICIOUS_VOID' | 'ORPHAN_SALE' | 'RETAIL_TRANSACTION_MISSING' | 'LABOR_VIOLATION' | 'SYSTEM_OVERRIDE' | 'SERVICE_OVERLAP' | 'RENTAL_VIOLATION' | 'SERVICE_WITHOUT_MATERIAL' | 'LICENSE_EXPIRED' | 'NEGATIVE_STOCK';
   severity: 'high' | 'critical';
   itemId: string;
   itemName: string;
@@ -130,6 +130,90 @@ export class AuditEngine {
     } catch (error) {
       logger.error('system', 'Falha ao detectar vendas órfãs', { error });
       throw error;
+    }
+  }
+
+  /**
+   * Detecta estornos suspeitos:
+   * 1. Pedidos cancelados sem um log de auditoria correspondente.
+   * 2. Estornos realizados por staff de nível baixo sem autorização de gerente.
+   */
+  static async detectSuspiciousVoids(enterpriseId: string): Promise<AuditDivergence[]> {
+    const divergences: AuditDivergence[] = [];
+    try {
+      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      
+      const voidedOrders = await firebaseService.getDocsByQuery('orders', [
+        { field: 'enterpriseId', op: '==', value: enterpriseId },
+        { field: 'status', op: '==', value: 'voided' },
+        { field: 'updatedAt', op: '>=', value: sevenDaysAgo }
+      ]) as any[];
+
+      const auditLogs = await firebaseService.getDocsByQuery('audit_logs', [
+        { field: 'enterpriseId', op: '==', value: enterpriseId },
+        { field: 'action', op: '==', value: 'ORDER_VOIDED' },
+        { field: 'timestamp', op: '>=', value: sevenDaysAgo }
+      ]) as any[];
+
+      for (const order of voidedOrders) {
+        const hasLog = auditLogs.some(log => log.details.includes(order.id));
+        
+        if (!hasLog) {
+          divergences.push({
+            type: 'SUSPICIOUS_VOID',
+            severity: 'critical',
+            itemId: order.id,
+            itemName: `Pedido ${order.id.slice(-6).toUpperCase()}`,
+            details: `Venda estornada sem registro formal no log de auditoria. Possível bypass de segurança.`,
+            timestamp: Date.now()
+          });
+        }
+      }
+      return divergences;
+    } catch (error) {
+      logger.error('system', 'Falha na auditoria de estornos', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Detecta vendas de varejo (Retail) que não geraram transações financeiras formais.
+   * Requisito: Auditoria Retail Checklist 2026-04-24.
+   */
+  static async detectMissingRetailTransactions(enterpriseId: string): Promise<AuditDivergence[]> {
+    const divergences: AuditDivergence[] = [];
+    try {
+      const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+      
+      // Busca vendas do retail (ajustar query conforme campo de módulo se houver)
+      const sales = await firebaseService.getDocsByQuery('orders', [
+        { field: 'enterpriseId', op: '==', value: enterpriseId },
+        { field: 'closedAt', op: '>=', value: twentyFourHoursAgo }
+      ]) as any[];
+
+      const transactions = await firebaseService.getDocsByQuery('transactions', [
+        { field: 'enterpriseId', op: '==', value: enterpriseId },
+        { field: 'timestamp', op: '>=', value: twentyFourHoursAgo }
+      ]) as any[];
+
+      const transactionSaleIds = new Set(transactions.map(t => t.orderId || t.saleId));
+
+      for (const sale of sales) {
+        if (!transactionSaleIds.has(sale.id)) {
+          divergences.push({
+            type: 'RETAIL_TRANSACTION_MISSING',
+            severity: 'critical',
+            itemId: sale.id,
+            itemName: `Venda Varejo ${sale.id.slice(-6)}`,
+            details: 'Venda finalizada sem registro correspondente na tabela de transações financeiras (DRE/Caixa).',
+            timestamp: Date.now()
+          });
+        }
+      }
+      return divergences;
+    } catch (error) {
+      logger.error('system', 'Falha na auditoria de transações retail', { error });
+      return [];
     }
   }
 

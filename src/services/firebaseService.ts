@@ -99,8 +99,13 @@ const handleFirestoreError = (error: any, operationType: FirestoreErrorInfo['ope
       return operationType === 'list' ? [] : null; // Return empty result instead of throwing
     }
 
-    logger.error('core', 'Acesso negado ao Firestore', { ...errorInfo });
-    throw new Error(JSON.stringify(errorInfo));
+    // Fase 10: Hardening de Produção - Oculta metadados sensíveis em logs de produção
+    const sanitizedError = import.meta.env.DEV 
+      ? JSON.stringify(errorInfo) 
+      : "Acesso Negado: Sua sessão pode ter expirado ou você não tem permissão para esta ação.";
+
+    logger.error('core', 'Acesso negado ao Firestore', import.meta.env.DEV ? { ...errorInfo } : { path, operationType });
+    throw new Error(sanitizedError);
   }
   throw error;
 };
@@ -150,7 +155,7 @@ function getLocalTenantId(): string | null {
   if (sessionTenant) return sessionTenant;
   const userTenant = authService.getCurrentUser()?.tenantId;
   if (userTenant) return userTenant;
-  return localStorage.getItem('rm_enterprise_id') || null;
+  return null;
 }
 
 function resolveTenantId(data?: any): string | null {

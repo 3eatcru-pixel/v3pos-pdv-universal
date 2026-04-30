@@ -26,62 +26,58 @@ export class ShopCloneEngine {
     try {
       logger.info('core', 'Iniciando clonagem de loja', { sourceShopId, newShopId });
 
-      // 1. Criar o documento da nova Loja
-      const newShop: Shop = {
-        ...newShopData,
-        id: newShopId,
-        enterpriseId,
-        createdAt: Date.now(),
-        status: 'active',
-      } as Shop;
+      // Encapsular em transação para garantir que nada seja criado se houver erro no meio
+      await firebaseService.runTransaction(async (tx) => {
+        // 1. Criar o documento da nova Loja
+        const newShop: Shop = {
+          ...newShopData,
+          id: newShopId,
+          enterpriseId,
+          createdAt: Date.now(),
+          status: 'active',
+        } as Shop;
 
-      await firebaseService.saveItem('shops', newShopId, newShop);
+        const shopRef = firebaseService.getDocRef('shops', newShopId);
+        tx.set(shopRef, newShop);
 
-      // 2. Tratar Categorias e Menu
-      if (options.cloneCategories) {
-        // Busca categorias da empresa de origem (Template ou Loja Mãe)
-        const categories = await firebaseService.getDocsByQuery('categories', [
-          { field: 'enterpriseId', op: '==', value: sourceEnterpriseId },
-          { field: 'shopId', op: '==', value: sourceShopId }
-        ]) as Category[];
-        for (const cat of categories) {
-          const newCat = { 
-            ...cat, 
-            id: generateSafeId('cat'), 
-            shopId: newShopId,
-            // Se syncMenuChanges for true, mantemos uma referência ao ID original para atualizações em massa
-            masterCategoryId: options.syncMenuChanges ? cat.id : null 
-          };
-          await firebaseService.saveItem('categories', newCat.id, newCat);
-        }
-      }
-
-      // 3. Tratar Produtos (Sem clonar estoque)
-      if (options.cloneProducts) {
-        // Busca produtos da empresa de origem
-        const products = await firebaseService.getDocsByQuery('products', [
-          { field: 'enterpriseId', op: '==', value: sourceEnterpriseId },
-          { field: 'shopId', op: '==', value: sourceShopId }
-        ]) as Product[];
-        
-        for (const prod of products) {
-          // No nosso sistema universal, produtos podem ser Enterprise-wide.
-          // Se o produto for específico da loja, clonamos. Se for global, apenas liberamos para a nova loja.
-          if (prod.shopId === sourceShopId) {
-            const newProd = {
-              ...prod,
-              id: generateSafeId('prod'),
-              shopId: newShopId,
-              stock: options.resetStock ? 0 : prod.stock,
-              currentStock: options.resetStock ? 0 : (prod as any).currentStock,
-              masterProductId: options.syncMenuChanges ? prod.id : null,
-              // Inicialmente disponível em todos os locais clonados
-              availableInShops: [newShopId]
-            };
-            await firebaseService.saveItem('products', newProd.id, newProd);
+        // 2. Tratar Categorias
+        if (options.cloneCategories) {
+          const categories = await firebaseService.getDocsByQuery('categories', [
+            { field: 'enterpriseId', op: '==', value: sourceEnterpriseId },
+            { field: 'shopId', op: '==', value: sourceShopId }
+          ]) as Category[];
+          
+          for (const cat of categories) {
+            const catId = generateSafeId('cat');
+            const newCat = { ...cat, id: catId, shopId: newShopId, masterCategoryId: options.syncMenuChanges ? cat.id : null };
+            tx.set(firebaseService.getDocRef('categories', catId), newCat);
           }
         }
-      }
+
+        // 3. Tratar Produtos
+        if (options.cloneProducts) {
+          const products = await firebaseService.getDocsByQuery('products', [
+            { field: 'enterpriseId', op: '==', value: sourceEnterpriseId },
+            { field: 'shopId', op: '==', value: sourceShopId }
+          ]) as Product[];
+          
+          for (const prod of products) {
+            if (prod.shopId === sourceShopId) {
+              const prodId = generateSafeId('prod');
+              const newProd = {
+                ...prod,
+                id: prodId,
+                shopId: newShopId,
+                stock: options.resetStock ? 0 : prod.stock,
+                currentStock: options.resetStock ? 0 : (prod as any).currentStock,
+                masterProductId: options.syncMenuChanges ? prod.id : null,
+                availableInShops: [newShopId]
+              };
+              tx.set(firebaseService.getDocRef('products', prodId), newProd);
+            }
+          }
+        }
+      });
 
       logger.info('core', 'Clonagem de unidade concluída com sucesso', { newShopId });
       return newShopId;

@@ -24,16 +24,13 @@ export const StaffTaskBoard: React.FC = () => {
     return 'Service'; // Garçom, Caixa, etc.
   }, [user]);
 
+  const today = new Date().toISOString().split('T')[0];
+
   const { data: tasks, loading } = useCollection<SectorTask>('sector_tasks', { 
     enterpriseId, 
-    sector: userSector 
+    sector: userSector,
+    assignedDate: today // Fase 2: Filtro nativo por data
   });
-
-  const today = new Date().toISOString().split('T')[0];
-  const todayTasks = useMemo(() => 
-    tasks.filter(t => t.assignedDate === today), 
-    [tasks, today]
-  );
 
   const handleToggle = async (task: SectorTask) => {
     await SectorTaskEngine.toggleTask(task.id, !task.completed);
@@ -53,7 +50,7 @@ export const StaffTaskBoard: React.FC = () => {
            <div className="text-right">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Status de Entrega</p>
               <p className="text-2xl font-black text-slate-900 italic tracking-tighter">
-                {todayTasks.filter(t => t.completed).length}/{todayTasks.length}
+                {tasks.filter(t => t.completed).length}/{tasks.length}
               </p>
            </div>
            <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner">
@@ -68,14 +65,14 @@ export const StaffTaskBoard: React.FC = () => {
              <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4" />
              <p className="text-[10px] font-black uppercase tracking-widest">Sincronizando Ordens do Setor...</p>
           </div>
-        ) : todayTasks.length === 0 ? (
+        ) : tasks.length === 0 ? (
           <div className="py-24 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 opacity-40">
             <CheckCircle2 className="w-12 h-12 mx-auto mb-4 text-emerald-500" />
             <p className="text-[10px] font-black uppercase tracking-[0.2em]">O setor {userSector} está 100% em dia.</p>
           </div>
         ) : (
           <AnimatePresence mode="popLayout">
-            {todayTasks.map((task) => (
+            {tasks.map((task) => (
               <motion.div
                 key={task.id}
                 layout

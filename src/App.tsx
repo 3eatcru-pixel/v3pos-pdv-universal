@@ -100,7 +100,7 @@ import {
   Bar,
   Cell
 } from 'recharts';
-import { format, startOfWeek, addDays, isSameDay, eachDayOfInterval, endOfWeek, parseISO, startOfDay, endOfDay, startOfMonth } from 'date-fns';
+import { format, startOfWeek, addDays, isSameDay, eachDayOfInterval, endOfWeek, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { QRCodeSVG } from 'qrcode.react';
 import { generateId, generateInviteCode, validateId, belongsToCompany } from './lib/idUtils';
@@ -219,7 +219,7 @@ export default function App() {
     const hasEnterprise = !!accountService.getCurrentCompanyId();
     return hasUser && !hasEnterprise;
   });
-  const [selectedArea, setSelectedArea] = useState<string>('SalÃƒÂ£o Principal');
+  const [selectedArea, setSelectedArea] = useState<string>('Salão Principal');
   
   const { data: tables, setData: setTables } = useCollection<Table>('tables');
   const { data: products, setData: setProducts } = useCollection<Product>('products');
@@ -268,9 +268,9 @@ export default function App() {
       })
       .catch((error) => {
         if (!mounted) return;
-        console.error('Falha ao iniciar sessÃƒÂ£o Firebase', error);
+        console.error('Falha ao iniciar sessão Firebase', error);
         setAuthReady(false);
-        setAuthError('NÃƒÂ£o foi possÃƒÂ­vel autenticar no Firebase para modo Cloud.');
+        setAuthError('Não foi possível autenticar no Firebase para modo Cloud.');
       });
     return () => {
       mounted = false;
@@ -414,7 +414,7 @@ export default function App() {
         printers: MOCK_PRINTERS.map(p => ({ ...p, id: `${enterpriseId}-${p.id}`, enterpriseId }))
       });
       
-      alert("OperaÃƒÂ§ÃƒÂ£o concluÃƒÂ­da com sucesso!");
+      alert("Operação concluída com sucesso!");
       window.location.reload();
     } catch (error) {
       console.error(error);
@@ -424,9 +424,9 @@ export default function App() {
 
   const handleSeedTablesForCurrentShop = async () => {
     if (!selectedShopId) return;
-    const areas = ['SalÃƒÂ£o Principal', 'Varanda Gourmet'];
+    const areas = ['Salão Principal', 'Varanda Gourmet'];
     for (const area of areas) {
-      const prefix = area === 'SalÃƒÂ£o Principal' ? 'p' : 'v';
+      const prefix = area === 'Salão Principal' ? 'p' : 'v';
       for (let i = 1; i <= 20; i++) {
         const tableId = `t-${selectedShopId}-${prefix}${i}`;
         const x = ((i - 1) % 5) * 160 + 80;
@@ -435,7 +435,7 @@ export default function App() {
         await firebaseService.saveItem('tables', tableId, {
           id: tableId,
           shopId: selectedShopId,
-          number: area === 'SalÃƒÂ£o Principal' ? i : i + 20,
+          number: area === 'Salão Principal' ? i : i + 20,
           status: 'free',
           capacity: i <= 8 ? 2 : 4,
           position: { x, y },
@@ -443,7 +443,7 @@ export default function App() {
         });
       }
     }
-    alert("40 mesas geradas com sucesso (20 por ÃƒÂ¡rea)!");
+    alert("40 mesas geradas com sucesso (20 por área)!");
   };
 
   const currentShop = useMemo(() => shops.find(s => s.id === selectedShopId), [shops, selectedShopId]);
@@ -472,9 +472,6 @@ export default function App() {
 
   const [isTableListView, setIsTableListView] = useState(false);
   const [tableSearchQuery, setTableSearchQuery] = useState('');
-  const [reportsStartDate, setReportsStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [reportsEndDate, setReportsEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [reportsTab, setReportsTab] = useState<'overview' | 'sales' | 'products' | 'hourly'>('overview');
   const [historyFilter, setHistoryFilter] = useState<'all' | 'delivered' | 'cancelled'>('all');
   const [pendingOrderFilter, setPendingOrderFilter] = useState<'all' | 'table' | 'takeaway'>('all');
   const [pendingOrderSort, setPendingOrderSort] = useState<'newest' | 'oldest' | 'value'>('newest');
@@ -492,7 +489,7 @@ export default function App() {
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
-      // Suporte para celulares pequenos e mÃƒÂ©dios para evitar quebras de layout
+      // Suporte para celulares pequenos e médios para evitar quebras de layout
       if (width < 430) {
         setAppScale(Math.max(0.82, width / 430));
       } else {
@@ -561,7 +558,7 @@ export default function App() {
     if (name && name.trim()) {
       const areaName = name.trim();
       setSelectedArea(areaName);
-      alert(`Ambiente "${areaName}" criado! Agora vocÃƒÂª pode adicionar mesas nesta ÃƒÂ¡rea.`);
+      alert(`Ambiente "${areaName}" criado! Agora você pode adicionar mesas nesta área.`);
     }
   };
 
@@ -594,7 +591,7 @@ export default function App() {
 
   // Categories & Table Mgmt
   const [productCategories, setProductCategories] = useState(['Burgers', 'Bebidas', 'Acompanhamentos', 'Sobremesas']);
-  const [inventoryCategories, setInventoryCategories] = useState(['Carnes', 'Panificados', 'Vegetais', 'LaticÃƒÂ­nios', 'Bebidas', 'Secos']);
+  const [inventoryCategories, setInventoryCategories] = useState(['Carnes', 'Panificados', 'Vegetais', 'Laticínios', 'Bebidas', 'Secos']);
   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
   const [isTableManagementMode, setIsTableManagementMode] = useState(false);
   const [isEditTableModalOpen, setIsEditTableModalOpen] = useState(false);
@@ -699,7 +696,7 @@ export default function App() {
   const [modCustomRemove, setModCustomRemove] = useState('');
 
   const STANDARD_ALLERGIES = [
-    'Amendoim', 'GlÃºten', 'Lactose', 'Frutos do Mar', 'Ovo', 'Soja', 'Nozes', 'Peixe', 'Trigo', 'Leite', 'Castanhas'
+    'Amendoim', 'Glúten', 'Lactose', 'Frutos do Mar', 'Ovo', 'Soja', 'Nozes', 'Peixe', 'Trigo', 'Leite', 'Castanhas'
   ];
 
   // State for legacy components that still require it
@@ -808,7 +805,7 @@ export default function App() {
   const handleExportSalesToExcel = () => {
     const deliveredOrders = orders.filter(o => o.status === 'delivered');
     if (deliveredOrders.length === 0) {
-      alert("NÃƒÂ£o hÃƒÂ¡ vendas finalizadas para exportar.");
+      alert("Não há vendas finalizadas para exportar.");
       return;
     }
 
@@ -841,8 +838,8 @@ export default function App() {
     if (navigator.share) {
       const file = new File([blob], fileName, { type: blob.type });
       navigator.share({
-        title: 'RelatÃƒÂ³rio de Vendas RestManager',
-        text: 'Segue em anexo o relatÃƒÂ³rio de vendas em formato Excel.',
+        title: 'Relatório de Vendas RestManager',
+        text: 'Segue em anexo o relatório de vendas em formato Excel.',
         files: [file],
       }).catch(console.error);
     } else {
@@ -866,7 +863,7 @@ export default function App() {
       );
     } catch (error) {
       console.error("Failed to adjust inventory:", error);
-      alert("Erro ao atualizar estoque. Verifique a conexÃƒÂ£o.");
+      alert("Erro ao atualizar estoque. Verifique a conexão.");
     }
   };
 
@@ -886,7 +883,7 @@ export default function App() {
     };
     setCart(prev => [...prev, newItem]);
     // Optional: open modifiers automatically for certain categories like Burger
-    if (['HambÃƒÂºrgueres', 'Burgers', 'Pratos Principais'].includes(product.category)) {
+    if (['Hambúrgueres', 'Burgers', 'Pratos Principais'].includes(product.category)) {
       setEditingOrderItem(newItem);
       setIsModifierModalOpen(true);
     }
@@ -952,7 +949,7 @@ export default function App() {
 
     if (item.status !== 'pending') {
       if (!currentPermissions.actions.canVoid) {
-        alert("VocÃƒÂª nÃƒÂ£o tem permissÃƒÂ£o para cancelar itens jÃƒÂ¡ enviados.");
+        alert("Você não tem permissão para cancelar itens já enviados.");
         return;
       }
       
@@ -1046,7 +1043,7 @@ export default function App() {
     if (newItems.some(i => !barCategories.includes(i.category))) {
       await firebaseService.addItem('notifications', {
         shopId: (selectedShopId || 'shop-1'),
-        message: `Ã°Å¸Ââ€” Cozinha: Novo Pedido ${tableNumDisplay}`,
+        message: `🍳 Cozinha: Novo Pedido ${tableNumDisplay}`,
         type: 'new_order_kitchen',
         tableId: tableIdVal,
         timestamp: Date.now(),
@@ -1056,7 +1053,7 @@ export default function App() {
     if (newItems.some(i => barCategories.includes(i.category))) {
       await firebaseService.addItem('notifications', {
         shopId: (selectedShopId || 'shop-1'),
-        message: `Ã°Å¸ÂÂ¹ Bar: Novo Pedido ${tableNumDisplay}`,
+        message: `🍹 Bar: Novo Pedido ${tableNumDisplay}`,
         type: 'new_order_bar',
         tableId: tableIdVal,
         timestamp: Date.now(),
@@ -1496,7 +1493,7 @@ export default function App() {
 
   const handleAddTable = async (capacity: number) => {
     const id = `t${Date.now()}`;
-    const tablesInThisArea = tables.filter(t => (t.area || 'SalÃƒÂ£o Principal') === selectedArea && t.shopId === (selectedShopId || 'shop-1'));
+    const tablesInThisArea = tables.filter(t => (t.area || 'Salão Principal') === selectedArea && t.shopId === (selectedShopId || 'shop-1'));
     
     // Grid: 5 columns
     const x = (tablesInThisArea.length % 5) * 160 + 80;
@@ -1518,7 +1515,7 @@ export default function App() {
 
   const handleRemoveTable = async (id: string) => {
     if (orders.find(o => o.tableId === id && o.status !== 'delivered')) {
-      alert("NÃƒÂ£o ÃƒÂ© possÃƒÂ­vel remover uma mesa com pedidos ativos.");
+      alert("Não é possível remover uma mesa com pedidos ativos.");
       return;
     }
     await firebaseService.deleteItem('tables', id);
@@ -1550,7 +1547,7 @@ export default function App() {
         await firebaseService.updateItem('tables', table.id, { hasReadyItems: true });
         await firebaseService.addItem('notifications', {
           shopId: (selectedShopId || 'shop-1'),
-          message: `Ã°Å¸â€â€ Pedido pronto para a Mesa 0${table.number}`,
+          message: `🔔 Pedido pronto para a Mesa 0${table.number}`,
           type: 'order_ready_kitchen',
           tableId: table.id,
           timestamp: Date.now(),
@@ -1617,7 +1614,7 @@ export default function App() {
 
     await firebaseService.addItem('notifications', {
       shopId: (selectedShopId || 'shop-1'),
-      message: `${isBar ? 'Ã°Å¸ÂÂ¹ Drink' : 'Ã°Å¸ÂÂ³ Prato'} pronto: ${order.orderType === 'takeaway' ? `Takeaway #${order.takeawayNumber}` : `Mesa 0${table?.number}`}`,
+      message: `${isBar ? '🍹 Drink' : '🍳 Prato'} pronto: ${order.orderType === 'takeaway' ? `Takeaway #${order.takeawayNumber}` : `Mesa 0${table?.number}`}`,
       type: isBar ? 'order_ready_bar' : 'order_ready_kitchen',
       tableId: order.tableId,
       timestamp: Date.now(),
@@ -1709,7 +1706,7 @@ export default function App() {
                     </div>
                     <div>
                       <h3 className="text-xl font-black text-slate-900">Editar Mesa {editingTable.number}</h3>
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">ConfiguraÃƒÂ§ÃƒÂµes e LocalizaÃƒÂ§ÃƒÂ£o</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Configurações e Localização</p>
                     </div>
                   </div>
                   <button 
@@ -1725,14 +1722,14 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label htmlFor="edit-table-number" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">NÃƒÂºmero da Mesa</label>
+                      <label htmlFor="edit-table-number" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Número da Mesa</label>
                       <input
                         id="edit-table-number"
                         type="number"
                         value={editingTable.number}
                         onChange={(e) => setEditingTable({ ...editingTable, number: parseInt(e.target.value) })}
                         className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                        title="NÃƒÂºmero da Mesa"
+                        title="Número da Mesa"
                       />
                     </div>
                     <div>
@@ -1749,15 +1746,15 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label htmlFor="edit-table-area" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">ÃƒÂrea / Ambiente</label>
+                    <label htmlFor="edit-table-area" className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 block">Área / Ambiente</label>
                     <select
                       id="edit-table-area"
-                      value={editingTable.area || 'SalÃƒÂ£o Principal'}
+                      value={editingTable.area || 'Salão Principal'}
                       onChange={(e) => setEditingTable({ ...editingTable, area: e.target.value })}
                       className="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all appearance-none"
-                      title="ÃƒÂrea da Mesa"
+                      title="Área da Mesa"
                     >
-                      {Array.from(new Set(tables.map(t => t.area || 'SalÃƒÂ£o Principal'))).map(area => (
+                      {Array.from(new Set(tables.map(t => t.area || 'Salão Principal'))).map(area => (
                         <option key={area} value={area}>{area}</option>
                       ))}
                     </select>
@@ -1775,7 +1772,7 @@ export default function App() {
                       }}
                       className="flex-1 bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-emerald-500 transition-all shadow-xl shadow-slate-900/20"
                     >
-                      Salvar AlteraÃƒÂ§ÃƒÂµes
+                      Salvar Alterações
                     </button>
                     <button
                       onClick={() => {
@@ -1804,7 +1801,7 @@ export default function App() {
     if (table.status === 'occupied') {
        const existingOrder = orders.find(o => o.tableId === table.id && o.status !== 'delivered');
        if (existingOrder) {
-          if (cart.length > 0 && confirm("Esta mesa jÃƒÂ¡ tem um pedido ativo. Deseja mesclar seu carrinho atual com o pedido da mesa?")) {
+          if (cart.length > 0 && confirm("Esta mesa já tem um pedido ativo. Deseja mesclar seu carrinho atual com o pedido da mesa?")) {
              const mergedItems = [...existingOrder.items, ...cart.map(i => ({ ...i, sentToKitchen: false }))];
              await firebaseService.updateItem('orders', existingOrder.id, { items: mergedItems });
              setCart(mergedItems);
@@ -1880,7 +1877,7 @@ export default function App() {
                 Ativar como Demo
               </button>
               <p className="text-[9px] text-center text-slate-400 font-bold uppercase tracking-widest px-8">
-                Ao vincular, este dispositivo terÃƒÂ¡ acesso sincronizado ao estoque, pedidos e relatÃƒÂ³rios da empresa.
+                Ao vincular, este dispositivo terá acesso sincronizado ao estoque, pedidos e relatórios da empresa.
               </p>
             </div>
           </div>
@@ -2014,7 +2011,7 @@ export default function App() {
            </div>
            <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: areaColors.FOH }} />
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Front of House (SalÃƒÂ£o)</span>
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Front of House (Salão)</span>
            </div>
         </div>
       </div>
@@ -2061,7 +2058,7 @@ export default function App() {
                 className="p-6 md:p-8 space-y-6 overflow-y-auto custom-scrollbar"
               >
                 <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">FuncionÃƒÂ¡rio</label>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Funcionário</label>
                   <select name="staffId" defaultValue={editingShift?.staffId} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 appearance-none">
                     {staff.map(s => (
                       <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
@@ -2071,9 +2068,9 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">ÃƒÂrea</label>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Área</label>
                     <select name="area" defaultValue={editingShift?.area || 'FOH'} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700 appearance-none">
-                      <option value="FOH">Front of House (SalÃƒÂ£o)</option>
+                      <option value="FOH">Front of House (Salão)</option>
                       <option value="BOH">Back of House (Cozinha)</option>
                     </select>
                   </div>
@@ -2085,11 +2082,11 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">InÃƒÂ­cio</label>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Início</label>
                     <input type="time" name="startTime" defaultValue={editingShift ? format(editingShift.startTime, 'HH:mm') : '08:00'} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">TÃƒÂ©rmino</label>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Término</label>
                     <input type="time" name="endTime" defaultValue={editingShift ? format(editingShift.endTime, 'HH:mm') : '16:00'} required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-slate-700" />
                   </div>
                 </div>
@@ -2241,7 +2238,7 @@ export default function App() {
                     Remover (SEM)
                   </label>
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {['Cebola', 'Tomate', 'PÃƒÂ£o', 'Picles', 'Maionese', 'Alface'].map(item => {
+                    {['Cebola', 'Tomate', 'Pão', 'Picles', 'Maionese', 'Alface'].map(item => {
                       const isActive = currentModifiers.some(m => m.name === item && m.type === 'remove');
                       return (
                         <button 
@@ -2338,7 +2335,7 @@ export default function App() {
 
               <div className="p-8 bg-slate-900 border-t border-slate-800 flex items-center justify-between">
                 <div className="flex flex-col">
-                  <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">PreÃƒÂ§o Final do Item</span>
+                  <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Preço Final do Item</span>
                   <span className="text-2xl font-black text-white tracking-tight">
                     {formatCurrency(editingOrderItem.price + currentModifiers.reduce((acc, m) => acc + (m.price || 0), 0))}
                   </span>
@@ -2384,9 +2381,9 @@ export default function App() {
       case 'pending_orders': return <RestaurantLayout defaultView="pending_orders" />;
       case 'orders': return <RestaurantLayout defaultView="orders" />;
       case 'kitchen': return <RestaurantLayout defaultView="kitchen" />;
-      case 'bar': return <RestaurantLayout defaultView="kitchen" />;
+      case 'bar': return <RestaurantLayout defaultView="bar" />;
       case 'inventory': return <RestaurantLayout defaultView="inventory" />;
-      case 'reports': return <RestaurantLayout defaultView="history" />;
+      case 'reports': return <RestaurantLayout defaultView="reports" />;
       case 'history': return <RestaurantLayout defaultView="history" />;
       case 'staff_mgmt': return <GeneralStaffView module="restaurant" />;
       case 'finance_mgmt': return <FinanceManagementView module="restaurant" shopId={selectedShopId} />;
@@ -2509,7 +2506,7 @@ export default function App() {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
-          {(!isSidebarCollapsed) && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-2">Para VocÃƒÂª</div>}
+          {(!isSidebarCollapsed) && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-2">Para Você</div>}
           {canAccessView('staff_pnl') && (
             <NavItem 
               icon={<User />} 
@@ -2525,7 +2522,7 @@ export default function App() {
             <>
               {isModuleEnabled('restaurant') && (
                 <>
-                  {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-2">OperaÃƒÂ§ÃƒÂ£o</div>}
+                  {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-2">Operação</div>}
                   <NavItem icon={<TableIcon />} label="Minhas Mesas" active={currentView === 'tables'} onClick={() => setCurrentView('tables')} isCollapsed={isSidebarCollapsed} />
                   {canAccessView('pending_orders') && (
                     <NavItem 
@@ -2547,16 +2544,16 @@ export default function App() {
             <>
               {systemMode === 'distributor' ? (
                 <>
-                  {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="PDV / BalcÃƒÂ£o" active={currentView === 'orders'} onClick={() => { setSelectedTable(null); setCurrentView('orders'); }} isCollapsed={isSidebarCollapsed} />}
+                  {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="PDV / Balcão" active={currentView === 'orders'} onClick={() => { setSelectedTable(null); setCurrentView('orders'); }} isCollapsed={isSidebarCollapsed} />}
                   {canAccessView('dashboard') && <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} isCollapsed={isSidebarCollapsed} />}
-                  {isModuleEnabled('restaurant') && canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas (GarÃƒÂ§om)" active={currentView === 'tables'} onClick={() => setCurrentView('tables')} isCollapsed={isSidebarCollapsed} />}
+                  {isModuleEnabled('restaurant') && canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas (Garçom)" active={currentView === 'tables'} onClick={() => setCurrentView('tables')} isCollapsed={isSidebarCollapsed} />}
                 </>
               ) : (
                 <>
                   {canAccessView('dashboard') && <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} isCollapsed={isSidebarCollapsed} />}
                   {isModuleEnabled('restaurant') && (
                     <>
-                      {canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas / SalÃƒÂ£o" active={currentView === 'tables'} onClick={() => setCurrentView('tables')} isCollapsed={isSidebarCollapsed} />}
+                      {canAccessView('tables') && <NavItem icon={<TableIcon />} label="Mesas / Salão" active={currentView === 'tables'} onClick={() => setCurrentView('tables')} isCollapsed={isSidebarCollapsed} />}
                       {canAccessView('pending_orders') && (
                         <NavItem 
                           icon={<ClipboardList />} 
@@ -2567,7 +2564,7 @@ export default function App() {
                           badge={orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length || undefined}
                         />
                       )}
-                      {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Venda RÃƒÂ¡pida" active={currentView === 'orders'} onClick={() => { setSelectedTable(null); setCurrentView('orders'); }} isCollapsed={isSidebarCollapsed} />}
+                      {canAccessView('orders') && <NavItem icon={<ShoppingCart />} label="Venda Rápida" active={currentView === 'orders'} onClick={() => { setSelectedTable(null); setCurrentView('orders'); }} isCollapsed={isSidebarCollapsed} />}
                     </>
                   )}
                 </>
@@ -2600,9 +2597,9 @@ export default function App() {
 
               {isModuleEnabled('construction') && (
                  <>
-                   {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-4">ConstruÃƒÂ§ÃƒÂ£o</div>}
+                   {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2 mt-4">Construção</div>}
                    <NavItem icon={<HardHat />} label="Minhas Obras" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} isCollapsed={isSidebarCollapsed} />
-                   <NavItem icon={<Hammer />} label="LogÃƒÂ­stica" active={currentView === 'history'} onClick={() => setCurrentView('history')} isCollapsed={isSidebarCollapsed} />
+                   <NavItem icon={<Hammer />} label="Logística" active={currentView === 'history'} onClick={() => setCurrentView('history')} isCollapsed={isSidebarCollapsed} />
                  </>
               )}
               
@@ -2612,19 +2609,19 @@ export default function App() {
 
           {currentUser?.role !== 'waiter' && (canAccessView('menu_mgmt') || canAccessView('inventory') || canAccessView('reports') || canAccessView('history') || canAccessView('staff_mgmt') || canAccessView('schedule') || canAccessView('safety')) && (
             <div className={cn("pt-4 mt-4 border-t border-slate-800", isSidebarCollapsed && "px-0")}>
-              {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2">AdministraÃƒÂ§ÃƒÂ£o</div>}
-              {canAccessView('safety') && <NavItem icon={<ShieldCheck />} label="SaÃƒÂºde & SeguranÃƒÂ§a" active={currentView === 'safety'} onClick={() => setCurrentView('safety')} isCollapsed={isSidebarCollapsed} />}
+              {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4 mb-2">Administração</div>}
+              {canAccessView('safety') && <NavItem icon={<ShieldCheck />} label="Saúde & Segurança" active={currentView === 'safety'} onClick={() => setCurrentView('safety')} isCollapsed={isSidebarCollapsed} />}
               {canAccessView('schedule') && <NavItem icon={<Clock />} label="Escala Semanal" active={currentView === 'schedule'} onClick={() => setCurrentView('schedule')} isCollapsed={isSidebarCollapsed} />}
               {canAccessView('menu_mgmt') && <NavItem icon={<UtensilsCrossed />} label="Gerenciar Itens" active={currentView === 'menu_mgmt'} onClick={() => setCurrentView('menu_mgmt')} isCollapsed={isSidebarCollapsed} />}
               {canAccessView('inventory') && <NavItem icon={<Package />} label="Estoque" active={currentView === 'inventory'} onClick={() => setCurrentView('inventory')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('reports') && <NavItem icon={<BarChart3 />} label="RelatÃƒÂ³rios" active={currentView === 'reports'} onClick={() => setCurrentView('reports')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('history') && <NavItem icon={<History />} label="HistÃƒÂ³rico" active={currentView === 'history'} onClick={() => setCurrentView('history')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('reports') && <NavItem icon={<BarChart3 />} label="Relatórios" active={currentView === 'reports'} onClick={() => setCurrentView('reports')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('history') && <NavItem icon={<History />} label="Histórico" active={currentView === 'history'} onClick={() => setCurrentView('history')} isCollapsed={isSidebarCollapsed} />}
               {canAccessView('staff_mgmt') && <NavItem icon={<Users />} label="RH & Performance" active={currentView === 'staff_mgmt'} onClick={() => setCurrentView('staff_mgmt')} isCollapsed={isSidebarCollapsed} />}
               {canAccessView('finance_mgmt') && <NavItem icon={<Wallet />} label="Fluxo Financeiro" active={currentView === 'finance_mgmt'} onClick={() => setCurrentView('finance_mgmt')} isCollapsed={isSidebarCollapsed} />}
               {isModuleEnabled('service') && canAccessView('service_mgmt') && (
                 <NavItem 
                   icon={<Briefcase />} 
-                  label="Unidade de ServiÃƒÂ§o" 
+                  label="Unidade de Serviço" 
                   active={currentView === 'service_mgmt'} 
                   onClick={() => setCurrentView('service_mgmt')} 
                   isCollapsed={isSidebarCollapsed} 
@@ -2632,9 +2629,9 @@ export default function App() {
                 />
               )}
               {canAccessView('supplier_mgmt') && <NavItem icon={<Truck />} label="Fornecedores B2B" active={currentView === 'supplier_mgmt'} onClick={() => setCurrentView('supplier_mgmt')} isCollapsed={isSidebarCollapsed} />}
-              {canAccessView('settings') && <NavItem icon={<Settings />} label="ConfiguraÃƒÂ§ÃƒÂµes" active={currentView === 'settings'} onClick={() => setCurrentView('settings')} isCollapsed={isSidebarCollapsed} />}
-              {currentUser?.role === 'owner' && <NavItem icon={<Settings2 />} label="CustomizaÃƒÂ§ÃƒÂ£o Global" active={currentView === 'customization'} onClick={() => setCurrentView('customization')} isCollapsed={isSidebarCollapsed} />}
-              {<NavItem icon={<Building2 />} label="GestÃƒÂ£o da Unidade" active={currentView === 'company_mgmt'} onClick={() => setCurrentView('company_mgmt')} isCollapsed={isSidebarCollapsed} />}
+              {canAccessView('settings') && <NavItem icon={<Settings />} label="Configurações" active={currentView === 'settings'} onClick={() => setCurrentView('settings')} isCollapsed={isSidebarCollapsed} />}
+              {currentUser?.role === 'owner' && <NavItem icon={<Settings2 />} label="Customização Global" active={currentView === 'customization'} onClick={() => setCurrentView('customization')} isCollapsed={isSidebarCollapsed} />}
+              {<NavItem icon={<Building2 />} label="Gestão da Unidade" active={currentView === 'company_mgmt'} onClick={() => setCurrentView('company_mgmt')} isCollapsed={isSidebarCollapsed} />}
               {(currentUser?.role === 'owner' || currentUser?.role === 'admin') && (
                 <NavItem 
                   icon={<LayoutDashboard />} 
@@ -2650,7 +2647,7 @@ export default function App() {
 
           {showDevTools && (
             <div className="pt-6 mt-6 border-t border-slate-800 space-y-3">
-              {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4">Ferramentas de SimulaÃƒÂ§ÃƒÂ£o</div>}
+              {!isSidebarCollapsed && <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest px-4">Ferramentas de Simulação</div>}
               <button 
                 onClick={handleRoleCycle}
                 title={isSidebarCollapsed ? `Cargo: ${(currentUser?.role || 'waiter').replace('_', ' ').toUpperCase()}` : undefined}
@@ -2702,13 +2699,13 @@ export default function App() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-bold text-white leading-none mb-1 truncate">
-                    {currentUser?.name || 'FuncionÃƒÂ¡rio'}
+                    {currentUser?.name || 'Funcionário'}
                   </p>
                   <p className={cn(
                     "text-[10px] uppercase tracking-widest font-black",
                     currentUser?.role === 'owner' ? "text-emerald-500" : currentUser?.role === 'waiter' ? "text-amber-500" : "text-blue-400"
                   )}>
-                    {currentUser?.role === 'owner' ? 'Gerente Ativo' : currentUser?.role === 'waiter' ? 'GarÃƒÂ§om' : currentUser?.role === 'admin' ? 'Desenvolvedor' : currentUser?.role?.replace('_', ' ')}
+                    {currentUser?.role === 'owner' ? 'Gerente Ativo' : currentUser?.role === 'waiter' ? 'Garçom' : currentUser?.role === 'admin' ? 'Desenvolvedor' : currentUser?.role?.replace('_', ' ')}
                   </p>
                 </div>
               </div>
@@ -2751,10 +2748,10 @@ export default function App() {
           <div className="hidden lg:flex items-center gap-8">
              <div className="flex flex-col">
                <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase">
-                 {currentUser?.role === 'waiter' ? 'Modo GarÃƒÂ§om' : currentView.replace('_', ' ')}
+                  {currentUser?.role === 'waiter' ? 'Modo Garçom' : currentView.replace('_', ' ')}
                </h2>
                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                 {currentShop?.name} Ã¢â‚¬Â¢ {currentUser?.role === 'waiter' 
+                  {currentShop?.name} • {currentUser?.role === 'waiter' 
                    ? `${filteredTables.length} Mesas Designadas` 
                    : `Empresa: ${enterpriseId}`}
                </p>
@@ -2839,7 +2836,7 @@ export default function App() {
                       className="fixed top-20 right-4 left-4 z-50 lg:absolute lg:top-full lg:right-0 lg:left-auto lg:w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden"
                     >
                       <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
-                        <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">NotificaÃƒÂ§ÃƒÂµes</h4>
+                        <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Notificações</h4>
                         <button 
                           onClick={handleClearNotifications}
                           className="text-[10px] font-bold text-emerald-600 hover:underline"
@@ -2851,7 +2848,7 @@ export default function App() {
                         {notifications.length === 0 ? (
                           <div className="p-8 text-center text-slate-300">
                              <Bell className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                             <p className="text-[10px] font-black uppercase tracking-widest leading-tight">Nenhuma notificaÃƒÂ§ÃƒÂ£o</p>
+                             <p className="text-[10px] font-black uppercase tracking-widest leading-tight">Nenhuma notificação</p>
                           </div>
                         ) : (
                           notifications.map(notif => (

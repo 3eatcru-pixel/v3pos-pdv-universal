@@ -199,6 +199,39 @@ class SalesService {
       });
     });
   }
+
+  /**
+   * Cancela um item ou pedido com obrigatoriedade de motivo (Audit Trail).
+   */
+  async voidOrder(enterpriseId: string, orderId: string, staffId: string, reason: string) {
+    if (!reason || reason.length < 4) throw new Error('Motivo de cancelamento obrigatório.');
+
+    await firebaseService.runTransaction(async (tx) => {
+      const orderRef = firebaseService.getDocRef('orders', orderId);
+      const snap = await tx.get(orderRef);
+
+      if (!snap.exists()) throw new Error('Pedido não encontrado.');
+      const orderData = snap.data() as CoreSale;
+      if (orderData.status === 'voided') throw new Error('Este pedido já foi estornado.');
+
+      const inventory = await firebaseService.getDocsByQuery('inventory', [{ field: 'enterpriseId', op: '==', value: enterpriseId }]);
+      const products = await firebaseService.getDocsByQuery('products', [{ field: 'enterpriseId', op: '==', value: enterpriseId }]);
+
+      await InventoryEngine.adjustStockRecursive(
+        orderData.items, -1, enterpriseId, orderData.shopId, inventory as any, products as any, tx
+      );
+
+      const auditRef = firebaseService.getDocRef('audit_logs', `void-${orderId}-${Date.now()}`);
+      tx.set(auditRef, {
+        enterpriseId, shopId: orderData.shopId, staffId, action: 'ORDER_VOIDED',
+        details: `Pedido ${orderId} estornado. Motivo: ${reason}`, timestamp: Date.now()
+      });
+
+      tx.update(orderRef, { status: 'voided', voidReason: reason, voidedBy: staffId, updatedAt: Date.now() });
+    });
+
+    logger.warn('security', 'Pedido Estornado', { orderId, reason, staffId });
+  }
 }
 
 class ProductService {
@@ -209,19 +242,4 @@ class ProductService {
 }
 
 export const coreSalesService = new SalesService();
-  /**
-   * Cancela um item ou pedido com obrigatoriedade de motivo (Audit Trail).
-   */
-  async voidOrder(enterpriseId: string, orderId: string, staffId: string, reason: string) {
-    if (!reason || reason.length < 4) throw new Error('Motivo de cancelamento obrigatório.');
-    
-    await firebaseService.updateItem('orders', orderId, { 
-      status: 'voided', 
-      voidReason: reason,
-      voidedBy: staffId,
-      updatedAt: Date.now() 
-    });
-    
-    logger.warn('security', 'Pedido Estornado', { orderId, reason, staffId });
-  }
 export const coreProductService = new ProductService();

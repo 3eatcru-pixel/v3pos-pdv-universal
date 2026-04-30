@@ -79,9 +79,18 @@ export class CommissionEngine {
           const rate = isService ? config.serviceRate : config.productRate;
           const materialCost = Number((item as any).unitCost || 0) * item.quantity;
           
+          const revenue = (item.price * item.quantity);
+          if (materialCost > revenue) {
+            logger.warn('hr', 'Margem negativa detectada no cálculo de comissão', { 
+              orderId: order.id, 
+              item: item.name, 
+              loss: materialCost - revenue 
+            });
+          }
+
           materialCostTotal += materialCost;
-          orderEligibleAmount += (item.price * item.quantity);
-          orderCommission += Math.max(0, ((item.price * item.quantity) - materialCost) * (rate / 100));
+          orderEligibleAmount += revenue;
+          orderCommission += Math.max(0, (revenue - materialCost) * (rate / 100));
         });
 
         totalSalesVolume += orderEligibleAmount;
