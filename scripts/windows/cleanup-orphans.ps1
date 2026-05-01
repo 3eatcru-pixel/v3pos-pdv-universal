@@ -6,6 +6,7 @@ $ProjectRoot = Resolve-Path ".."
 
 # Lista de arquivos identificados como "Dead Ends" (Caminhos sem saída)
 $orphans = @(
+    "src/App.tsx", # Removido, pois AppShell é o novo entrypoint
     "src/ModularApp.tsx",
     "src/moduleManager.ts",
     "src/core/components/GlobalSettings.tsx",

@@ -148,15 +148,3 @@ class SchedulingService {
 }
 
 export const schedulingService = new SchedulingService();
-        logger.info('service', 'Pedido de venda gerado a partir de agendamento concluído', { orderId });
-      } catch (err) {
-        logger.error('service', 'Erro ao gerar pedido financeiro para agendamento', { error: err });
-      }
-    }
-    
-    logger.info('service', `Status do agendamento atualizado para ${status}`, { appointmentId: id });
-    integrationLayer.publishSyncEvent('service:appointment_updated', { ...app, status });
-  }
-}
-
-export const schedulingService = new SchedulingService();

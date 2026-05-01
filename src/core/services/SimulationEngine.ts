@@ -200,7 +200,7 @@ export class SimulationEngine {
         enterpriseId,
         shopId,
         name: baseItem.name,
-        price: baseItem.price,
+        price: Number(baseItem.price.toFixed(2)), // Garante precisão financeira
         stock: 50,
         category: 'Simulação',
         active: true

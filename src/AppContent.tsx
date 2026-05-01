@@ -1,16 +1,16 @@
-import React, { useState, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useMemo, Suspense, lazy, useEffect, cloneElement } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Table as TableIcon, ClipboardList, ShoppingCart, 
   Package, History, Users, Wallet, Settings, LogOut, Bell, Zap, 
-  Printer as PrinterIcon, Calendar, Briefcase, ShieldCheck, PieChart,
-  PanelLeft, PanelLeftClose, X, ChevronDown, Plus, Layout
+  Printer as PrinterIcon, Calendar, Briefcase, ShieldCheck, PieChart, AlertTriangle, Minus, Plus, Link2, Trash2, Clock, Building2, Layout, Settings2, UtensilsCrossed, BarChart3, Truck, HardHat, Hammer, Tag, Utensils,
+  PanelLeft, PanelLeftClose, X, ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { format, startOfDay, addDays, endOfDay, isSameDay, eachDayOfInterval, startOfWeek } from 'date-fns';
+import { ptBR } from 'date-fns/locale'; // Import ptBR locale
 
-import { Table, Order, InventoryItem, Staff, Shift, Shop, AppNotification, OrderItem } from './types';
+import { Table, Order, InventoryItem, Staff, Shift, Shop, AppNotification, OrderItem, View, UserRole, ItemModifier, OrderStatus, ItemStatus, Product, RecountRequest, CompanySettings, DeviceLink, BusinessConfig, Enterprise, Printer, PrinterType, ModifierType } from './types';
 import { useCollection } from './hooks/useCollection';
 import { accountService } from './core/services/accountService';
 import { firebaseService } from './services/firebaseService';
@@ -20,7 +20,11 @@ import { idGenerator } from './core/utils/idGenerator';
 import { logger } from './core/services/logger';
 import { meshNetwork } from './services/p2pSync';
 import { cn, formatCurrency } from './lib/utils';
-import { MOCK_PERMISSIONS, MOCK_STAFF } from './mockData';
+import { MOCK_PERMISSIONS, MOCK_PRODUCTS, MOCK_TABLES, MOCK_INVENTORY, MOCK_ORDERS, MOCK_STAFF } from './mockData'; // Added MOCK_PRODUCTS, MOCK_TABLES, MOCK_INVENTORY, MOCK_ORDERS, MOCK_STAFF
+import { paymentService } from './services/paymentService'; // Import paymentService
+import { calculateOrderTotals } from './core/utils/OrderCalculator'; // Import calculateOrderTotals
+import * as XLSX from 'xlsx'; // Import XLSX for Excel export
+import { printerService } from './services/printerService'; // Import printerService
 
 // Lazy Components
 const RestaurantDashboard = lazy(() => import('./modules/restaurant/views/RestaurantDashboard').then(m => ({ default: m.RestaurantDashboard })));
@@ -28,6 +32,15 @@ const RestaurantLayout = lazy(() => import('./modules/restaurant/views/Restauran
 const StaffDashboard = lazy(() => import('./core/views/StaffDashboard').then(m => ({ default: m.StaffDashboard })));
 const FinanceManagementView = lazy(() => import('./core/views/FinanceManagementView').then(m => ({ default: m.FinanceManagementView })));
 const GlobalSettingsView = lazy(() => import('./core/views/GlobalSettingsView').then(m => ({ default: m.GlobalSettingsView })));
+const DeviceLinkingView = lazy(() => import('./core/views/DeviceLinkingView').then(m => ({ default: m.DeviceLinkingView }))); // Lazy import DeviceLinkingView
+const ScheduleView = lazy(() => import('./core/components/ScheduleView').then(m => ({ default: m.ScheduleView }))); // Lazy import ScheduleView
+const CompanyManagement = lazy(() => import('./core/views/CompanyManagement').then(m => ({ default: m.CompanyManagement }))); // Lazy import CompanyManagement
+const CustomizationView = lazy(() => import('./core/views/GlobalSettingsView').then(m => ({ default: m.CustomizationView }))); // Lazy import CustomizationView
+const SupplierManagementView = lazy(() => import('./core/views/SupplierManagementView').then(m => ({ default: m.SupplierManagementView }))); // Lazy import SupplierManagementView
+const ServiceLayout = lazy(() => import('./modules/service/views/ServiceLayout').then(m => ({ default: m.ServiceLayout }))); // Lazy import ServiceLayout
+const GeneralStaffView = lazy(() => import('./core/views/GeneralStaffView').then(m => ({ default: m.GeneralStaffView }))); // Lazy import GeneralStaffView
+const PrinterManagementView = lazy(() => import('./core/views/PrinterManagementView').then(m => ({ default: m.PrinterManagementView }))); // Lazy import PrinterManagementView
+const PurchasingForecastView = lazy(() => import('./modules/retail/views/PurchasingForecastView').then(m => ({ default: m.PurchasingForecastView }))); // Lazy import PurchasingForecastView
 
 // Core Components
 import { NavItem } from './core/components/CommonUI';
@@ -42,7 +55,7 @@ export function AppContent() {
   const currentPath = location.pathname.substring(1) || 'dashboard';
 
   // --- Estados e Dados ---
-  const enterpriseId = accountService.getCurrentCompanyId() || 'unauthorized';
+  const enterpriseId = useMemo(() => accountService.getCurrentCompanyId() || 'unauthorized', []);
   
   // Nexus Standard: selectedShopId deve ser derivado diretamente do serviço de conta
   const [selectedShopId, setSelectedShopIdState] = useState<string | null>(() => accountService.getSelectedShopId());
@@ -64,13 +77,21 @@ export function AppContent() {
   }, []);
 
   // Coleções Atômicas
-  const { data: shops } = useCollection<Shop>('shops', { enterpriseId });
-  const { data: tables } = useCollection<Table>('tables', { enterpriseId, shopId: selectedShopId });
-  const { data: orders } = useCollection<Order>('orders', { enterpriseId, shopId: selectedShopId });
-  const { data: notifications } = useCollection<AppNotification>('notifications', { enterpriseId, shopId: selectedShopId });
-  const { data: inventory } = useCollection<InventoryItem>('inventory', { enterpriseId, shopId: selectedShopId });
-  const { data: staff } = useCollection<Staff>('staff', { enterpriseId });
-  const { data: shifts } = useCollection<Shift>('shifts', { enterpriseId, shopId: selectedShopId });
+  const { data: shops, setData: setShops } = useCollection<Shop>('shops', { enterpriseId });
+  const { data: tables, setData: setTables } = useCollection<Table>('tables', { enterpriseId, shopId: selectedShopId });
+  const { data: orders, setData: setOrders } = useCollection<Order>('orders', { enterpriseId, shopId: selectedShopId });
+  const { data: notifications, setData: setNotifications } = useCollection<AppNotification>('notifications', { enterpriseId, shopId: selectedShopId });
+  const { data: inventory, setData: setInventory } = useCollection<InventoryItem>('inventory', { enterpriseId, shopId: selectedShopId });
+  const { data: staff, setData: setStaff } = useCollection<Staff>('staff', { enterpriseId });
+  const { data: shifts, setData: setShifts } = useCollection<Shift>('shifts', { enterpriseId, shopId: selectedShopId });
+  const { data: products, setData: setProducts } = useCollection<Product>('products', { enterpriseId, shopId: selectedShopId }); // Added products
+  const { data: printers, setData: setPrinters } = useCollection<any>('printers', { enterpriseId, shopId: selectedShopId }); // Added printers
+  const { data: businessConfigs } = useCollection<BusinessConfig>('businessConfigs', { enterpriseId }); // Added businessConfigs
+  const { data: rolePermissions } = useCollection<any>('rolePermissions', { enterpriseId }); // Added rolePermissions
+  const { data: reservations, setData: setReservations } = useCollection<any>('reservations', { enterpriseId, shopId: selectedShopId }); // Added reservations
+  const { data: recountRequests, setData: setRecountRequests } = useCollection<RecountRequest>('recountRequests', { enterpriseId, shopId: selectedShopId }); // Added recountRequests
+  const { data: enterprises } = useCollection<Enterprise>('enterprises', { enterpriseId: null, shopId: null }); // Added enterprises for StaffDashboard
+
 
   // Modais
   const [isEditTableModalOpen, setIsEditTableModalOpen] = useState(false);
@@ -78,20 +99,33 @@ export function AppContent() {
   const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
   const [editingOrderItem, setEditingOrderItem] = useState<OrderItem | null>(null);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
-  const [editingShift, setEditingShift] = useState<any>(null);
+  const [editingShift, setEditingShift] = useState<Shift | null>(null);
 
   // Permissões
   const currentPermissions = useMemo(() => 
-    // Nexus Standard: Em caso de papel desconhecido, o fallback é o nível mais baixo (waiter)
     MOCK_PERMISSIONS.find(p => p.role === currentUser?.role) || MOCK_PERMISSIONS.find(p => p.role === 'waiter')!
   , [currentUser]);
 
   const accessibleShopIds = useMemo(() => {
-    if (currentUser?.role === 'owner' || currentUser?.role === 'admin') return shops.map((s: any) => s.id);
-    return currentUser?.assignedShopIds || [];
+    // Nexus Standard: Garante que usuários sem loja atribuída (ex: novos funcionários) não vejam dados
+    // e que a lista de lojas seja filtrada por aquelas que realmente existem.
+    // Isso previne que IDs de lojas deletadas continuem aparecendo.
+    // Auditoria: Acessa shops diretamente para evitar dependência circular com filteredShops
+    const baseShops = shops.map((s: any) => s.id);
+    if (currentUser?.role === 'owner' || currentUser?.role === 'admin') return baseShops;
+    
+    const assigned = currentUser?.assignedShopIds || [];
+    // Nexus Standard: Intersecção para garantir que o usuário não tenha acesso a IDs de lojas deletadas
+    return assigned.filter((id: string) => baseShops.includes(id));
   }, [currentUser, shops]);
 
   // --- Handlers ---
+  /**
+   * Função auxiliar para confirmar ações em múltiplas etapas
+   * Evita necessidade de múltiplos confirm() em cascata
+   */
+  const confirmMultiStep = async (steps: Array<{ title: string; message: string; icon?: string; }>): Promise<boolean> => {
+    for (let i = 0; i < steps.length; i++) { const step = steps[i]; const isFinal = i === steps.length - 1; const stepNumber = steps.length > 1 ? `(${i + 1}/${steps.length}) ` : ''; const finalFlag = isFinal ? '[FINAL] ' : ''; const message = `${finalFlag}${stepNumber}${step.title}\n\n${step.message}${isFinal ? '\n\n⚠️ Esta ação NÃO pode ser desfeita!' : ''}`; if (!confirm(message)) { return false; } } return true; };
   const handleLogout = () => {
     meshNetwork.disconnect();
     accountService.logout();
@@ -103,6 +137,11 @@ export function AppContent() {
 
   const handleUpdateTable = async (tableId: string, updates: Partial<any>) => {
     await firebaseService.updateItem('tables', tableId, updates);
+    // Auditoria: Atualiza o estado local das mesas para refletir a mudança imediatamente
+    setTables(prev => prev.map(t => t.id === tableId ? { ...t, ...updates } : t));
+    // Notifica outros terminais via mesh
+    meshNetwork.broadcast('table:updated', { id: tableId, ...updates });
+    logger.info('system', 'Mesa atualizada', { tableId, updates });
   };
 
   const handleRemoveTable = async (id: string) => {
@@ -111,12 +150,16 @@ export function AppContent() {
       return;
     }
     await firebaseService.deleteItem('tables', id);
+    setTables(prev => prev.filter(t => t.id !== id));
+    meshNetwork.broadcast('table:removed', { id });
+    logger.info('system', 'Mesa removida', { id });
   };
 
   const handleUpdateItemModifiers = (itemId: string, modifiers: any[]) => {
     // Lógica para atualizar modificadores no estado global de pedidos/carrinho
     console.log(`[CORE] Modificadores atualizados para o item ${itemId}`);
   };
+
 
   const handleSaveShift = async (shift: any) => {
     await ShiftEngine.saveShift({
@@ -132,11 +175,13 @@ export function AppContent() {
     if (confirm("Remover este turno?")) {
       await ShiftEngine.deleteShift(shiftId);
       setIsShiftModalOpen(false);
+      setShifts(prev => prev.filter(s => s.id !== shiftId));
+      logger.info('system', 'Turno removido', { shiftId });
     }
   };
 
   // --- Renderização ---
-  const dashboardStats = useMemo(() => ({
+  const dashboardStats = useMemo(() => ({ // Auditoria: dashboardStats precisa de mais dados para ser útil
     totalSalesToday: orders.filter((o: any) => o.status === 'delivered').reduce((acc: number, o: any) => acc + o.total, 0),
     activeTablesCount: tables.filter((t: any) => t.status === 'occupied').length,
     trend: 12
@@ -224,10 +269,10 @@ export function AppContent() {
                 <Route path="/orders" element={<RestaurantLayout defaultView="orders" />} />
                 <Route path="/inventory" element={<RestaurantLayout defaultView="inventory" />} />
                 <Route path="/finance" element={<FinanceManagementView module="restaurant" shopId={selectedShopId} />} />
-                <Route path="/staff" element={<StaffDashboard staff={currentUser} enterprise={null} shops={shops} schedules={[]} />} />
+                <Route path="/staff" element={<StaffDashboard staff={currentUser} enterprise={accountService.getCurrentTenant()} shops={shops.filter((s: any) => accessibleShopIds.includes(s.id))} schedules={[]} />} />
                 <Route path="/settings" element={<GlobalSettingsView enterpriseId={enterpriseId} />} />
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              </Routes>
+              </Routes> {/* Auditoria: Modais devem ser renderizados condicionalmente dentro das rotas ou por um sistema de portal */}
             </Suspense>
           </ErrorBoundary>
         </section>

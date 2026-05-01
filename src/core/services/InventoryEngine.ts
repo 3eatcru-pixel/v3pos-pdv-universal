@@ -252,6 +252,12 @@ export class InventoryEngine {
       
       if (snap.exists()) {
         const data = snap.data();
+        
+        // Nexus Standard Security: Validação de Tenancy em tempo de transação
+        if (data.enterpriseId !== enterpriseId) {
+          throw new Error(`Acesso Negado: O item ${itemId} não pertence à empresa ${enterpriseId}`);
+        }
+
         const stockField = collection === 'inventory' ? 'currentStock' : 'stock';
         const reservedField = collection === 'inventory' ? 'reservedStock' : 'reserved';
         
@@ -307,6 +313,15 @@ export class InventoryEngine {
       
       if (snap.exists()) {
         const data = snap.data();
+        
+        // Nexus Standard Security: Garante que ajustes manuais respeitem o isolamento de dados
+        const user = accountService.getCurrentUser();
+        const currentEnterprise = accountService.getCurrentCompanyId();
+        
+        if (data.enterpriseId !== currentEnterprise) {
+          throw new Error('Operação bloqueada: Tentativa de ajuste em recurso de terceiros.');
+        }
+
         const field = collection === 'inventory' ? 'currentStock' : 'stock';
         const currentTotal = Number(data[field]) || 0;
         let batches: StockBatch[] = data.batches || [];
@@ -451,11 +466,6 @@ export class InventoryEngine {
              updatedAt: Date.now() 
            });
            coreEventBus.emit('inventory:reconciled', { id: item.id, stock: item.expectedStock });
-        }
-      }
-    });
-  }
-}
         }
       }
     });

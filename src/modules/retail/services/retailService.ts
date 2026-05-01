@@ -281,8 +281,6 @@ class RetailService {
       tx.set(firebaseService.getDocRef('orders', returnSale.id), returnSale);
     });
 
-    await saleRepository.create(returnSale);
-
     await this.tryRegisterRetailFinanceTransaction(returnSale, 'return');
 
     if (integrationLayer.isSyncConnected()) {
