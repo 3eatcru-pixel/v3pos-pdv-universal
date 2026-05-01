@@ -1,17 +1,29 @@
-import { InventoryItem, Product } from '../../types';
+import { InventoryItem, Product, ItemModifier } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { coreEventBus } from '../events/CoreEventBus';
 import { bomEngine } from './BOMEngine'; // Importar BOMEngine para explodir composição
 import { logger } from './logger';
 import { generateSafeId } from '../lib/utils';
 import { accountService } from './accountService';
+import type { Transaction } from 'firebase/firestore';
 
 export interface StockBatch {
-  id: string;
-  batchNumber: string;
-  expiryDate: number;
+  readonly id: string;
+  readonly batchNumber: string;
+  readonly expiryDate: number;
   quantity: number;
-  receivedAt: number;
+  readonly receivedAt: number;
+}
+
+export interface InventoryAdjustmentItem {
+  readonly id?: string;
+  readonly productId?: string; // Suporte para origem direta do PDV
+  readonly quantity: number;
+  readonly name?: string;
+  readonly composition?: readonly any[];
+  readonly modifiers?: readonly ItemModifier[];
+  readonly transactionId?: string;
+  readonly eventId?: string;
 }
 
 /**
@@ -24,26 +36,27 @@ export class InventoryEngine {
    * Supports complex compositions (combos/kits) and yield factors.
    */
   static async adjustStockRecursive(
-    items: { id: string; quantity: number; name?: string; composition?: any; modifiers?: any[] }[],
+    items: InventoryAdjustmentItem[],
     multiplier: number, // 1 for deduction, -1 for return
     enterpriseId: string,
     shopId: string,
     inventory: InventoryItem[],
-    products: Product[] = [], // Adicionado para permitir explosão de BOM
-    existingTx?: any, // Permite execução em bloco atômico externo
+    products: Product[] = [],
+    existingTx?: Transaction, 
     blockOnZero: boolean = false // Nova trava customizável
   ) {
     // Auditoria de Modificadores: Remove itens do cálculo se houver modificador de exclusão (ex: "Sem Cebola")
     const filteredItems = items.map(item => {
-      const exclusionModifiers = item.modifiers?.filter((m: any) => m.type === 'removal' || m.name.toLowerCase().startsWith('sem ')) || [];
+      const exclusionModifiers = item.modifiers?.filter(m => m.type === 'remove' || m.name.toLowerCase().startsWith('sem ')) || [];
       const filteredComposition = item.composition?.filter((comp: any) => 
-        !exclusionModifiers.some((mod: any) => mod.name.toLowerCase().includes(comp.name.toLowerCase()))
+        !exclusionModifiers.some(mod => mod.name.toLowerCase().includes(comp.name.toLowerCase()))
       );
       return { ...item, composition: filteredComposition };
     });
 
     // Usar BOMEngine para explodir a composição e resolver substitutos
     const explodedItems = bomEngine.explodeCartToInsumos(
+      // Nexus Standard: Normaliza 'productId' vindo da UI para o 'id' interno esperado pelo motor
       filteredItems.map(i => ({ id: i.id || (i as any).productId, quantity: i.quantity, name: i.name, composition: i.composition, modifiers: i.modifiers })) as any,
       products, // Agora passa a lista correta para identificar ingredientes
       inventory
@@ -75,7 +88,7 @@ export class InventoryEngine {
 
     if (finalAdjustments.length > 0) {
       try {
-        const updateLogic = async (tx: any) => {
+        const updateLogic = async (tx: Transaction) => {
           // Auditoria: Gathering Phase (READS FIRST)
           // Firestore proíbe leituras após qualquer escrita na transação.
           const refs = finalAdjustments.map(adj => {
@@ -92,6 +105,11 @@ export class InventoryEngine {
             if (snap && snap.exists()) {
               const data = snap.data();
               
+              // Nexus Standard: Normalização de Identidade para Idempotência
+              const sourceItem = items.find(i => (i.id === adj.id || i.productId === adj.id));
+              const eventId = sourceItem?.eventId || items.find(i => i.eventId)?.eventId || null;
+              const txId = sourceItem?.transactionId || items.find(i => i.transactionId)?.transactionId || null;
+
               // Fase 4: Garantia de isolamento Multi-tenancy
               // Bloqueia a operação se o item não pertencer à loja ou empresa informada
               if (data.enterpriseId !== enterpriseId || (data.shopId && data.shopId !== shopId)) {
@@ -100,7 +118,7 @@ export class InventoryEngine {
 
               // Fase 5: Verificação de Idempotência (Mesh Failover)
               // Impede que o mesmo evento de malha processe estoque duas vezes
-              if (adj.type === 'inventory' && (adj as any).eventId && data.lastProcessedEventId === (adj as any).eventId) {
+              if (adj.type === 'inventory' && eventId && data.lastProcessedEventId === eventId) {
                 return; // Pula este ajuste, já foi processado
               }
 
@@ -110,15 +128,44 @@ export class InventoryEngine {
               const currentReserved = Number(data[reservedField]) || 0;
               let batches: StockBatch[] = data.batches || [];
               
-              // Lógica de Bloqueio: Se a empresa não permite estoque negativo
-              if (blockOnZero && adj.amount > 0 && currentTotal < adj.amount) {
+              const isDuplicate = (txId && data.lastProcessedTxId === txId) || 
+                                 (eventId && data.lastProcessedEventId === eventId);
+
+              if (isDuplicate) {
+                logger.info('inventory', 'Operação ignorada: Idempotência ativa', { 
+                  txId, 
+                  eventId, 
+                  itemId: adj.id 
+                });
+                return;
+              }
+              
+              const updatedTxId = txId || data.lastProcessedTxId || null;
+              const updatedEventId = eventId || data.lastProcessedEventId || null;
+
+              // Nexus Standard 7.0: Política de Trava de Estoque Zero
+              // Impede a conclusão da venda (multiplier 1) se o saldo físico for insuficiente
+              if (blockOnZero && multiplier === 1 && (currentTotal - adj.amount) < 0) {
                 throw new Error(`Estoque insuficiente para o item: ${data.name}`);
               }
 
               if (adj.amount > 0) {
                 // DEDUÇÃO: Lógica FEFO (First Expired First Out)
                 if (currentTotal < adj.amount && !blockOnZero) {
-                  logger.warn('core', 'Estoque insuficiente para ajuste atômico', { id: adj.id, currentTotal, requested: adj.amount });
+                  // Nexus Standard: Registra discrepância crítica no Audit Log para reconciliação posterior
+                  const auditId = generateSafeId('audit-neg');
+                  tx.set(firebaseService.getDocRef('audit_logs', auditId), {
+                    enterpriseId,
+                    shopId,
+                    type: 'NEGATIVE_STOCK_EVENT',
+                    severity: 'high',
+                    itemId: adj.id,
+                    itemName: data.name,
+                    details: `Venda permitida com estoque insuficiente. Saldo: ${currentTotal}, Necessário: ${adj.amount}. Estoque ficará negativo.`,
+                    timestamp: Date.now(),
+                    staffId: 'system-engine'
+                  });
+                  logger.warn('core', 'Estoque insuficiente: permitindo saldo negativo (Política de Unidade)', { id: adj.id });
                 }
 
                 let remainingToDeduct = adj.amount;
@@ -152,7 +199,7 @@ export class InventoryEngine {
                 // Fase 5: Idempotência em reservas para evitar duplicidade via scanner/mesh
                 tx.update(ref, { 
                   [reservedField]: currentReserved + adj.amount,
-                  lastProcessedEventId: (adj as any).eventId || null,
+                  lastProcessedEventId: eventId || null,
                   updatedAt: Date.now() 
                 });
                 return; // Processa o próximo item da transação
@@ -164,6 +211,8 @@ export class InventoryEngine {
               tx.update(ref, { 
                 [stockField]: nextTotal,
                 batches,
+                lastProcessedTxId: updatedTxId,
+                lastProcessedEventId: updatedEventId,
                 updatedAt: Date.now() 
               });
             }
@@ -319,6 +368,14 @@ export class InventoryEngine {
       } else {
         await firebaseService.runTransaction(updateLogic);
       }
+
+      // Notifica o sistema para atualizar dashboards e listas em tempo real
+      coreEventBus.emit('inventory:updated', { 
+        id: itemId, 
+        type: collection,
+        amount: delta
+      });
+
       logger.info('core', 'MANUAL_INVENTORY_ADJUSTMENT_SUCCESS', { itemId, delta });
     } catch (error) {
       logger.error('core', 'MANUAL_INVENTORY_ADJUSTMENT_FAILED', { itemId, error });
@@ -371,5 +428,36 @@ export class InventoryEngine {
       logger.error('inventory', 'Falha na reconciliação em massa', { error });
       throw error;
     }
+  }
+
+  /**
+   * Resolve divergências entre o banco de dados local (P2P) e o estado atômico.
+   * Chamado automaticamente após o sucesso de uma sincronização de malha.
+   */
+  static async reconcileAfterSync(enterpriseId: string, shopId: string, items: { id: string, expectedStock: number }[]) {
+    logger.info('inventory', 'Iniciando reconciliação automática pós-sync...');
+    
+    await firebaseService.runTransaction(async (tx) => {
+      for (const item of items) {
+        const ref = firebaseService.getDocRef('inventory', item.id);
+        const snap = await tx.get(ref);
+        if (!snap.exists()) continue;
+        
+        const current = Number(snap.data().currentStock) || 0;
+        if (current !== item.expectedStock) {
+           tx.update(ref, { 
+             currentStock: item.expectedStock, 
+             lastReconciledAt: Date.now(),
+             updatedAt: Date.now() 
+           });
+           coreEventBus.emit('inventory:reconciled', { id: item.id, stock: item.expectedStock });
+        }
+      }
+    });
+  }
+}
+        }
+      }
+    });
   }
 }

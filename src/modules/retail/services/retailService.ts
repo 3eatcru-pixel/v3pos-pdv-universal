@@ -2,10 +2,41 @@ import { integrationLayer } from '../../../integration/integrationLayer';
 import { SyncEvent } from '../../../core/types';
 import { logger } from '../../../core/services/logger';
 import { saleRepository } from '../../../core/storage/repositories/saleRepository';
-import { productRepository } from '../../../core/storage/repositories/productRepository';
 import { Sale, SaleItem } from '../../../core/storage/types';
 import { accountService } from '../../../core/services/accountService';
 import { FinanceEngine } from '../../../core/services/FinanceEngine';
+import { InventoryEngine } from '../../../core/services/InventoryEngine';
+import { firebaseService } from '../../../services/firebaseService';
+
+export interface RetailSaleInput {
+  id?: string;
+  items: SaleItem[];
+  paymentMethod: string;
+  total: number;
+  enterpriseId?: string;
+}
+
+export interface RetailSyncItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+export interface RetailSyncPayload {
+  id: string;
+  items: RetailSyncItem[];
+  paymentMethod: string;
+  total: number;
+  subtotal: number;
+  tax: number;
+  createdAt: string;
+  kind: 'sale' | 'return';
+  enterpriseId?: string;
+  originalSaleId?: string;
+  reason?: string;
+}
 
 export interface RetailVariation {
   sku: string;
@@ -109,7 +140,7 @@ class RetailService {
     });
   }
 
-  async processSale(saleData: any) {
+  async processSale(saleData: RetailSaleInput) {
     const sale = this.toSaleEntity(saleData, false);
     const existingSale = await saleRepository.findById(sale.id);
     if (existingSale) {
@@ -123,11 +154,33 @@ class RetailService {
       return { success: true, duplicate: true, saleId: sale.id };
     }
 
-    await saleRepository.create(sale);
-    logger.log('retail', 'SALE_SAVED_LOCAL', { saleId: sale.id, total: sale.total });
+    // Nexus Standard: Executa a persistência da venda e a baixa de estoque em uma única Transação Atômica
+    await firebaseService.runTransaction(async (tx) => {
+      const [inventory, products] = await Promise.all([
+        firebaseService.getAllDocs('inventory', sale.enterpriseId || 'global'),
+        firebaseService.getAllDocs('products', sale.enterpriseId || 'global')
+      ]) as [any, any];
 
-    await productRepository.applySaleItems(sale.items);
-    this.logProductUpdates(sale.items, 'local_process');
+      await InventoryEngine.adjustStockRecursive(
+        sale.items.map(i => ({ 
+          id: i.productId, 
+          quantity: i.quantity, 
+          transactionId: sale.id 
+        })),
+        1,
+        sale.enterpriseId || 'global',
+        accountService.getSelectedShopId() || 'main-shop',
+        inventory,
+        products,
+        tx,
+        true // blockOnZero: true para varejo
+      );
+
+      tx.set(firebaseService.getDocRef('orders', sale.id), sale);
+    });
+
+    logger.log('retail', 'SALE_SAVED_ATOMIC', { saleId: sale.id, total: sale.total });
+
     await this.tryRegisterRetailFinanceTransaction(sale, 'sale');
 
     if (integrationLayer.isSyncConnected()) {
@@ -204,8 +257,32 @@ class RetailService {
       reason: input.reason || 'devolucao',
     };
 
+    // Nexus Standard: Executa o estorno de estoque e registro da devolução de forma atômica
+    await firebaseService.runTransaction(async (tx) => {
+      const [inventory, products] = await Promise.all([
+        firebaseService.getAllDocs('inventory', originalSale.enterpriseId || 'global'),
+        firebaseService.getAllDocs('products', originalSale.enterpriseId || 'global')
+      ]) as [any, any];
+
+      await InventoryEngine.adjustStockRecursive(
+        returnSale.items.map(i => ({ 
+          id: i.productId, 
+          quantity: i.quantity, 
+          transactionId: returnSale.id 
+        })),
+        -1, // Retorno físico ao estoque
+        originalSale.enterpriseId || 'global',
+        accountService.getSelectedShopId() || 'main-shop',
+        inventory,
+        products,
+        tx
+      );
+
+      tx.set(firebaseService.getDocRef('orders', returnSale.id), returnSale);
+    });
+
     await saleRepository.create(returnSale);
-    await productRepository.revertSaleItems(returnSale.items);
+
     await this.tryRegisterRetailFinanceTransaction(returnSale, 'return');
 
     if (integrationLayer.isSyncConnected()) {
@@ -322,7 +399,7 @@ class RetailService {
     integrationLayer.publishSyncEvent('WARRANTY_GEN', warranty);
   }
 
-  private async handleRetailSale(payload: any) {
+  private async handleRetailSale(payload: RetailSyncPayload) {
     const sale = this.toSaleEntity(payload, true);
     const existingSale = await saleRepository.findById(sale.id);
 
@@ -337,14 +414,29 @@ class RetailService {
       return;
     }
 
+    // Nexus Standard: Sincronização Atômica via Motor Central
+    await firebaseService.runTransaction(async (tx) => {
+      const [inventory, products] = await Promise.all([
+        firebaseService.getAllDocs('inventory', sale.enterpriseId || 'global'),
+        firebaseService.getAllDocs('products', sale.enterpriseId || 'global')
+      ]) as [any, any];
+
+      await InventoryEngine.adjustStockRecursive(
+        sale.items.map(i => ({ id: i.productId, quantity: i.quantity, transactionId: sale.id })),
+        sale.kind === 'return' ? -1 : 1,
+        sale.enterpriseId || 'global',
+        accountService.getSelectedShopId() || 'main-shop',
+        inventory,
+        products,
+        tx
+      );
+
+      tx.set(firebaseService.getDocRef('orders', sale.id), sale);
+    });
+
     await saleRepository.create(sale);
     logger.log('retail', 'SALE_SYNC_RECEIVED', { saleId: sale.id, total: sale.total });
 
-    if (sale.kind === 'return') {
-      await productRepository.revertSaleItems(sale.items);
-    } else {
-      await productRepository.applySaleItems(sale.items);
-    }
     this.logProductUpdates(sale.items, 'sync_receive');
 
     this.emitSaleUpdateEvent('remote', sale.id);
@@ -357,14 +449,14 @@ class RetailService {
     await this.emitSyncStatusEvent();
   }
 
-  private toSaleEntity(rawSale: any, synced: boolean): Sale {
+  private toSaleEntity(rawSale: Partial<RetailSyncPayload>, synced: boolean): Sale {
     const rawItems = Array.isArray(rawSale?.items) ? rawSale.items : [];
-    const items: SaleItem[] = rawItems.map((item: any) => ({
+    const items: SaleItem[] = rawItems.map((item) => ({
       productId: String(item?.productId || item?.id || ''),
       name: String(item?.name || 'Unknown Product'),
       quantity: Number(item?.quantity || 0),
-      unitPrice: Number(item?.unitPrice ?? item?.price ?? 0),
-      totalPrice: Number(item?.totalPrice ?? (Number(item?.quantity || 0) * Number(item?.unitPrice ?? item?.price ?? 0))),
+      unitPrice: Number(item?.unitPrice || item?.price || 0),
+      totalPrice: Number(item?.totalPrice || (Number(item?.quantity || 0) * Number(item?.unitPrice || item?.price || 0))),
     }));
 
     const saleId = String(rawSale?.id || `sale_${Date.now()}_${Math.random().toString(36).slice(2)}`);

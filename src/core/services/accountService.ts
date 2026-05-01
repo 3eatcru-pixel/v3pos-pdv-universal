@@ -12,11 +12,14 @@ import { StockTransferEngine, TransferItem } from './StockTransferEngine';
 import { CommunicationEngine } from './CommunicationEngine';
 import { HREngine, ROLE_HIERARCHY } from './HREngine';
 import { EndOfDayEngine } from './EndOfDayEngine';
-import { SimulationEngine } from './SimulationEngine';
 import { BackupEngine } from './BackupEngine';
 import { CloudConfig, cloudLatencyMonitor } from './CloudLatencyMonitor';
 import { TourEngine } from './TourEngine';
 import { idGenerator } from '../utils/idGenerator';
+import { CloudInfrastructureEngine } from './CloudInfrastructureEngine';
+import { SupportEngine } from './SupportEngine';
+import { TenantProvisioningEngine } from './TenantProvisioningEngine';
+import { ScenarioEngine } from './ScenarioEngine';
 
 class AccountService {
   private mapRoleForLegacy(role: string): User['role'] {
@@ -77,108 +80,9 @@ class AccountService {
     enabledModules: string[] = [], // Default to empty array, will add core modules
     templateSource?: { enterpriseId: string; shopId: string } // Permite puxar mix de outra loja
   ): Promise<Company & { credentials: { password: string; pin: string } }> {
-    const currentUser = this.getCurrentUser();
-    
-    const isSolo = businessType === 'solo_service' || businessType === 'solo_retail' || businessType === 'convenience';
-
-    // Auditoria: Garante que o usuário escolheu pelo menos um módulo de negócio (não-core)
-    const businessModules = enabledModules.filter(m => !['hr_core', 'store_mgmt_core', 'settings_custom_core'].includes(m) && m !== businessType);
-    if (businessModules.length === 0 && !isSolo) {
-      throw new Error('Fluxo de Instalação interrompido: Você deve selecionar pelo menos um módulo operacional para sua empresa.');
-    }
-
-    // Auditoria: Somente Dev, Suporte (manager) ou Donos podem registrar novas empresas
-    const hasPower = currentUser && ['dev', 'owner', 'manager'].includes(currentUser.role);
-    if (currentUser && !hasPower) {
-      throw new Error('Acesso negado: Você não tem permissão para provisionar novas empresas.');
-    }
-
-    // Fase 11: Geração criptograficamente segura de credenciais
-    const generateSecureString = (len: number) => {
-      const array = new Uint8Array(len);
-      crypto.getRandomValues(array);
-      return Array.from(array, (b) => b.toString(36).charAt(0)).join('');
-    };
-
-    const ownerPassword = generateSecureString(8);
-    const ownerPin = (1000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 9000)).toString();
-
-    // Se for um dono criando outra empresa, mantemos o vínculo de ownerId
-    const targetOwnerId = currentUser?.role === 'owner' ? currentUser.id : undefined;
-
-    const created = await authService.createOwner(
-      {
-        name,
-        businessType,
-        ownerEmail,
-        ownerName: ownerName || 'Proprietário',
-        ownerPhone,
-        // Auditoria: Garante a injeção dos pilares de gestão
-        enabledModules: Array.from(new Set(([
-          ...enabledModules, 
-          businessType, 
-          'hr_core', 
-          'store_mgmt_core', 
-          'settings_custom_core',
-          'customer_core',
-          isSolo ? 'solo_assistant_core' : ''
-        ]).filter(Boolean))),
-        // Disponibiliza módulos desbloqueados
-        availableModules: ['restaurant', 'market', 'construction', 'retail', 'service', 'pharmacy', 'autoparts', 'solo_service', 'solo_retail', 'convenience', 'google_business_pro'], 
-      },
-      {
-        password: ownerPassword,
-        pin: ownerPin,
-      }
-    );
-
-    const newCompanyId = created.tenant.id;
-
-    // Auditoria Solo: Configura automaticamente o proprietário como o Staff principal
-    if (isSolo) {
-      await HREngine.saveStaff(newCompanyId, {
-        id: created.owner.id,
-        name: ownerName || 'Consultor Solo',
-        role: 'owner',
-        active: true,
-        businessModel: 'freelancer',
-        assignedShopIds: ['main-shop'],
-        email: ownerEmail
-      }, undefined, 'dev');
-      logger.info('auth', 'Perfil Solo configurado com auto-gestão ativada.');
-    }
-
-    // Lógica de "Pull": Se houver template, clonamos produtos e categorias com estoque ZERADO
-    if (templateSource) {
-      logger.info('auth', 'Puxando catálogo de template para nova empresa', { templateSource, newCompanyId });
-      await ShopCloneEngine.cloneShop(newCompanyId, templateSource.enterpriseId, templateSource.shopId, {
-        name: 'Unidade Matriz',
-        location: 'Principal'
-      } as any, {
-        cloneProducts: true,
-        cloneCategories: true,
-        syncMenuChanges: false,
-        resetStock: true // Sempre zerado para nova reconciliação
-      });
-    }
-
-    return {
-      id: created.tenant.id,
-      name: created.tenant.name,
-      ownerId: created.tenant.ownerId,
-      businessType: created.tenant.businessType,
-      ownerEmail: created.tenant.ownerEmail,
-      ownerName: created.tenant.ownerName,
-      ownerPhone: created.tenant.ownerPhone,
-      accessCode: created.tenant.accessCode,
-      status: created.tenant.status,
-      createdAt: created.tenant.createdAt,
-      enabledModules: created.tenant.enabledModules,
-      lockedModules: created.tenant.lockedModules,
-      isPaused: created.tenant.isPaused,
-      owners: [created.owner.id],
-      credentials: { password: ownerPassword, pin: ownerPin }
-    };
+    return TenantProvisioningEngine.register(
+      name, ownerEmail, businessType, ownerName, ownerPhone, enabledModules, templateSource
+    ) as any;
   }
 
   public async createOwner(
@@ -285,59 +189,15 @@ class AccountService {
    * Salva localmente e espelha no Drive para modo Curso.
    */
   public async createTrainingEnvironment(name: string, templateId: string) {
-    const templates = await this.getAvailableDemoTemplates();
-    const template = templates.find(t => t.id === templateId);
-    if (!template) throw new Error('Template não encontrado');
-
-    logger.info('auth', 'Provisionando ambiente de curso/treinamento', { templateId });
-
-    // Provisiona uma empresa com flags de treinamento
-    const company = await this.registerCompany(
-      `[TREINO] ${name}`,
-      `training_${Date.now()}@gridos.com`,
-      template.type as BusinessMode,
-      'Instrutor Virtual',
-      '',
-      ['hr_core', 'store_mgmt_core', 'solo_assistant_core']
-    );
-
-    // Ativa o modo live no Drive para este nó
-    await authService.updateTenant(company.id, { 
-      isDemo: true, 
-      trainingModeEnabled: true,
-      storageStrategy: 'drive_only' 
-    });
-
-    // Popula dados base do template
-    await SimulationEngine.bootstrapFullSimulation(company.id, 'main-shop', template.type as any);
-    
-    return company;
+    const template = (await this.getAvailableDemoTemplates()).find(t => t.id === templateId);
+    return TenantProvisioningEngine.setupTraining(name, template);
   }
 
   /**
    * Realiza login instantâneo em uma empresa demo com um cargo específico para simulação.
-   * Permite que qualquer usuário teste a interface sob diferentes perspectivas.
    */
   public async simulateRoleAccess(companyId: string, role: 'owner' | 'manager' | 'staff') {
-    logger.info('auth', `Simulando acesso como ${role} na empresa ${companyId}`);
-    
-    // Busca o primeiro staff que corresponda ao cargo na empresa demo (via SimulationEngine)
-    const staffDocs = await firebaseService.getDocsByQuery('staff', [
-      { field: 'enterpriseId', op: '==', value: companyId },
-      { field: 'role', op: '==', value: role === 'staff' ? 'waiter' : role } 
-    ]) as Staff[];
-
-    if (staffDocs.length > 0) {
-      // Fase 11: Registra necessidade de tour educativo para o primeiro acesso à simulação
-      TourEngine.markRoleSimulated(role);
-
-      // Se encontrou o cargo mocado, entra com o PIN padrão de simulação (1234)
-      return authService.loginWithPIN('1234', companyId);
-    }
-
-    // Fallback: Se não houver staff mocado, tenta entrar no modo Manager/Owner direto
-    TourEngine.markRoleSimulated(role);
-    return authService.impersonateTenant(companyId);
+    return TenantProvisioningEngine.simulateRole(companyId, role);
   }
 
   /**
@@ -374,49 +234,12 @@ class AccountService {
    */
   public async provisionInitialDev(email: string, password: string): Promise<boolean> {
     try {
-      logger.warn('auth', 'Provisionamento inicial de DEV e Ambiente de Demonstração solicitado via backdoor');
-      
-      // Cria a conta dev e vincula o tenant padrão de infraestrutura
-      const success = await authService.loginAsDev(email, password); 
+      const success = await authService.loginAsDev(email, password);
       if (!success) return false;
 
-      // Definição dos cenários de demonstração (Tutorial/Training)
-      const demoScenarios = [
-        { name: 'Nexus Gourmet (Restaurante)', type: 'restaurant' as const, modules: ['restaurant', 'hr_core', 'store_mgmt_core'] },
-        { name: 'Nexus Concept Store (Varejo)', type: 'retail' as const, modules: ['retail', 'customer_core', 'store_mgmt_core'] },
-        { name: 'Nexus Professional Services', type: 'service' as const, modules: ['service', 'customer_core', 'hr_core'] },
-        { name: 'Ink & Art Studio (Tattoo)', type: 'service' as const, modules: ['service', 'settings_custom_core', 'hr_core'] },
-        { name: 'Glow & Style (BeautyShop)', type: 'service' as const, modules: ['service', 'customer_core', 'hr_core'] },
-        { name: 'Nexus Logística (Distribuidora)', type: 'market' as const, modules: ['market', 'retail', 'store_mgmt_core'] }
-      ];
-
-      // Provisionamento em lote para o Dev Dashboard
-      for (const scenario of demoScenarios) {
-        logger.info('auth', `Provisionando ambiente de teste: ${scenario.name}`);
-        
-        const company = await this.registerCompany(
-          scenario.name,
-          `demo_${scenario.type}_${Math.random().toString(36).slice(2, 5)}@gridos.com`,
-          scenario.type,
-          'Instrutor Nexus',
-          '11900000000',
-          scenario.modules
-        );
-
-        // Popula com Menu, Staff trabalhando e Estoque Mocado
-        await SimulationEngine.bootstrapFullSimulation(company.id, 'main-shop', scenario.type);
-        
-        // Configura metadados de Treinamento
-        await authService.updateTenant(company.id, { 
-          status: 'active',
-          isDemo: true, // Tag para filtro no dashboard dev
-          trainingModeEnabled: true 
-        });
-      }
-
+      await TenantProvisioningEngine.provisionDefaultScenarios('global');
       return true;
     } catch (error) {
-      logger.error('auth', 'Falha no provisionamento inicial', { error });
       return false;
     }
   }
@@ -477,32 +300,10 @@ class AccountService {
     if (success) {
       const authUser = authService.getCurrentUser();
       if (authUser && !authUser.tenantId) {
-        // Requisito 2: Criação automática da empresa no primeiro login
-        logger.info('auth', 'Primeiro acesso Google detectado. Provisionando Nexus Solo...');
-        
-        const newCompany = await this.registerCompany(
-          `${authUser.name} Studio`,
-          authUser.email!,
-          'solo_service', 
-          authUser.name,
-          '',
-          ['hr_core', 'store_mgmt_core', 'solo_assistant_core']
-        );
-
-        // Requisito 3: Usuário suporte automático (ReadOnly para configurações)
-        await HREngine.saveStaff(newCompany.id, {
-          id: idGenerator.generate('support'),
-          name: 'Grid Support (Virtual)',
-          role: 'manager',
-          active: true,
-          email: 'support@gridos.com',
-          isVirtualSupport: true // Flag para restringir acesso a dados operacionais
-        }, undefined, 'dev');
-
-        // Requisito 7: Define que esta empresa opera no modo "Drive-First"
-        await authService.updateTenant(newCompany.id, { 
-          storageStrategy: 'drive_only',
-          googleDriveBackupEnabled: true 
+        await TenantProvisioningEngine.provisionSoloNexus({
+          id: authUser.id,
+          name: authUser.name,
+          email: authUser.email || ''
         });
       }
 
@@ -533,8 +334,7 @@ class AccountService {
       );
       tenant = created.tenant;
 
-      // Puxa simulação inicial para a demo não nascer vazia
-      await SimulationEngine.bootstrapFullSimulation(tenant.id, 'main-shop', 'restaurant');
+      await ScenarioEngine.bootstrapDemo(tenant.id, 'main-shop', 'restaurant');
     }
 
     const demoEmail = tenant.ownerEmail || 'demo@modular.com';
@@ -597,9 +397,9 @@ class AccountService {
   }
 
   public async resetDemoData(companyId: string, mode: BusinessMode) {
-    logger.warn('auth', 'Iniciando reset de dados demo', { companyId });
-    await SimulationEngine.clearSimulationData(companyId);
-    await SimulationEngine.bootstrapFullSimulation(companyId, 'main-shop', mode);
+    return ScenarioEngine.purge(companyId).then(() => 
+      ScenarioEngine.bootstrapDemo(companyId, 'main-shop', mode)
+    );
   }
 
   public async cloneExistingShop(
@@ -904,7 +704,7 @@ class AccountService {
   }
 
   public getCloudConfig(): CloudConfig {
-    return { provider: 'system', tier: 'free' };
+    return CloudInfrastructureEngine.getCloudConfig(null);
   }
 
   public getAutoCloudSwitchingPreference(): boolean {
@@ -920,29 +720,14 @@ class AccountService {
     customConfig?: { projectId: string; apiKey: string };
     autoSwitchEnabled?: boolean; // Nova opção
   }) {
-    await authService.updateTenant(companyId, { 
-      cloudConfig: config,
-      // Se mudar para Turbo ou Custom, resetamos ou ignoramos a contagem de unidades mensais
-      monthlyUnitsLimit: config.provider === 'system' ? 400 : 999999,
-      autoCloudSwitchingEnabled: config.autoSwitchEnabled ?? this.getAutoCloudSwitchingPreference()
-    });
-    
-    logger.info('system', 'Configuração de infraestrutura de nuvem atualizada', { provider: config.provider });
+    return CloudInfrastructureEngine.updateInfrastructure(companyId, config as any);
   }
 
   /**
    * Reverte forçadamente para a nuvem padrão do sistema em caso de emergência.
    */
   public async revertToDefaultCloud(companyId: string) {
-    await authService.updateTenant(companyId, { 
-      cloudConfig: { provider: 'system', tier: 'free' },
-      monthlyUnitsLimit: 400
-    });
-    
-    logger.error('system', 'REVERT_TO_DEFAULT_CLOUD: Infraestrutura restaurada para o padrão do sistema.');
-    // Força o reinício do motor P2P com as novas credenciais
-    meshNetwork.stopCloudSync(); // Para e reinicia para pegar a nova config
-    meshNetwork.startCloudSync(companyId);
+    return CloudInfrastructureEngine.revertToDefault(companyId);
   }
 
   /**
@@ -1005,38 +790,25 @@ class AccountService {
 
   public async sendSupportMessage(message: string) {
     const user = this.getCurrentUser();
-    if (!user) return;
-    const msg = {
-      companyId: user.companyId || '',
-      message,
-      timestamp: Date.now(),
-      status: 'open',
-      userName: user.name,
-      userEmail: user.email
-    };
-    await firebaseService.addItem('support_messages', msg);
+    if (user) return SupportEngine.sendMessage(user, message);
   }
 
   public async replyToSupportMessage(messageId: string, reply: string) {
     const user = this.getCurrentUser();
-    if (user?.role !== 'dev') throw new Error('Acesso negado.');
-
-    await firebaseService.updateItem('support_messages', messageId, {
-      reply,
-      repliedAt: Date.now(),
-      repliedBy: user.name,
-      status: 'resolved'
-    });
+    if (user) return SupportEngine.replyMessage(user, messageId, reply);
   }
 
   public async getAllSupportMessages() {
-    // Como dev, buscamos da coleção centralizada no Firebase em vez do localStorage
-    return firebaseService.getAllDocs('support_messages');
+    const user = this.getCurrentUser();
+    if (user?.role !== 'dev' && user?.role !== 'owner') {
+      throw new Error('Acesso negado: Visualização global de suporte restrita.');
+    }
+    return SupportEngine.fetchMessages();
   }
 
   public async getSupportMessages(): Promise<SupportMessage[]> {
     const enterpriseId = this.getCurrentCompanyId();
-    return firebaseService.getAllDocs('support_messages', enterpriseId || undefined) as Promise<SupportMessage[]>;
+    return SupportEngine.fetchMessages(enterpriseId || undefined);
   }
 
   public async pauseSystem(companyId: string, pin: string): Promise<boolean> {

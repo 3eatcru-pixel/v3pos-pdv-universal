@@ -1,9 +1,9 @@
 import { firebaseService } from '../../services/firebaseService';
 import { logger } from './logger';
 import { generateSafeId } from '../lib/utils';
-import { BusinessMode, Staff, Product, Order, InventoryItem, PerformanceEvent } from '../../types';
+import { BusinessMode, Staff, Product, Order, InventoryItem, SaleItem } from '../../types';
 import { HREngine } from './HREngine';
-import { coreSalesService } from './coreServices';
+import { InventoryEngine } from './InventoryEngine';
 
 /**
  * SimulationEngine - Motor de Geração de Dados Fictícios
@@ -18,14 +18,17 @@ export class SimulationEngine {
    * Essencial para o "Modo Jogo" onde as vendas aparecem no dashboard conforme acontecem.
    */
   static async simulateLiveOrder(enterpriseId: string, shopId: string) {
-    const staff = await firebaseService.getDocsByQuery('staff', [{ field: 'enterpriseId', op: '==', value: enterpriseId }]) as Staff[];
-    const products = await firebaseService.getDocsByQuery('products', [{ field: 'enterpriseId', op: '==', value: enterpriseId }]) as Product[];
+    const [staff, products, inventory] = await Promise.all([
+      firebaseService.getDocsByQuery('staff', [{ field: 'enterpriseId', op: '==', value: enterpriseId }]),
+      firebaseService.getDocsByQuery('products', [{ field: 'enterpriseId', op: '==', value: enterpriseId }]),
+      firebaseService.getDocsByQuery('inventory', [{ field: 'enterpriseId', op: '==', value: enterpriseId }])
+    ]) as [Staff[], Product[], InventoryItem[]];
 
-    if (staff.length === 0 || products.length === 0) return;
+    if (staff.length === 0 || products.length === 0 || inventory.length === 0) return;
 
     const randomStaff = staff[Math.floor(Math.random() * staff.length)];
     const itemsCount = 1 + Math.floor(Math.random() * 2);
-    const orderItems = [];
+    const orderItems: SaleItem[] = [];
     let total = 0;
 
     for (let i = 0; i < itemsCount; i++) {
@@ -35,9 +38,8 @@ export class SimulationEngine {
         productId: p.id,
         name: p.name,
         quantity: qty,
-        price: p.price,
+        unitPrice: p.price,
         totalPrice: p.price * qty,
-        status: 'delivered'
       });
       total += p.price * qty;
     }
@@ -57,8 +59,35 @@ export class SimulationEngine {
       items: orderItems
     };
 
-    // Processa via CoreSalesService para disparar baixas de estoque e eventos reais
-    await (coreSalesService as any).processSale(saleData, orderItems);
+    // Nexus Standard: Persistência Atômica via Motor de Inventário
+    await firebaseService.runTransaction(async (tx) => {
+      await InventoryEngine.adjustStockRecursive(
+        orderItems.map(i => ({ 
+          id: i.productId, 
+          quantity: i.quantity, 
+          transactionId: orderId 
+        })),
+        1,
+        enterpriseId,
+        shopId,
+        inventory,
+        products,
+        tx
+      );
+      tx.set(firebaseService.getDocRef('orders', orderId), saleData);
+      
+      // Nexus Standard: Previne Vendas Órfãs registrando a entrada no Ledger Financeiro
+      const ledgerId = generateSafeId('ledger');
+      tx.set(firebaseService.getDocRef('payment_ledger', ledgerId), {
+        id: ledgerId,
+        saleId: orderId,
+        enterpriseId,
+        amount: total,
+        timestamp: Date.now(),
+        method: 'pix'
+      });
+    });
+
     logger.info('system', '💰 Venda simulada em tempo real', { total, staff: randomStaff.name });
   }
 
@@ -207,8 +236,9 @@ export class SimulationEngine {
             productId: prodId,
             name: `Item Simulado ${j+1}`,
             quantity: qty,
-            price: price,
-            totalPrice: qty * price
+            unitPrice: price,
+            totalPrice: qty * price,
+            status: 'delivered'
           });
           total += qty * price;
         }

@@ -149,7 +149,11 @@ import { integrationLayer } from './integration/integrationLayer';
 import { ThemeProvider } from './core/contexts/ThemeContext';
 import { registerServiceWorker } from './services/swRegistration';
 import { ErrorBoundary } from './core/components/ErrorBoundary';
-import { ErrorBoundary } from './core/components/ErrorBoundary';
+import { ScheduleView } from './core/components/ScheduleView';
+import { ModifierModal } from './core/components/ModifierModal';
+import { TableEditModal } from './core/components/TableEditModal';
+import { DeviceLinkingView } from './core/views/DeviceLinkingView'; // Importar o novo componente
+import { ShiftModal } from './core/components/ShiftModal';
 
 export default function App() { // Componente principal do App
   const [enterpriseId, setEnterpriseId] = useState<string | null>(() => {
@@ -158,11 +162,6 @@ export default function App() { // Componente principal do App
   const [systemMode, setSystemMode] = useState<SystemMode>(() => {
     return (localStorage.getItem('rm_system_mode') as SystemMode) || 'restaurant';
   });
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    return localStorage.getItem('pos_restaurant_sidebar_collapsed') === 'true';
-  });
-  const { data: enterprises, setData: setEnterprises } = useCollection<Enterprise>('enterprises', { enterpriseId: null, shopId: null });
-  const { data: shops, setData: setShops } = useCollection<Shop>('shops');
 
   const [selectedShopId, setSelectedShopId] = useState<string | null>(() => localStorage.getItem('rm_selected_shop_id'));
 
@@ -199,16 +198,6 @@ export default function App() { // Componente principal do App
     return hasUser && !hasEnterprise;
   });
   const [selectedArea, setSelectedArea] = useState<string>('Salão Principal');
-  
-  const { data: tables, setData: setTables } = useCollection<Table>('tables');
-  const { data: products, setData: setProducts } = useCollection<Product>('products');
-  const { data: orders, setData: setOrders } = useCollection<Order>('orders');
-  const { data: inventory, setData: setInventory } = useCollection<InventoryItem>('inventory');
-  const { data: staff, setData: setStaff } = useCollection<Staff>('staff');
-  const { data: shifts, setData: setShifts } = useCollection<Shift>('shifts');
-  const { data: reservations, setData: setReservations } = useCollection<Reservation>('reservations');
-  const { data: notifications, setData: setNotifications } = useCollection<AppNotification>('notifications');
-  const { data: businessConfigs, setData: setBusinessConfigs } = useCollection<BusinessConfig>('businessConfigs');
   // incidentReports e staffSchedules agora são carregados apenas dentro de suas respectivas Views (Lazy)
   
   const [authReady, setAuthReady] = useState(false);
@@ -216,11 +205,6 @@ export default function App() { // Componente principal do App
   const [customizationTab, setCustomizationTab] = useState<'modules' | 'roles' | 'workflows' | 'fields' | 'schedule'>('modules');
   
   const currentBusinessConfig = useMemo(() => businessConfigs.find(c => c.enterpriseId === enterpriseId), [businessConfigs, enterpriseId]);
-  const isModuleEnabled = (modId: string) => {
-    if (!currentBusinessConfig) return modId === 'restaurant'; // Default only restaurant if no config
-    if (modId === 'service') return true; // Force enable for now or check config
-    return currentBusinessConfig.enabledModules.includes(modId);
-  };
   
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [modalStaffRole, setModalStaffRole] = useState<UserRole>('waiter');
@@ -270,47 +254,6 @@ export default function App() { // Componente principal do App
     if (enterpriseId === currentUser.enterpriseId) return;
     setEnterpriseId(currentUser.enterpriseId);
   }, [currentUser, enterpriseId]);
-
-  // Data is now managed by useCollection hooks
-
-  // Seeding Logic (Run once if empty)
-  useEffect(() => {
-    if (staff.length === 0 && shops.length === 0 && enterprises.length === 0) {
-       // Avoid multiple seeds if called in parallel
-       // Inicializando dados padrão
-       firebaseService.seedData({
-         enterprises: MOCK_ENTERPRISES,
-         shops: MOCK_SHOPS,
-         staff: MOCK_STAFF,
-         products: MOCK_PRODUCTS,
-         tables: MOCK_TABLES,
-         orders: MOCK_ORDERS,
-         inventory: MOCK_INVENTORY,
-         permissions: MOCK_PERMISSIONS,
-         printers: MOCK_PRINTERS,
-         businessConfigs: MOCK_BUSINESS_CONFIG,
-         staffSchedules: MOCK_SCHEDULES
-       });
-    }
-  }, [staff, shops, enterprises]);
-
-  useEffect(() => {
-    if (!enterpriseId || staff.length === 0) return;
-    try {
-      accountService.migrateRestaurantUsers(
-        enterpriseId,
-        staff.map((member) => ({
-          id: member.id,
-          name: member.name,
-          role: String(member.role || ''),
-          pin: member.pin,
-          email: member.email,
-        }))
-      );
-    } catch (error) {
-      console.warn('Falha ao migrar staff legado para auth global', error);
-    }
-  }, [enterpriseId, staff]);
 
   const handleSelectEnterprise = (id: string) => {
     setEnterpriseId(id);
@@ -418,10 +361,6 @@ export default function App() { // Componente principal do App
     alert("40 mesas geradas com sucesso (20 por área)!");
   };
 
-  const currentShop = useMemo(() => shops.find(s => s.id === selectedShopId), [shops, selectedShopId]);
-
-  const filteredTables = useMemo(() => {
-    let result = tables.filter(t => t.shopId === (selectedShopId || 'shop-1'));
     if (currentUser?.role === 'waiter') {
       result = result.filter(t => t.waiterId === currentUser.id);
     }
@@ -429,10 +368,6 @@ export default function App() { // Componente principal do App
   }, [tables, selectedShopId, currentUser]);
   const filteredProducts = useMemo(() => products.filter(p => p.shopId === (selectedShopId || 'shop-1')), [products, selectedShopId]);
   const filteredOrders = useMemo(() => {
-    let result = orders.filter(o => o.shopId === (selectedShopId || 'shop-1'));
-      const myTableIds = tables.filter(t => t.waiterId === currentUser.id).map(t => t.id);
-      result = result.filter(o => o.staffId === currentUser.id || (o.tableId && myTableIds.includes(o.tableId)));
-    }
     return result;
   }, [orders, selectedShopId, currentUser?.id, currentUser?.role, tables]);
   const filteredInventory = useMemo(() => inventory.filter(i => i.shopId === (selectedShopId || 'shop-1')), [inventory, selectedShopId]);
@@ -449,11 +384,6 @@ export default function App() { // Componente principal do App
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(Date.now()), 10000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     const handleResize = () => {
       // Lógica de escala removida, agora o layout é responsivo via CSS
     };
@@ -461,52 +391,6 @@ export default function App() { // Componente principal do App
     // window.addEventListener('resize', handleResize); // Removido
     // return () => window.removeEventListener('resize', handleResize); // Removido
   }, []); // Removido dependências
-  
-  const filteredTablesBySearch = useMemo(() => {
-    return filteredTables.filter(t => 
-      t.number.toString().includes(tableSearchQuery) || 
-      (t.area || '').toLowerCase().includes(tableSearchQuery.toLowerCase())
-    );
-  }, [filteredTables, tableSearchQuery]);
-
-  const dashboardStats = useMemo(() => {
-    const todayStart = startOfDay(new Date()).getTime();
-    const yesterdayStart = startOfDay(addDays(new Date(), -1)).getTime();
-    const yesterdayEnd = endOfDay(addDays(new Date(), -1)).getTime();
-
-    const isRegionalView = currentUser?.role === 'owner' || currentUser?.role === 'regional_manager';
-    const relevantOrders = (isRegionalView && !selectedShopId) ? orders : orders.filter(o => o.shopId === selectedShopId);
-    
-    const closedOrdersToday = relevantOrders.filter(o => o.status === 'delivered' && o.closedAt && o.closedAt >= todayStart);
-    const totalSalesToday = closedOrdersToday.reduce((acc, o) => acc + o.total, 0);
-    const totalCostToday = closedOrdersToday.reduce((acc, o) => {
-      return acc + (o.items || []).reduce((itemAcc, item) => {
-        // Even if voided, if it was sent to kitchen, it counts towards COGS (wastage)
-        const shouldCountCost = item.status !== 'voided' || item.sentToKitchen;
-        return itemAcc + (shouldCountCost ? (item.cost || 0) * item.quantity : 0);
-      }, 0);
-    }, 0);
-
-    const closedOrdersYesterday = relevantOrders.filter(o => o.status === 'delivered' && o.closedAt && o.closedAt >= yesterdayStart && o.closedAt <= yesterdayEnd);
-    const totalSalesYesterday = closedOrdersYesterday.reduce((acc, o) => acc + o.total, 0);
-
-    const trend = totalSalesYesterday > 0 
-      ? ((totalSalesToday - totalSalesYesterday) / totalSalesYesterday) * 100 
-      : 0;
-
-    const avgTicket = closedOrdersToday.length > 0 ? totalSalesToday / closedOrdersToday.length : 0;
-    const profitMargin = totalSalesToday > 0 ? ((totalSalesToday - totalCostToday) / totalSalesToday) * 100 : 0;
-
-    return {
-      totalSalesToday,
-      trend,
-      closedOrdersTodayCount: closedOrdersToday.length,
-      activeTablesCount: (isRegionalView && !selectedShopId ? tables : tables.filter(t => t.shopId === selectedShopId)).filter(t => t.status === 'occupied').length,
-      avgTicket,
-      profitMargin
-    };
-  }, [orders, tables, selectedShopId, currentUser]);
-
 
   const handleLogout = () => {
     accountService.logout(); // Isso já recarrega a página, então setCurrentUser e setCurrentView são redundantes
@@ -535,10 +419,6 @@ export default function App() { // Componente principal do App
       setSelectedShopId(accessibleShopIds[0]);
     }
   }, [accessibleShopIds, selectedShopId]);
-
-  const currentPermissions = useMemo(() => 
-    MOCK_PERMISSIONS.find(p => p.role === currentUser?.role) || MOCK_PERMISSIONS.find(p => p.role === 'waiter')! // Usando MOCK_PERMISSIONS temporariamente
-  , [currentUser, rolePermissions]);
 
   const canAccessView = (view: View) => currentPermissions.views.includes(view);
   const [serviceChargePercentage] = useState<number>(10); // Não é alterado na UI, pode ser constante ou vir de config
@@ -652,11 +532,6 @@ export default function App() { // Componente principal do App
     return false;
   };
   // Modifiers State
-  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
-  const [editingOrderItem, setEditingOrderItem] = useState<OrderItem | null>(null);
-  const [modCustomName, setModCustomName] = useState('');
-  const [modCustomPrice, setModCustomPrice] = useState('');
-  const [modCustomRemove, setModCustomRemove] = useState('');
 
   const STANDARD_ALLERGIES = [ // Constante, não precisa de estado
     'Amendoim', 'Glúten', 'Lactose', 'Frutos do Mar', 'Ovo', 'Soja', 'Nozes', 'Peixe', 'Trigo', 'Leite', 'Castanhas'
@@ -1857,369 +1732,7 @@ export default function App() { // Componente principal do App
     );
   };
 
-  const ScheduleView: React.FC = () => {
-    const weekStart = startOfWeek(selectedScheduleDate, { weekStartsOn: 1 }); // Monday
-    const weekDays = eachDayOfInterval({
-      start: weekStart,
-      end: addDays(weekStart, 6)
-    });
 
-    // Filter staff by shop
-    const isRegionalView = currentUser?.role === 'owner' || currentUser?.role === 'regional_manager';
-    const displayStaff = selectedShopId 
-      ? staff.filter(s => s.assignedShopIds?.includes(selectedShopId))
-      : staff;
-
-    const getShiftsForStaffOnDay = (staffId: string, day: Date) => {
-      const relevantShifts = selectedShopId ? shifts.filter(s => s.shopId === selectedShopId) : shifts;
-      return relevantShifts.filter(s => s.staffId === staffId && isSameDay(new Date(s.startTime), day));
-    };
-
-    return (
-      <div className="space-y-8 pb-20">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black text-slate-800 tracking-tight">Escala Semanal</h2>
-            <p className="text-sm text-slate-500 font-medium">
-              {selectedShopId ? `Visualizando escala de: ${currentShop?.name}` : 'Visualizando escala de toda a rede'}
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-3">
-             {isRegionalView && (
-               <div className="bg-slate-100 p-1 rounded-xl flex border border-slate-200">
-                 {shops.filter(s => accessibleShopIds.includes(s.id)).map(s => (
-                   <button 
-                     key={s.id}
-                     onClick={() => setSelectedShopId(s.id)}
-                     className={cn(
-                       "px-3 py-1.5 text-[9px] font-black uppercase tracking-tight rounded-lg transition-all",
-                       selectedShopId === s.id ? "bg-white text-slate-800 shadow-sm" : "text-slate-400"
-                     )}
-                   >
-                     {s.name}
-                   </button>
-                 ))}
-               </div>
-             )}
-          </div>
-        </div>
-
-        <div className="sleek-card bg-white border-slate-100 overflow-hidden shadow-2xl">
-           <div className="grid grid-cols-[200px_repeat(7,1fr)] bg-slate-50/50 border-b border-slate-100">
-              <div className="p-4 border-r border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-widest">Equipe</div>
-              {weekDays.map(day => (
-                <div key={day.toString()} className={cn(
-                  "p-4 border-r border-slate-100 last:border-r-0 text-center flex flex-col",
-                  isSameDay(day, new Date()) && "bg-emerald-50/50"
-                )}>
-                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{format(day, 'EEE', { locale: ptBR })}</span>
-                  <span className="text-sm font-black text-slate-800">{format(day, 'dd/MM')}</span>
-                </div>
-              ))}
-           </div>
-
-           <div className="divide-y divide-slate-50">
-                {displayStaff.map(member => (
-                  <div key={member.id} className="grid grid-cols-[200px_repeat(7,1fr)] hover:bg-slate-50/30 transition-colors">
-                    <div className="p-4 border-r border-slate-100 flex items-center gap-3">
-                      <div className={cn(
-                        "w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0 shadow-sm",
-                        member.role === 'owner' ? "bg-slate-800" : "bg-emerald-500"
-                      )}>
-                        {member.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                      </div>
-                      <div className="overflow-hidden">
-                        <p className="text-xs font-bold text-slate-800 truncate">{member.name}</p>
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-tight">{member.role.replace('_', ' ')}</p>
-                      </div>
-                    </div>
-
-                    {weekDays.map(day => {
-                      const dayShifts = getShiftsForStaffOnDay(member.id, day);
-                      return (
-                        <div key={day.toString()} className="p-2 min-h-[80px] border-r border-slate-50 last:border-r-0 flex flex-col gap-2">
-                           {dayShifts.map(shift => (
-                             <motion.div
-                               layoutId={shift.id}
-                               key={shift.id}
-                               onClick={() => {
-                                 if (currentPermissions.actions.canManageSchedule) {
-                                   setEditingShift(shift);
-                                   setIsShiftModalOpen(true);
-                                 }
-                               }}
-                               className="p-2 rounded-xl shadow-sm border border-black/5 cursor-pointer relative group overflow-hidden"
-                               style={{ backgroundColor: areaColors[shift.area] + '15', borderColor: areaColors[shift.area] + '30' }}
-                             >
-                                <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: areaColors[shift.area] }} />
-                                <div className="flex flex-col">
-                                   <span className="text-[9px] font-black uppercase tracking-tight" style={{ color: areaColors[shift.area] }}>{shift.area}</span>
-                                   <span className="text-[10px] font-bold text-slate-700 leading-none mt-1">
-                                     {format(shift.startTime, 'HH:mm')} - {format(shift.endTime, 'HH:mm')}
-                                   </span>
-                                </div>
-                             </motion.div>
-                           ))}
-                           {dayShifts.length === 0 && (
-                             <div className="flex-1 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Plus className="w-4 h-4 text-slate-200" />
-                             </div>
-                           )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-             </div>
-        </div>
-
-        {/* Legend */}
-        <div className="flex items-center gap-6 px-4">
-           <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: areaColors.BOH }} />
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Back of House (Cozinha)</span>
-           </div>
-           <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: areaColors.FOH }} />
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Front of House (Salão)</span>
-           </div>
-        </div>
-      </div>
-    );
-  };
-
-  const ModifierModal: React.FC = () => {
-    if (!editingOrderItem) return null;
-
-    const currentModifiers = editingOrderItem.modifiers || [];
-    const toggleModifier = (name: string, type: ModifierType, price?: number, invId?: string) => {
-      const exists = currentModifiers.find(m => m.name === name && m.type === type && (invId ? m.inventoryItemId === invId : true));
-      let newModifiers: ItemModifier[] = [];
-      if (exists) {
-        newModifiers = currentModifiers.filter(m => !(m.name === name && m.type === type && (invId ? m.inventoryItemId === invId : true)));
-      } else {
-        const inventoryItemId = invId || inventory.find(i => i.name.toLowerCase() === name.toLowerCase())?.id; // Busca exata por nome
-        newModifiers = [...currentModifiers, { 
-          id: idGenerator.generate('mod'), // Usar idGenerator
-          name, 
-          type, 
-          price: price || 0,
-          inventoryItemId
-        }];
-      }
-      
-      const updatedItem = { ...editingOrderItem, modifiers: newModifiers };
-      setEditingOrderItem(updatedItem);
-      handleUpdateItemModifiers(editingOrderItem.id, newModifiers);
-    };
-
-    const addManualExtra = () => {
-      if (!modCustomName) return;
-      const price = parseFloat(modCustomPrice || '0');
-      const invItem = inventory.find(i => i.name.toLowerCase() === modCustomName.toLowerCase()); // Busca exata por nome
-      
-      const newModifiers = [...currentModifiers, { 
-        id: idGenerator.generate('mod'), // Usar idGenerator
-        name: modCustomName, 
-        type: 'extra', 
-        price,
-        inventoryItemId: invItem?.id
-      }];
-      const updatedItem = { ...editingOrderItem, modifiers: newModifiers };
-      setEditingOrderItem(updatedItem);
-      handleUpdateItemModifiers(editingOrderItem.id, newModifiers);
-      setModCustomName('');
-      setModCustomPrice('');
-    };
-
-    const addManualRemove = () => {
-      if (!modCustomRemove) return;
-      const invItem = inventory.find(i => i.name.toLowerCase() === modCustomRemove.toLowerCase()); // Busca exata por nome
-      
-      const newModifiers = [...currentModifiers, { 
-        id: idGenerator.generate('mod'), // Usar idGenerator
-        name: modCustomRemove, 
-        type: 'remove',
-        inventoryItemId: invItem?.id
-      }];
-      const updatedItem = { ...editingOrderItem, modifiers: newModifiers };
-      setEditingOrderItem(updatedItem);
-      handleUpdateItemModifiers(editingOrderItem.id, newModifiers);
-      setModCustomRemove('');
-    };
-
-    return (
-      <AnimatePresence> {/* Auditoria: Modais devem ser renderizados condicionalmente */}
-        {isModifierModalOpen && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden border border-slate-100"
-            >
-              <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
-                <div>
-                  <h3 className="text-xl font-black text-slate-800 tracking-tight">Customizar Item</h3>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">{editingOrderItem.name}</p>
-                </div>
-                <button 
-                  onClick={() => setIsModifierModalOpen(false)} 
-                  className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-600 shadow-sm border border-slate-100 transition-all hover:scale-110 active:scale-95"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-8 space-y-8 overflow-y-auto max-h-[70vh] custom-scrollbar">
-                {/* Allergies - Standard Set */}
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 flex items-center gap-2">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                    Alergias (Aviso Cozinha)
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {STANDARD_ALLERGIES.map(allergy => {
-                      const isActive = currentModifiers.some(m => m.name === allergy && m.type === 'allergy');
-                      return (
-                        <button 
-                          key={allergy}
-                          onClick={() => toggleModifier(allergy, 'allergy')}
-                          className={cn(
-                            "px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
-                            isActive ? "bg-amber-500 text-white border-amber-600 shadow-lg shadow-amber-500/20" : "bg-white text-slate-400 border-slate-100 hover:border-amber-200"
-                          )}
-                        >
-                          {allergy}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Remove - Customizable */}
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 flex items-center gap-2">
-                    <Minus className="w-3.5 h-3.5 text-rose-500" />
-                    Remover (SEM)
-                  </label>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {['Cebola', 'Tomate', 'Pão', 'Picles', 'Maionese', 'Alface'].map(item => {
-                      const isActive = currentModifiers.some(m => m.name === item && m.type === 'remove');
-                      return (
-                        <button 
-                          key={item}
-                          onClick={() => toggleModifier(item, 'remove')}
-                          className={cn(
-                            "px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
-                            isActive ? "bg-rose-500 text-white border-rose-600 shadow-lg shadow-rose-500/20" : "bg-white text-slate-400 border-slate-100 hover:border-rose-200"
-                          )}
-                        >
-                          Sem {item}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      placeholder="Outro item para remover..."
-                      value={modCustomRemove}
-                      onChange={e => setModCustomRemove(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') addManualRemove();
-                      }}
-                      className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500/20 outline-none text-[10px] font-black uppercase tracking-widest"
-                    />
-                    <button 
-                      onClick={addManualRemove}
-                      className="p-3 bg-rose-500 text-white rounded-xl hover:bg-rose-600 transition-all active:scale-90"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Extras - Customizable */}
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 flex items-center gap-2">
-                    <Plus className="w-3.5 h-3.5 text-blue-500" />
-                    Adicionais (EXTRA)
-                  </label>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {[
-                      { name: 'Carne', price: 8.00 },
-                      { name: 'Queijo', price: 4.50 },
-                      { name: 'Bacon', price: 6.00 },
-                      { name: 'Ovo', price: 3.00 }
-                    ].map(extra => {
-                      const isActive = currentModifiers.some(m => m.name === extra.name && m.type === 'extra');
-                      return (
-                        <button 
-                          key={extra.name}
-                          onClick={() => {
-                            setModCustomName(extra.name);
-                            setModCustomPrice(extra.price.toString());
-                          }}
-                          className={cn(
-                            "px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
-                            isActive ? "bg-blue-500 text-white border-blue-600 shadow-lg shadow-blue-500/20" : "bg-white text-slate-400 border-slate-100 hover:border-blue-200"
-                          )}
-                        >
-                          {extra.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 border-dashed">
-                    <p className="text-[9px] font-black uppercase text-slate-400 mb-4 ml-1 tracking-widest">Adicionar Customizado</p>
-                    <div className="flex gap-2">
-                      <input 
-                        value={modCustomName}
-                        onChange={e => setModCustomName(e.target.value)}
-                        type="text" 
-                        placeholder="Nome (ex: Bacon)"
-                        className="flex-1 px-4 py-3.5 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none text-[10px] font-black uppercase tracking-widest"
-                      />
-                      <input 
-                        value={modCustomPrice}
-                        onChange={e => setModCustomPrice(e.target.value)}
-                        type="number" 
-                        placeholder="R$ 0,00"
-                        className="w-24 px-4 py-3.5 bg-white border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 outline-none text-xs font-mono font-bold"
-                      />
-                      <button 
-                        onClick={addManualExtra}
-                        className="p-3.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-all shadow-xl shadow-blue-500/20 active:scale-90"
-                      >
-                        <Plus className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-8 bg-slate-900 border-t border-slate-800 flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Preço Final do Item</span>
-                  <span className="text-2xl font-black text-white tracking-tight">
-                    {formatCurrency(editingOrderItem.price + currentModifiers.reduce((acc, m) => acc + (m.price || 0), 0))}
-                  </span>
-                </div>
-                <button 
-                  onClick={() => setIsModifierModalOpen(false)}
-                  className="bg-emerald-500 text-white px-10 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:scale-105 transition-all shadow-xl shadow-emerald-500/20"
-                >
-                  Confirmar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-    );
-  };
 
   const TableEditModal: React.FC = () => {
     if (!editingTable) return null;
@@ -2446,10 +1959,6 @@ function AppContent() {
   const location = useLocation();
   const currentPath = location.pathname.substring(1) || 'dashboard';
 
-  // Re-declarar estados e handlers necessários para AppContent
-  const [enterpriseId, setEnterpriseId] = useState<string | null>(() => accountService.getCurrentCompanyId());
-  const [systemMode, setSystemMode] = useState<SystemMode>(() => (localStorage.getItem('rm_system_mode') as SystemMode) || 'restaurant');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('pos_restaurant_sidebar_collapsed') === 'true');
   const { data: enterprises } = useCollection<Enterprise>('enterprises', { enterpriseId: null, shopId: null });
   const { data: shops } = useCollection<Shop>('shops');
   const [selectedShopId, setSelectedShopId] = useState<string | null>(() => localStorage.getItem('rm_selected_shop_id'));
@@ -2460,6 +1969,16 @@ function AppContent() {
     return { id: globalUser.id, enterpriseId: globalUser.companyId, companyId: globalUser.companyId, name: globalUser.name, role: mappedRole, active: true, pin: globalUser.pin || '0000', assignedShopIds: [], email: globalUser.email } as Staff;
   });
   const { data: orders } = useCollection<Order>('orders');
+  const { data: products, setData: setProducts } = useCollection<Product>('products');
+  const { data: inventory, setData: setInventory } = useCollection<InventoryItem>('inventory');
+  const { data: staff, setData: setStaff } = useCollection<Staff>('staff');
+  const { data: shifts, setData: setShifts } = useCollection<Shift>('shifts');
+  const { data: reservations, setData: setReservations } = useCollection<Reservation>('reservations');
+  const { data: notifications, setData: setNotifications } = useCollection<AppNotification>('notifications');
+  const { data: businessConfigs, setData: setBusinessConfigs } = useCollection<BusinessConfig>('businessConfigs');
+
+  const [enterpriseId, setEnterpriseId] = useState<string | null>(() => accountService.getCurrentCompanyId());
+  const [systemMode, setSystemMode] = useState<SystemMode>(() => (localStorage.getItem('rm_system_mode') as SystemMode) || 'restaurant');
   const { data: tables } = useCollection<Table>('tables');
   const { data: rolePermissions } = useCollection<RolePermissions>('rolePermissions');
   const { data: businessConfigs } = useCollection<BusinessConfig>('businessConfigs');
@@ -2473,6 +1992,10 @@ function AppContent() {
     return currentBusinessConfig.enabledModules.includes(modId);
   };
 
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => localStorage.getItem('pos_restaurant_sidebar_collapsed') === 'true');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showDevTools, setShowDevTools] = useState(currentUser?.role === 'admin');
+
   const accessibleShopIds = useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.role === 'owner') return shops.map(s => s.id);
@@ -2483,6 +2006,10 @@ function AppContent() {
   const currentPermissions = useMemo(() => 
     rolePermissions.find(p => p.role === currentUser?.role) || MOCK_PERMISSIONS.find(p => p.role === 'waiter')!
   , [currentUser, rolePermissions]);
+
+  const currentShop = useMemo(() => shops.find(s => s.id === selectedShopId), [shops, selectedShopId]);
+
+  const filteredTables = useMemo(() => tables.filter(t => t.shopId === (selectedShopId || 'shop-1')), [tables, selectedShopId]);
 
   const canAccessView = (view: View) => currentPermissions.views.includes(view);
 
@@ -2506,6 +2033,10 @@ function AppContent() {
   const handleOpenTable = (table: Table) => {
     // Placeholder, a lógica real está no App.tsx principal
     console.log('handleOpenTable called from AppContent', table);
+  };
+
+  const handleUpdateTable = async (tableId: string, updates: Partial<Table>) => {
+    await firebaseService.updateItem('tables', tableId, updates);
   };
 
   const dashboardStats = useMemo(() => {
@@ -2545,28 +2076,14 @@ function AppContent() {
     };
   }, [orders, tables, selectedShopId, currentUser]);
 
-  const [isNotificationPaneOpen, setIsNotificationPaneOpen] = useState(false);
-  const [isPrinting] = useState(false); // Estado de impressão
+  const [isNotificationPaneOpen, setIsNotificationPaneOpen] = useState(false); // Estado para o painel de notificações
+  const [isPrinting, setIsPrinting] = useState(false); // Estado para o indicador de impressão
   const [holdingActive, setHoldingActive] = useState(false); // Estado para HoldingDashboard
 
-  const appScale = 1; // Simplificado, a lógica real está no App principal
+  const appScale = 1; // Simplificado, a lógica real está no App principal (se houver)
 
-  // Auditoria: renderModifierModal e renderTableEditModal devem ser movidos para componentes específicos
-  // Renderiza os modais diretamente aqui, pois AppContent é o container principal das rotas
-  const [isEditTableModalOpen, setIsEditTableModalOpen] = useState(false);
-  const [editingTable, setEditingTable] = useState<Table | null>(null);
-  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
-  const [editingOrderItem, setEditingOrderItem] = useState<OrderItem | null>(null);
-  const [modCustomName, setModCustomName] = useState('');
-  const [modCustomPrice, setModCustomPrice] = useState('');
-  const [modCustomRemove, setModCustomRemove] = useState('');
-  const STANDARD_ALLERGIES = ['Amendoim', 'Glúten', 'Lactose', 'Frutos do Mar', 'Ovo', 'Soja', 'Nozes', 'Peixe', 'Trigo', 'Leite', 'Castanhas'];
-  const inventory: InventoryItem[] = []; // Placeholder, inventory real viria de um hook
-  const products: Product[] = []; // Placeholder, products real viria de um hook
-
-  const handleUpdateTable = async (tableId: string, updates: Partial<Table>) => {
-    await firebaseService.updateItem('tables', tableId, updates);
-  };
+  // --- Handlers para Modais ---
+  // Estes handlers são passados para os componentes de modal
 
   const handleRemoveTable = async (id: string) => {
     if (orders.find(o => o.tableId === id && o.status !== 'delivered')) {
@@ -2577,8 +2094,9 @@ function AppContent() {
   };
 
   const handleUpdateItemModifiers = (itemId: string, modifiers: ItemModifier[]) => {
-    // Lógica de atualização de modificadores (simplificada para AppContent)
+    // Esta lógica deve ser mais robusta e talvez viver em um motor de pedidos
     console.log('Updating modifiers for item:', itemId, modifiers);
+    // Aqui você precisaria de um mecanismo para atualizar o estado do carrinho ou do pedido
   };
 
   const handleSaveShift = async (shift: Pick<Shift, 'staffId' | 'area' | 'startTime' | 'endTime'>) => {
@@ -2593,7 +2111,12 @@ function AppContent() {
 
   const selectedScheduleDate = new Date(); // Placeholder
   const areaColors: Record<'FOH' | 'BOH', string> = { FOH: '#10b981', BOH: '#f97316' }; // Placeholder
-  const shifts: Shift[] = []; // Placeholder
+
+  // Estados para os modais
+  const [isEditTableModalOpen, setIsEditTableModalOpen] = useState(false);
+  const [editingTable, setEditingTable] = useState<Table | null>(null);
+  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
+  const [editingOrderItem, setEditingOrderItem] = useState<OrderItem | null>(null);
 
   return (
     <div 
@@ -2605,9 +2128,6 @@ function AppContent() {
         minHeight: appScale < 1 ? `${100 / appScale}vh` : '100vh'
       }}
     >
-      <TableEditModal />
-      <ModifierModal />
-      <ShiftModal />
       {/* Sidebar - responsive drawer */}
       <aside className={cn(
         "fixed inset-y-0 left-0 bg-sidebar-bg border-r border-slate-800 flex flex-col h-screen p-4 sm:p-6 overflow-hidden transition-all duration-500 z-[160] lg:static lg:translate-x-0 lg:flex shadow-2xl lg:shadow-none",
@@ -3114,6 +2634,10 @@ function AppContent() {
             </Suspense>
             </ErrorBoundary>
           </AnimatePresence>
+
+          <TableEditModal isOpen={isEditTableModalOpen} onClose={() => setIsEditTableModalOpen(false)} editingTable={editingTable} availableAreas={Array.from(new Set(tables.map(t => t.area || 'Salão Principal')))} onUpdate={handleUpdateTable} onDelete={handleRemoveTable} setEditingTable={setEditingTable} />
+          <ModifierModal isOpen={isModifierModalOpen} onClose={() => setIsModifierModalOpen(false)} item={editingOrderItem} inventory={inventory} onUpdateModifiers={handleUpdateItemModifiers} />
+          <ShiftModal isOpen={isShiftModalOpen} onClose={() => setIsShiftModalOpen(false)} editingShift={editingShift} staff={staff} selectedDate={selectedScheduleDate} onSave={handleSaveShift} onDelete={handleDeleteShift} />
         </section>
       </main>
 
@@ -4291,6 +3815,10 @@ function AppContent() {
             </ErrorBoundary>
           </AnimatePresence>
         </section>
+
+      <TableEditModal isOpen={isEditTableModalOpen} onClose={() => setIsEditTableModalOpen(false)} editingTable={editingTable} availableAreas={Array.from(new Set(tables.map(t => t.area || 'Salão Principal')))} onUpdate={handleUpdateTable} onDelete={handleRemoveTable} setEditingTable={setEditingTable} />
+      <ModifierModal isOpen={isModifierModalOpen} onClose={() => setIsModifierModalOpen(false)} item={editingOrderItem} inventory={inventory} onUpdateModifiers={handleUpdateItemModifiers} />
+      <ShiftModal isOpen={isShiftModalOpen} onClose={() => setIsShiftModalOpen(false)} editingShift={editingShift} staff={staff} selectedDate={selectedScheduleDate} onSave={handleSaveShift} onDelete={handleDeleteShift} />
       </main>
 
       {/* Bottom Nav - Mobile */}
