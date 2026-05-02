@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router } from 'react-router-dom';
-import { ThemeProvider } from './core/contexts/ThemeContext';
+import { ThemeProvider } from './core/components/ThemeContext';
 import { accountService } from './core/services/accountService';
 import { ensureFirebaseSession } from './services/authSession';
 import { LoginView } from './core/views/LoginView';
