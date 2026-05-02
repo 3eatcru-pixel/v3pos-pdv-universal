@@ -96,11 +96,10 @@ export function AppContent() {
   // Modais
   const [isEditTableModalOpen, setIsEditTableModalOpen] = useState(false);
   const [editingTable, setEditingTable] = useState<Table | null>(null);
-  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
   const [editingOrderItem, setEditingOrderItem] = useState<OrderItem | null>(null);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
-  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false); // Re-added for ModifierModal
+  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
 
   // Permissões
   const currentPermissions = useMemo(() => 
