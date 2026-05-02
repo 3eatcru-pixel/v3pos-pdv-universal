@@ -1957,7 +1957,6 @@ export default function App() { // Componente principal do App
       </ThemeProvider>
     </Router>
   );
-}
 
 function AppContent() {
   // Mova os hooks que dependem do Router (useNavigate, useLocation) para este sub-componente
@@ -2741,25 +2740,6 @@ function CostBar({ label, value, total, color }: any) {
     </div>
   );
 }
-       const newOrder: Order = {
-         id: orderId,
-         enterpriseId: enterpriseId!,
-         shopId: (selectedShopId || 'shop-1'),
-         tableId: table.id,
-         staffId: waiterId,
-         items: cart,
-         status: 'pending',
-         startTime: Date.now(),
-         discount: 0,
-         subtotal: 0,
-         total: 0
-       };
-       await firebaseService.saveItem('orders', orderId, newOrder);
-       await firebaseService.updateTableStatus(table.id, 'occupied', orderId);
-    }
-    setSelectedTable(table);
-
-
   // Auditoria: renderDeviceLinking e renderSchedule devem ser componentes separados e roteados
 
   const renderDeviceLinking = () => {
@@ -3305,19 +3285,6 @@ function CostBar({ label, value, total, color }: any) {
   if (holdingActive) return <HoldingDashboard onSelectEnterprise={handleSelectEnterprise} onLogout={handleLogout} />;
 
   return ( // Auditoria: renderModifierModal e renderTableEditModal devem ser movidos para componentes específicos
-    <Router>
-      <ThemeProvider>
-        <AppContent />
-      </ThemeProvider>
-    </Router>
-  );
-}
-
-function AppContent() {
-  // Mova os hooks que dependem do Router (useNavigate, useLocation) para este sub-componente
-  const navigate = useNavigate();
-  const location = useLocation();
-  const currentPath = location.pathname.substring(1) || 'dashboard';
     <div 
       className="min-h-screen bg-surface-bg flex flex-col lg:flex-row text-slate-900 font-sans overflow-x-hidden"
       style={{ 
@@ -3847,8 +3814,6 @@ function AppContent() {
       </nav>
     </div>
   );
-}
-
 // --- Internal Components ---
 
 function MobileNavItem({ icon, active, onClick }: any) {
