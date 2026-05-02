@@ -100,6 +100,7 @@ export function AppContent() {
   const [editingOrderItem, setEditingOrderItem] = useState<OrderItem | null>(null);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
+  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false); // Re-added for ModifierModal
 
   // Permissões
   const currentPermissions = useMemo(() => 
@@ -248,7 +249,7 @@ export function AppContent() {
                 <Route path="/orders" element={<RestaurantLayout defaultView="orders" />} />
                 <Route path="/inventory" element={<RestaurantLayout defaultView="inventory" />} />
                 <Route path="/finance" element={<FinanceManagementView module="restaurant" shopId={selectedShopId} />} />
-                <Route path="/staff" element={<StaffDashboard staff={currentUser} enterprise={accountService.getCurrentTenant()} shops={shops.filter((s: any) => accessibleShopIds.includes(s.id))} schedules={shifts} />} />
+                <Route path="/staff" element={<StaffDashboard staff={currentUser} enterprise={accountService.getCurrentTenant()} shops={shops.filter((s: any) => accessibleShopIds.includes(s.id))} schedules={[]} />} />
                 <Route path="/settings" element={<GlobalSettingsView enterpriseId={enterpriseId} />} />
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
               </Routes>

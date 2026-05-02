@@ -361,6 +361,8 @@ export default function App() { // Componente principal do App
     alert("40 mesas geradas com sucesso (20 por área)!");
   };
 
+  const filteredTables = useMemo(() => {
+    let result = tables.filter(t => t.shopId === (selectedShopId || 'shop-1'));
     if (currentUser?.role === 'waiter') {
       result = result.filter(t => t.waiterId === currentUser.id);
     }
@@ -368,8 +370,12 @@ export default function App() { // Componente principal do App
   }, [tables, selectedShopId, currentUser]);
   const filteredProducts = useMemo(() => products.filter(p => p.shopId === (selectedShopId || 'shop-1')), [products, selectedShopId]);
   const filteredOrders = useMemo(() => {
+    let result = orders.filter(o => o.shopId === (selectedShopId || 'shop-1'));
+    if (currentUser?.role === 'waiter') {
+      result = result.filter(o => o.staffId === currentUser.id);
+    }
     return result;
-  }, [orders, selectedShopId, currentUser?.id, currentUser?.role, tables]);
+  }, [orders, selectedShopId, currentUser]);
   const filteredInventory = useMemo(() => inventory.filter(i => i.shopId === (selectedShopId || 'shop-1')), [inventory, selectedShopId]);
   const filteredReservations = useMemo(() => reservations.filter(r => r.shopId === (selectedShopId || 'shop-1')), [reservations, selectedShopId]);
 
@@ -2647,7 +2653,7 @@ function AppContent() {
         <MobileNavItem icon={<TableIcon />} active={currentPath === 'tables'} onClick={() => navigate('/tables')} />
         
         <button 
-          onClick={() => { navigate('/orders'); }} {/* Botão central para novo pedido */}
+          onClick={() => { navigate('/orders'); }}
           className="bg-emerald-500 p-4 rounded-2xl shadow-lg -mt-12 border-4 border-slate-900 transform active:scale-90 transition-all"
         >
           <Plus className="w-6 h-6 text-white" />
