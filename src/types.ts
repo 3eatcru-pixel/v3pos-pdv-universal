@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { 
+import {
   Enterprise, 
   Shop, 
   Staff as CoreStaff, 
@@ -17,6 +17,7 @@ import {
 } from './core/types';
 
 export type { Enterprise, Shop, BusinessMode, CustomFieldDefinition };
+export type { CoreProduct as Product, CoreSale as Sale }; // Exportando Product e Sale do core
 
 export type SystemMode = 'restaurant' | 'distributor' | 'service';
 export type TableStatus = 'free' | 'occupied' | 'reserved' | 'closed';
@@ -89,10 +90,10 @@ export interface InviteCode {
   usedBy?: string; // usr_xxx
 }
 
-export type Company = Enterprise;
-
-// Auditoria: Adicionado branding e configurações de backup à interface Company
-export interface Company extends Enterprise {
+export interface Enterprise { // Consolidando Enterprise para incluir branding e configs
+  id: string;
+  name: string;
+  owners?: string[];
   branding?: {
     logo?: string;
     customName?: string;
@@ -101,7 +102,7 @@ export interface Company extends Enterprise {
   googleDriveBackupEnabled?: boolean;
   backupIntervalMinutes?: number;
 }
-
+export type Company = Enterprise; // Company é um alias para Enterprise
 export interface Region {
   id: string;
   name: string;
@@ -127,7 +128,7 @@ export interface RolePermissions {
   };
 }
 
-export type View = 'holding' | 'dashboard' | 'tables' | 'orders' | 'kitchen' | 'bar' | 'inventory' | 'reports' | 'history' | 'staff_mgmt' | 'menu_mgmt' | 'schedule' | 'reservations' | 'printer_mgmt' | 'safety' | 'settings' | 'customization' | 'finance_mgmt' | 'supplier_mgmt' | 'service_mgmt' | 'company_mgmt' | 'pending_orders' | 'staff_pnl' | 'third_party_orders';
+export type View = 'holding' | 'dashboard' | 'tables' | 'orders' | 'kitchen' | 'bar' | 'inventory' | 'reports' | 'history' | 'staff_mgmt' | 'menu_mgmt' | 'schedule' | 'safety' | 'settings' | 'customization' | 'finance_mgmt' | 'supplier_mgmt' | 'service_mgmt' | 'company_mgmt' | 'pending_orders' | 'staff_pnl' | 'third_party_orders' | 'purchasing_forecast';
 
 export type PrinterType = 'kitchen' | 'receipt' | 'report' | 'bar';
 
@@ -153,7 +154,7 @@ export interface PrintJob {
   error?: string;
 }
 
-export interface Reservation {
+export interface Reservation { // Exportando Reservation
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -166,7 +167,7 @@ export interface Reservation {
   status: 'pending' | 'confirmed' | 'arrived' | 'cancelled';
 }
 
-export interface Shift {
+export interface Shift { // Exportando Shift
   id: string;
   shopId: string;
   enterpriseId?: string;
@@ -178,16 +179,16 @@ export interface Shift {
   status?: 'planned' | 'confirmed' | 'missing' | 'completed';
 }
 
-export interface Product extends CoreProduct {
+export interface Product extends CoreProduct { // Estendendo CoreProduct
   image?: string;
   photo?: string;
   unit?: 'un' | 'kg' | 'lt' | 'g';
   unitType?: 'un' | 'kg' | 'lt' | 'g';
   expiration?: number;
   ingredients?: Record<string, number>;
-  composition?: { productId: string, quantity: number }[]; // For combos/kits
+  composition?: { productId: string; quantity: number }[]; // For combos/kits
   wastageMargin?: number;
-  type?: 'product' | 'service'; // Added to distinguish in POS
+  type?: 'product' | 'service';
 }
 
 export interface ServiceItem {
@@ -204,7 +205,7 @@ export interface ServiceItem {
   commissionRate?: number; // Specific rate for this service
 }
 
-// Auditoria: Interface para Definição de Serviço (Unificada)
+// Auditoria: Interface para Definição de Serviço (Unificada) - Exportando ServiceDefinition
 export interface ServiceDefinition extends ServiceItem {
   enterpriseId: string;
   shopId?: string;
@@ -220,7 +221,7 @@ export interface Category {
   active?: boolean;
 }
 
-export interface ServiceResource {
+export interface ServiceResource { // Exportando ServiceResource
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -229,7 +230,7 @@ export interface ServiceResource {
   active: boolean;
 }
 
-export interface Appointment {
+export interface ServiceAppointment { // Exportando ServiceAppointment
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -243,7 +244,7 @@ export interface Appointment {
   customPrice?: number;
   customDuration?: number;
   notes?: string;
-  paymentStatus: 'pending' | 'paid';
+  paymentStatus: 'pending' | 'paid' | 'cancelled';
 }
 
 export type ItemStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'voided';
@@ -258,7 +259,7 @@ export interface ItemModifier {
   inventoryItemId?: string; // Link to inventory for COGS and deduction
 }
 
-export interface OrderItem {
+export interface OrderItem { // Exportando OrderItem
   id: string; // Unique ID for this item instance in the order
   productId: string;
   name: string;
@@ -275,7 +276,7 @@ export interface OrderItem {
   voidedBy?: string;
 }
 
-export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
+export type OrderStatus = 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled' | 'voided';
 
 export type ThirdPartyProvider =
   | 'ifood'
@@ -404,7 +405,7 @@ export interface ThirdPartyProductMapping {
   updatedAt: number;
 }
 
-export interface Staff extends CoreStaff {
+export interface Staff extends CoreStaff { // Estendendo CoreStaff
   companyId?: string; // Kept for compat
   storeId?: string; // Optional if not assigned to specific store
   cpf?: string;
@@ -434,7 +435,7 @@ export interface Staff extends CoreStaff {
   }[];
 }
 
-export interface PerformanceEvent {
+export interface PerformanceEvent { // Exportando PerformanceEvent
   id: string;
   staffId: string;
   enterpriseId: string;
@@ -446,7 +447,7 @@ export interface PerformanceEvent {
   createdBy: string;
 }
 
-export interface InternalMessage {
+export interface InternalMessage { // Exportando InternalMessage
   id: string;
   userId: string;
   enterpriseId: string;
@@ -456,7 +457,7 @@ export interface InternalMessage {
   content: string;
 }
 
-export interface Order {
+export interface Order extends CoreSale { // Estendendo CoreSale para Order
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -492,7 +493,7 @@ export interface Order {
   };
 }
 
-export interface Transaction {
+export interface Transaction { // Exportando Transaction
   id: string;
   enterpriseId: string;
   shopId?: string;
@@ -510,7 +511,7 @@ export interface Transaction {
   change?: number; // Change given if cash
 }
 
-export interface Supplier {
+export interface Supplier { // Exportando Supplier
   id: string;
   enterpriseId: string;
   name: string;
@@ -524,7 +525,7 @@ export interface Supplier {
   address?: string;
 }
 
-export interface SupplierContract {
+export interface SupplierContract { // Exportando SupplierContract
   id: string;
   supplierId: string;
   enterpriseId: string;
@@ -537,7 +538,7 @@ export interface SupplierContract {
   documents?: { name: string; url: string; uploadDate: number }[];
 }
 
-export interface Table {
+export interface Table { // Exportando Table
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -553,7 +554,7 @@ export interface Table {
 
 export type InventoryLocation = 'FOH' | 'BOH';
 
-export interface RecountRequest {
+export interface RecountRequest { // Exportando RecountRequest
   id: string;
   shopId: string;
   itemId: string;
@@ -575,7 +576,7 @@ export interface RecountRequest {
   status: 'pending' | 'applied' | 'rejected';
 }
 
-export interface StockCountSession {
+export interface StockCountSession { // Exportando StockCountSession
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -592,7 +593,7 @@ export interface StockCountSession {
   closeSignature?: string;
 }
 
-export interface InventoryItem {
+export interface InventoryItem { // Exportando InventoryItem
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -611,7 +612,7 @@ export interface InventoryItem {
   substituteId?: string;
 }
 
-export interface DailyStats {
+export interface DailyStats { // Exportando DailyStats
   totalSales: number;
   activeTables: number;
   pendingOrders: number;
@@ -620,7 +621,7 @@ export interface DailyStats {
 
 export type IncidentType = 'error' | 'broken' | 'risk' | 'action';
 
-export interface IncidentReport {
+export interface IncidentReport { // Exportando IncidentReport
   id: string;
   shopId: string;
   type: IncidentType;
@@ -634,7 +635,7 @@ export interface IncidentReport {
   location?: string;
 }
 
-export interface AppNotification extends CoreNotification {
+export interface AppNotification extends CoreNotification { // Estendendo CoreNotification
   tableId?: string;
 }
 
@@ -647,7 +648,7 @@ export interface CompanySettings {
   requireAllergyDoubleConfirmation?: boolean;
 }
 
-export interface DeviceLink {
+export interface DeviceLink { // Exportando DeviceLink
   id: string;
   name: string;
   linkedAt: number;
@@ -655,7 +656,7 @@ export interface DeviceLink {
   status: 'active' | 'revoked';
 }
 
-export interface MasterKey {
+export interface MasterKey { // Exportando MasterKey
   id: string;
   key: string;
   createdAt: number;

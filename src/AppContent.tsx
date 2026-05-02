@@ -35,6 +35,7 @@ const GlobalSettingsView = lazy(() => import('./core/views/GlobalSettingsView').
 const DeviceLinkingView = lazy(() => import('./core/views/DeviceLinkingView').then(m => ({ default: m.DeviceLinkingView }))); // Lazy import DeviceLinkingView
 const ScheduleView = lazy(() => import('./core/components/ScheduleView').then(m => ({ default: m.ScheduleView }))); // Lazy import ScheduleView
 const CompanyManagement = lazy(() => import('./core/views/CompanyManagement').then(m => ({ default: m.CompanyManagement }))); // Lazy import CompanyManagement
+const RestaurantSafetyView = lazy(() => import('./modules/restaurant/views/RestaurantSafetyView').then(m => ({ default: m.RestaurantSafetyView }))); // Lazy import RestaurantSafetyView
 const CustomizationView = lazy(() => import('./core/views/GlobalSettingsView').then(m => ({ default: m.CustomizationView }))); // Lazy import CustomizationView
 const SupplierManagementView = lazy(() => import('./core/views/SupplierManagementView').then(m => ({ default: m.SupplierManagementView }))); // Lazy import SupplierManagementView
 const ServiceLayout = lazy(() => import('./modules/service/views/ServiceLayout').then(m => ({ default: m.ServiceLayout }))); // Lazy import ServiceLayout
@@ -362,6 +363,7 @@ export function AppContent() {
                 <Route path="/history" element={<RestaurantLayout defaultView="history" />} />
                 <Route path="/reservations" element={<RestaurantLayout defaultView="reservations" />} />
                 <Route path="/finance" element={<FinanceManagementView module="restaurant" shopId={selectedShopId} />} />
+                <Route path="/purchasing-forecast" element={<PurchasingForecastView />} />
                 <Route path="/schedule" element={<ScheduleView />} />
                 <Route path="/safety" element={<RestaurantSafetyView />} />
                 <Route path="/staff" element={<StaffDashboard staff={currentUser} enterprise={accountService.getCurrentTenant()} shops={shops.filter((s: any) => accessibleShopIds.includes(s.id))} schedules={[]} />} />

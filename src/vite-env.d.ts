@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-/// <reference types="vite-plugin-pwa/client" />
+/// <reference types="vite-plugin-pwa/client" /> // Mantido aqui, pois é o local correto para declarações globais
 
 interface ImportMetaEnv {
   readonly VITE_ENABLE_ANONYMOUS_AUTH: string;

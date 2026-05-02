@@ -18,7 +18,7 @@ import {
   runTransaction,
   increment
 } from 'firebase/firestore';
-import { isOfflineForFirestore } from '@firebase/firestore'; // Importar para verificar status offline
+import { idGenerator } from '../core/utils/idGenerator';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, auth, storage } from '../firebase';
 import { logger } from '../core/services/logger';
@@ -303,9 +303,9 @@ export const firebaseService = {
         : id;
       await setDoc(doc(db, colName, docId), payload, { merge: true });
     } catch (e: any) {
-      if (isOfflineForFirestore(e)) { // Auditoria: Enfileirar se offline
-        await backgroundSyncManager.enqueue(colName, id, 'save', payload);
-        logger.warn('sync', `Operação 'save' enfileirada para ${colName}/${id} devido a offline.`, { payload });
+      if (e.code === 'unavailable' || e.code === 'failed-precondition') { // Auditoria: Enfileirar se offline
+        await backgroundSyncManager.enqueue(colName, id, 'save', data);
+        logger.warn('sync', `Operação 'save' enfileirada para ${colName}/${id} devido a offline.`, { data });
       } else {
         handleFirestoreError(e, 'create', `${colName}/${id}`);
       }
@@ -318,11 +318,11 @@ export const firebaseService = {
       const payload = withTenantMetadata(colName, data);
       const docRef = await addDoc(collection(db, colName), payload);
       return docRef.id;
-    } catch (e: any) {
-      if (isOfflineForFirestore(e)) { // Auditoria: Enfileirar se offline
+    } catch (e: any) { // Auditoria: Enfileirar se offline
+      if (e.code === 'unavailable' || e.code === 'failed-precondition') {
         const tempId = idGenerator.generate('temp'); // Gerar um ID temporário para a fila
-        await backgroundSyncManager.enqueue(colName, tempId, 'save', payload);
-        logger.warn('sync', `Operação 'add' enfileirada para ${colName} devido a offline.`, { payload });
+        await backgroundSyncManager.enqueue(colName, tempId, 'save', data);
+        logger.warn('sync', `Operação 'add' enfileirada para ${colName} devido a offline.`, { data });
         return tempId; // Retorna um ID temporário para o frontend
       } else {
         return handleFirestoreError(e, 'create', colName);
@@ -338,10 +338,10 @@ export const firebaseService = {
         ? normalizeRolePermissionDocId(id, payload)
         : id;
       await updateDoc(doc(db, colName, docId), payload);
-    } catch (e: any) {
-      if (isOfflineForFirestore(e)) { // Auditoria: Enfileirar se offline
-        await backgroundSyncManager.enqueue(colName, id, 'update', payload);
-        logger.warn('sync', `Operação 'update' enfileirada para ${colName}/${id} devido a offline.`, { payload });
+    } catch (e: any) { // Auditoria: Enfileirar se offline
+      if (e.code === 'unavailable' || e.code === 'failed-precondition') {
+        await backgroundSyncManager.enqueue(colName, id, 'update', data);
+        logger.warn('sync', `Operação 'update' enfileirada para ${colName}/${id} devido a offline.`, { data });
       } else {
         handleFirestoreError(e, 'update', `${colName}/${id}`);
       }
@@ -369,7 +369,7 @@ export const firebaseService = {
       }
       await deleteDoc(doc(db, colName, id));
     } catch (e: any) {
-      if (isOfflineForFirestore(e)) { // Auditoria: Enfileirar se offline
+      if (e.code === 'unavailable' || e.code === 'failed-precondition') { // Auditoria: Enfileirar se offline
         await backgroundSyncManager.enqueue(colName, id, 'delete', null);
         logger.warn('sync', `Operação 'delete' enfileirada para ${colName}/${id} devido a offline.`);
       } else {
@@ -438,7 +438,7 @@ export const firebaseService = {
           const productRef = doc(db, 'products', pId);
           const productSnap = await tx.get(productRef);
           
-          if (!productSnap.exists()) continue;
+          if (!productSnap.exists()) return;
           const product = productSnap.data() as Product;
 
           // 1. Processa Composição (Combos/Kits) - Recursividade

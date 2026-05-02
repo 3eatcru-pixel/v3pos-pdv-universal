@@ -10,7 +10,9 @@ export type CoreEvents = {
   'order:created': any;
   'order:updated': any;
   'inventory:updated': any;
+  'inventory:reconciled': { id: string; stock: number };
   'hr:schedule_published': any;
+  'hr:staff_updated': { enterpriseId: string; staffId: string; role: string };
   'system:latency_update': any;
   'system:cloud_recommendation': any;
   'sync:needed': SyncEvent;
@@ -18,6 +20,7 @@ export type CoreEvents = {
   'system:sync_status': { status: 'synced' | 'failed' | 'pending' | 'offline'; lastSync: number; error?: string };
   'local:p2p_stock_notification': { productId: string; quantity: number; type?: string };
   'local:p2p_sale_notification': any;
+  'marketing:google_menu_synced': { shopId: string; syncId: string; driveFileId: string };
   'system:error': { message: string; code?: string; data?: any };
 };
 

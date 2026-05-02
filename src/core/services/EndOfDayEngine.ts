@@ -1,7 +1,7 @@
 import { firebaseService } from '../../services/firebaseService';
 import { logger } from './logger';
-import { generateSafeId, formatCurrency } from '../lib/utils';
 import { format, startOfDay } from 'date-fns';
+import { idGenerator } from '../utils/idGenerator';
 import { InventoryEngine } from './InventoryEngine';
 import { HREngine } from './HREngine';
 import { FinanceEngine } from './FinanceEngine';
@@ -92,7 +92,7 @@ export class EndOfDayEngine {
     if (inProgress) return inProgress;
 
     const session: EODSession = {
-      id: generateSafeId('eod'),
+      id: idGenerator.generate('eod'),
       enterpriseId,
       shopId,
       dateStr: today,
@@ -472,7 +472,7 @@ export class EndOfDayEngine {
    * Registra refeição de staff como uma despesa de consumo interno (Desconto no lucro).
    */
   static async recordStaffMealAsExpense(enterpriseId: string, shopId: string, meal: StaffMealEntry) {
-    const transactionId = generateSafeId('trans');
+    const transactionId = idGenerator.generate('trans');
     await firebaseService.saveItem('transactions', transactionId, {
       id: transactionId,
       enterpriseId,

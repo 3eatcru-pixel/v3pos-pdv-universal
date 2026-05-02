@@ -1,7 +1,7 @@
 import { firebaseService } from '../../services/firebaseService';
 import { Staff, PerformanceEvent, RolePermissions } from '../../types';
 import { logger } from './logger';
-import { idGenerator } from '../utils/idGenerator';
+import { idGenerator } from '../utils/idGenerator'; // Certificar que é uma exportação nomeada
 import { ImageProcessorEngine } from './ImageProcessorEngine';
 import { format } from 'date-fns';
 import { coreEventBus } from '../events/CoreEventBus';
