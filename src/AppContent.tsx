@@ -107,10 +107,6 @@ export function AppContent() {
   , [currentUser]);
 
   const accessibleShopIds = useMemo(() => {
-    // Nexus Standard: Garante que usuários sem loja atribuída (ex: novos funcionários) não vejam dados
-    // e que a lista de lojas seja filtrada por aquelas que realmente existem.
-    // Isso previne que IDs de lojas deletadas continuem aparecendo.
-    // Auditoria: Acessa shops diretamente para evitar dependência circular com filteredShops
     const baseShops = shops.map((s: any) => s.id);
     if (currentUser?.role === 'owner' || currentUser?.role === 'admin') return baseShops;
     
@@ -120,12 +116,6 @@ export function AppContent() {
   }, [currentUser, shops]);
 
   // --- Handlers ---
-  /**
-   * Função auxiliar para confirmar ações em múltiplas etapas
-   * Evita necessidade de múltiplos confirm() em cascata
-   */
-  const confirmMultiStep = async (steps: Array<{ title: string; message: string; icon?: string; }>): Promise<boolean> => {
-    for (let i = 0; i < steps.length; i++) { const step = steps[i]; const isFinal = i === steps.length - 1; const stepNumber = steps.length > 1 ? `(${i + 1}/${steps.length}) ` : ''; const finalFlag = isFinal ? '[FINAL] ' : ''; const message = `${finalFlag}${stepNumber}${step.title}\n\n${step.message}${isFinal ? '\n\n⚠️ Esta ação NÃO pode ser desfeita!' : ''}`; if (!confirm(message)) { return false; } } return true; };
   const handleLogout = () => {
     meshNetwork.disconnect();
     accountService.logout();
@@ -137,11 +127,6 @@ export function AppContent() {
 
   const handleUpdateTable = async (tableId: string, updates: Partial<any>) => {
     await firebaseService.updateItem('tables', tableId, updates);
-    // Auditoria: Atualiza o estado local das mesas para refletir a mudança imediatamente
-    setTables(prev => prev.map(t => t.id === tableId ? { ...t, ...updates } : t));
-    // Notifica outros terminais via mesh
-    meshNetwork.broadcast('table:updated', { id: tableId, ...updates });
-    logger.info('system', 'Mesa atualizada', { tableId, updates });
   };
 
   const handleRemoveTable = async (id: string) => {
@@ -150,16 +135,12 @@ export function AppContent() {
       return;
     }
     await firebaseService.deleteItem('tables', id);
-    setTables(prev => prev.filter(t => t.id !== id));
-    meshNetwork.broadcast('table:removed', { id });
-    logger.info('system', 'Mesa removida', { id });
   };
 
   const handleUpdateItemModifiers = (itemId: string, modifiers: any[]) => {
     // Lógica para atualizar modificadores no estado global de pedidos/carrinho
     console.log(`[CORE] Modificadores atualizados para o item ${itemId}`);
   };
-
 
   const handleSaveShift = async (shift: any) => {
     await ShiftEngine.saveShift({
@@ -175,13 +156,11 @@ export function AppContent() {
     if (confirm("Remover este turno?")) {
       await ShiftEngine.deleteShift(shiftId);
       setIsShiftModalOpen(false);
-      setShifts(prev => prev.filter(s => s.id !== shiftId));
-      logger.info('system', 'Turno removido', { shiftId });
     }
   };
 
   // --- Renderização ---
-  const dashboardStats = useMemo(() => ({ // Auditoria: dashboardStats precisa de mais dados para ser útil
+  const dashboardStats = useMemo(() => ({
     totalSalesToday: orders.filter((o: any) => o.status === 'delivered').reduce((acc: number, o: any) => acc + o.total, 0),
     activeTablesCount: tables.filter((t: any) => t.status === 'occupied').length,
     trend: 12
@@ -269,10 +248,10 @@ export function AppContent() {
                 <Route path="/orders" element={<RestaurantLayout defaultView="orders" />} />
                 <Route path="/inventory" element={<RestaurantLayout defaultView="inventory" />} />
                 <Route path="/finance" element={<FinanceManagementView module="restaurant" shopId={selectedShopId} />} />
-                <Route path="/staff" element={<StaffDashboard staff={currentUser} enterprise={accountService.getCurrentTenant()} shops={shops.filter((s: any) => accessibleShopIds.includes(s.id))} schedules={[]} />} />
+                <Route path="/staff" element={<StaffDashboard staff={currentUser} enterprise={accountService.getCurrentTenant()} shops={shops.filter((s: any) => accessibleShopIds.includes(s.id))} schedules={shifts} />} />
                 <Route path="/settings" element={<GlobalSettingsView enterpriseId={enterpriseId} />} />
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              </Routes> {/* Auditoria: Modais devem ser renderizados condicionalmente dentro das rotas ou por um sistema de portal */}
+              </Routes>
             </Suspense>
           </ErrorBoundary>
         </section>

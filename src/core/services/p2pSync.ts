@@ -14,8 +14,7 @@ class MeshNetwork {
   private syncInterval: any = null;
   private healthCheckInterval: any = null;
   private syncInProgress: boolean = false; // Flag para evitar sincronizações concorrentes
-  private lastSuccessfulSyncTime: number = 0; // Timestamp da última sincronização bem-sucedida
-  private lastSyncTime: number = 0; // Timestamp da última sincronização bem-sucedida
+  private lastSuccessfulSyncTime: number = 0; // Nexus Standard: Unificado para monitoramento de saúde
   private offlineAlertSent: boolean = false;
   private nextSyncTimestamp: number = 0;
   private pendingEventsCount: number = 0; // Fase 6: Contador de backlog local
@@ -292,8 +291,8 @@ class MeshNetwork {
       logger.debug('p2p', 'Cloud Sync já em andamento, ignorando nova solicitação.');
       return;
     }
-    if (!force && (now - this.lastSyncTime < MIN_SYNC_INTERVAL)) {
-      logger.debug('p2p', `Cloud Sync recente (${(now - this.lastSyncTime) / 1000}s atrás), ignorando solicitação não forçada.`);
+    if (!force && (now - this.lastSuccessfulSyncTime < MIN_SYNC_INTERVAL)) {
+      logger.debug('p2p', `Cloud Sync recente (${(now - this.lastSuccessfulSyncTime) / 1000}s atrás), ignorando solicitação não forçada.`);
       return;
     }
 
@@ -329,10 +328,9 @@ class MeshNetwork {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       const now = Date.now();
-      this.lastSyncTime = now;
       this.lastSuccessfulSyncTime = now; // Sucesso real
       this.offlineAlertSent = false; // Reseta o estado de alerta após sucesso
-      coreEventBus.emit('system:sync_status', { status: 'synced', lastSync: this.lastSyncTime });
+      coreEventBus.emit('system:sync_status', { status: 'synced', lastSync: this.lastSuccessfulSyncTime });
       logger.info('p2p', '✅ Sincronização Cloud concluída e dados auditados.');
     } catch (error) {
       logger.error('p2p', '❌ Falha na sincronização Cloud', { error });
@@ -363,7 +361,7 @@ class MeshNetwork {
         });
       }
 
-      coreEventBus.emit('system:sync_status', { status: 'failed', lastSync: this.lastSyncTime, error: err?.message || 'sync_error' } as any);
+      coreEventBus.emit('system:sync_status', { status: 'failed', lastSync: this.lastSuccessfulSyncTime, error: err?.message || 'sync_error' } as any);
     } finally {
       this.syncInProgress = false;
     }

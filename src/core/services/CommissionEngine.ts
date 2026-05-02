@@ -75,9 +75,10 @@ export class CommissionEngine {
         order.items.forEach(item => {
           if (item.status === 'voided') return;
 
-          const isService = (item as any).type === 'service';
+          // Nexus Standard: Identifica serviço pela categoria ou flag de tipo
+          const isService = item.category === 'Serviços' || (item as any).type === 'service';
           const rate = isService ? config.serviceRate : config.productRate;
-          const materialCost = Number((item as any).unitCost || 0) * item.quantity;
+          const materialCost = Number(item.cost || 0) * item.quantity;
           
           const revenue = (item.price * item.quantity);
           if (materialCost > revenue) {

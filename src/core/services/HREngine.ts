@@ -45,14 +45,16 @@ export class HREngine {
         }
       }
 
+      // Nexus Standard: Processamento de imagem unificado para evitar duplicidade lógica
+      if (photoFile) {
+        const processedBlob = await ImageProcessorEngine.processForUpload(photoFile);
+        const upload = await firebaseService.uploadFile(`staff_photos/${enterpriseId}/${id}`, processedBlob as File);
+        const uploaded = Array.isArray(upload) ? upload[0] : upload;
+        if (uploaded?.url) photoUrl = uploaded.url;
+      }
+
       // Lógica de Diferimento: Se solicitado, salva na fila de pendências em vez de aplicar agora
       if (deferUntilEOD) {
-        if (photoFile) {
-          const processedBlob = await ImageProcessorEngine.processForUpload(photoFile);
-          const upload = await firebaseService.uploadFile(`staff_photos/${enterpriseId}/${id}`, processedBlob as File);
-          const uploaded = Array.isArray(upload) ? upload[0] : upload;
-          if (uploaded?.url) photoUrl = uploaded.url;
-        }
         const pendingId = `pending-hr-${id}`;
         await firebaseService.saveItem('pending_staff_updates', pendingId, {
           id: pendingId,
@@ -68,13 +70,6 @@ export class HREngine {
         const staffRef = firebaseService.getDocRef('staff', id);
         const snap = await tx.get(staffRef);
         const currentData = snap.exists() ? snap.data() : {};
-
-        if (photoFile) {
-          const processedBlob = await ImageProcessorEngine.processForUpload(photoFile);
-          const upload = await firebaseService.uploadFile(`staff_photos/${enterpriseId}/${id}`, processedBlob as File);
-          const uploaded = Array.isArray(upload) ? upload[0] : upload;
-          if (uploaded?.url) photoUrl = uploaded.url;
-        }
 
         const finalData = {
           ...currentData,

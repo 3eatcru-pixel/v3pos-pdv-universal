@@ -35,10 +35,13 @@ export class SimulationEngine {
       const p = products[Math.floor(Math.random() * products.length)];
       const qty = 1;
       orderItems.push({
+        id: generateSafeId('mock-item'),
         productId: p.id,
         name: p.name,
         quantity: qty,
+        category: p.category || 'Geral',
         unitPrice: p.price,
+        cost: 0, // Mock cost
         totalPrice: p.price * qty,
       });
       total += p.price * qty;
@@ -52,6 +55,9 @@ export class SimulationEngine {
       staffId: randomStaff.id,
       staffName: randomStaff.name,
       total,
+      subtotal: total,
+      discount: 0,
+      totalCost: 0,
       status: 'delivered' as const,
       paymentMethod: 'pix' as const,
       createdAt: Date.now(),
@@ -233,6 +239,7 @@ export class SimulationEngine {
           const qty = 1 + Math.floor(Math.random() * 2);
           const price = 20 + (Math.random() * 100);
           orderItems.push({
+            id: generateSafeId('mock-item'),
             productId: prodId,
             name: `Item Simulado ${j+1}`,
             quantity: qty,

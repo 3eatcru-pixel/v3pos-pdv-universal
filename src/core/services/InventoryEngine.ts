@@ -152,32 +152,10 @@ export class InventoryEngine {
               if (adj.amount > 0) {
                 // DEDUÇÃO: Lógica FEFO (First Expired First Out)
                 if (currentTotal < adj.amount && !blockOnZero) {
-                  // Nexus Standard: Registra discrepância crítica no Audit Log para reconciliação posterior
-                  const auditId = generateSafeId('audit-neg');
-                  tx.set(firebaseService.getDocRef('audit_logs', auditId), {
-                    enterpriseId,
-                    shopId,
-                    type: 'NEGATIVE_STOCK_EVENT',
-                    severity: 'high',
-                    itemId: adj.id,
-                    itemName: data.name,
-                    details: `Venda permitida com estoque insuficiente. Saldo: ${currentTotal}, Necessário: ${adj.amount}. Estoque ficará negativo.`,
-                    timestamp: Date.now(),
-                    staffId: 'system-engine'
-                  });
-                  logger.warn('core', 'Estoque insuficiente: permitindo saldo negativo (Política de Unidade)', { id: adj.id });
+                  InventoryEngine.logNegativeStockDivergence(tx, enterpriseId, shopId, adj.id, data.name, currentTotal, adj.amount);
                 }
 
-                let remainingToDeduct = adj.amount;
-                // Ordena por data de validade (mais próxima primeiro)
-                batches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
-                
-                for (const batch of batches) {
-                  if (remainingToDeduct <= 0) break;
-                  const deduct = Math.min(batch.quantity, remainingToDeduct);
-                  batch.quantity -= deduct;
-                  remainingToDeduct -= deduct;
-                }
+                batches = InventoryEngine.applyFEFODeduction(batches, adj.amount);
               } else if (adj.amount < 0) {
                 // ADIÇÃO (Retorno): Incrementa no lote com maior validade ou cria um novo
                 const addQty = Math.abs(adj.amount);
@@ -245,8 +223,8 @@ export class InventoryEngine {
    * Converte uma reserva em venda efetiva.
    * Abate o reservedStock e o currentStock (via FEFO).
    */
-  static async releaseReservationToSale(enterpriseId: string, itemId: string, quantity: number, collection: 'inventory' | 'products' = 'inventory', existingTx?: any, blockOnZero: boolean = false) {
-    const logic = async (tx: any) => {
+  static async releaseReservationToSale(enterpriseId: string, itemId: string, quantity: number, collection: 'inventory' | 'products' = 'inventory', existingTx?: Transaction, blockOnZero: boolean = false) {
+    const logic = async (tx: Transaction) => {
       const ref = firebaseService.getDocRef(collection, itemId);
       const snap = await tx.get(ref);
       
@@ -272,21 +250,15 @@ export class InventoryEngine {
         // 1. Abate reserva
         const nextReserved = Math.max(0, currentReserved - quantity);
         
-        // 2. Abate estoque físico via FEFO
-        let remaining = quantity;
-        batches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
-        for (const batch of batches) {
-          if (remaining <= 0) break;
-          const deduct = Math.min(batch.quantity, remaining);
-          batch.quantity -= deduct;
-          remaining -= deduct;
-        }
+        batches = InventoryEngine.applyFEFODeduction(batches, quantity);
 
-        tx.update(ref, { 
-          [stockField]: currentTotal - quantity,
+        // Nexus Standard: Aplica a dedução física após a liberação da reserva
+        const nextStock = currentTotal - quantity;
+        tx.update(ref, {
+          [stockField]: nextStock,
           [reservedField]: nextReserved,
           batches,
-          updatedAt: Date.now() 
+          updatedAt: Date.now()
         });
       }
     };
@@ -306,8 +278,8 @@ export class InventoryEngine {
    * Realiza um ajuste manual direto no item de inventário ou produto.
    * Utiliza transação para garantir que o cálculo seja baseado no valor mais recente do servidor.
    */
-  static async manualAdjustment(itemId: string, delta: number, collection: 'inventory' | 'products' = 'inventory', existingTx?: any, blockOnZero: boolean = false) {
-    const updateLogic = async (tx: any) => {
+  static async manualAdjustment(itemId: string, delta: number, collection: 'inventory' | 'products' = 'inventory', existingTx?: Transaction, blockOnZero: boolean = false) {
+    const updateLogic = async (tx: Transaction) => {
       const ref = firebaseService.getDocRef(collection, itemId);
       const snap = await tx.get(ref);
       
@@ -331,16 +303,8 @@ export class InventoryEngine {
           throw new Error('Ajuste negado: Estoque ficaria negativo com a trava de segurança ativa.');
         }
 
-          if (delta < 0) {
-            // DEDUÇÃO MANUAL: Lógica FEFO
-            let remainingToDeduct = Math.abs(delta);
-            batches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
-            for (const batch of batches) {
-              if (remainingToDeduct <= 0) break;
-              const deduct = Math.min(batch.quantity, remainingToDeduct);
-              batch.quantity -= deduct;
-              remainingToDeduct -= deduct;
-            }
+        if (delta < 0) {
+          batches = InventoryEngine.applyFEFODeduction(batches, Math.abs(delta));
           } else if (delta > 0) {
             // ADIÇÃO MANUAL: Adiciona ao lote de maior validade ou cria genérico
             if (batches.length > 0) {
@@ -469,5 +433,37 @@ export class InventoryEngine {
         }
       }
     });
+  }
+
+  /**
+   * Nexus Standard: Aplica a lógica FEFO (First Expired, First Out)
+   */
+  private static applyFEFODeduction(batches: StockBatch[], amount: number): StockBatch[] {
+    let remaining = amount;
+    const updatedBatches = [...batches].sort((a, b) => a.expiryDate - b.expiryDate);
+    
+    for (const batch of updatedBatches) {
+      if (remaining <= 0) break;
+      const deduct = Math.min(batch.quantity, remaining);
+      batch.quantity -= deduct;
+      remaining -= deduct;
+    }
+    return updatedBatches;
+  }
+
+  private static logNegativeStockDivergence(tx: Transaction, entId: string, shopId: string, itemId: string, name: string, current: number, needed: number) {
+    const auditId = generateSafeId('audit-neg');
+    tx.set(firebaseService.getDocRef('audit_logs', auditId), {
+      enterpriseId: entId,
+      shopId,
+      type: 'NEGATIVE_STOCK_EVENT',
+      severity: 'high',
+      itemId,
+      itemName: name,
+      details: `Estoque insuficiente. Saldo: ${current}, Necessário: ${needed}.`,
+      timestamp: Date.now(),
+      staffId: 'system-engine'
+    });
+    logger.warn('core', 'Estoque insuficiente: permitindo saldo negativo', { itemId });
   }
 }

@@ -1,4 +1,4 @@
-import { ServiceAppointment, AppointmentStatus, OrderItem } from '../types'; // Adicionado OrderItem para a criação da Order
+import { ServiceAppointment, AppointmentStatus, OrderItem, Order } from '../types'; 
 import { integrationLayer } from '../../../integration/integrationLayer';
 import { firebaseService } from '../../../services/firebaseService';
 import { idGenerator } from '../../../core/utils/idGenerator';
@@ -124,18 +124,28 @@ class SchedulingService {
           shopId: app.shopId,
           customerId: app.clientId,
           staffId: app.providerId,
-          items: [{ // Auditoria: Adicionado cost e category para OrderItem
+          items: [{ 
+            id: idGenerator.generate('item'),
             productId: app.serviceId,
             quantity: 1,
-            price: app.totalPrice,
-            name: 'Serviço Executado'
-          }],
+            price: app.totalPrice, 
+            unitPrice: app.totalPrice, // Nexus standard field
+            totalPrice: app.totalPrice,
+            name: 'Serviço Executado',
+            category: 'Serviços',
+            cost: 0,
+            status: 'delivered'
+          } as OrderItem],
+          subtotal: app.totalPrice,
+          discount: 0,
           total: app.totalPrice,
-          status: 'paid', // Assume pago na conclusão do serviço no fluxo simplificado
+          totalCost: 0,
+          status: 'delivered', 
           createdAt: Date.now(),
           source: 'service_appointment',
+          orderType: 'takeaway',
           referenceId: app.id
-        } as OrderItem[]); // Cast para OrderItem[]
+        } as Order);
         logger.info('service', 'Pedido de venda gerado a partir de agendamento concluído', { orderId });
       } catch (err) {
         logger.error('service', 'Erro ao gerar pedido financeiro para agendamento', { error: err });
