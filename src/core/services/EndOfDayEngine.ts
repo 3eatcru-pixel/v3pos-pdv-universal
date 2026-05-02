@@ -4,6 +4,8 @@ import { generateSafeId, formatCurrency } from '../lib/utils';
 import { format, startOfDay } from 'date-fns';
 import { InventoryEngine } from './InventoryEngine';
 import { HREngine } from './HREngine';
+import { FinanceEngine } from './FinanceEngine';
+import { GoogleBusinessEngine } from './GoogleBusinessEngine';
 
 export interface EODChecklistItem {
   id: string;
@@ -56,6 +58,12 @@ export interface EODSession {
     expectedCash: number;
     actualCash: number;
     difference: number;
+    expectedCard: number;
+    actualCard: number;
+    expectedPix: number;
+    actualPix: number;
+    expectedFiado: number;
+    totalRevenue: number;
   };
   startedAt: number;
   completedAt?: number;
@@ -102,14 +110,68 @@ export class EndOfDayEngine {
       wastage: [],
       staffMeals: [],
       logs: {},
-      financialSummary: { expectedCash: 0, actualCash: 0, difference: 0 },
+      financialSummary: { 
+        expectedCash: 0, 
+        actualCash: 0, 
+        difference: 0,
+        expectedCard: 0,
+        actualCard: 0,
+        expectedPix: 0,
+        actualPix: 0,
+        expectedFiado: 0,
+        totalRevenue: 0
+      },
       startedAt: Date.now(),
       midShiftSyncDone: false,
       debtPaymentsTotal: 0
     };
 
     await firebaseService.saveItem('eod_sessions', session.id, session);
+
+    // Marketing Sync: Atualiza o Google Business para status Online/Aberto
+    await GoogleBusinessEngine.updateBusinessStatus(enterpriseId, shopId, true);
+
     return session;
+  }
+
+  /**
+   * Calcula os valores financeiros esperados para a sessão baseados nas vendas do período.
+   * Crucial para a integração com o FinanceEngine.
+   */
+  static async calculateFinancialExpectations(enterpriseId: string, shopId: string, startedAt: number) {
+    const orders = await firebaseService.getDocsByQuery('orders', [
+      { field: 'enterpriseId', op: '==', value: enterpriseId },
+      { field: 'shopId', op: '==', value: shopId },
+      { field: 'status', op: '==', value: 'delivered' },
+      { field: 'closedAt', op: '>=', value: startedAt }
+    ]);
+
+    const expectations = {
+      cash: 0,
+      card: 0,
+      pix: 0,
+      fiado: 0,
+      total: 0
+    };
+
+    orders.forEach((o: any) => {
+      expectations.total += o.total;
+      if (o.paymentMethod === 'cash') expectations.cash += o.total;
+      else if (o.paymentMethod === 'card') expectations.card += o.total;
+      else if (o.paymentMethod === 'pix') expectations.pix += o.total;
+      else if (o.paymentMethod === 'fiado') expectations.fiado += o.total;
+      
+      // Trata pagamentos parciais/split se existirem
+      if (o.payments) {
+        o.payments.forEach((p: any) => {
+          if (p.method === 'cash') expectations.cash += p.amount;
+          else if (p.method === 'card') expectations.card += p.amount;
+          else if (p.method === 'pix') expectations.pix += p.amount;
+        });
+      }
+    });
+
+    return expectations;
   }
 
   /**
@@ -289,6 +351,9 @@ export class EndOfDayEngine {
         // 1.5 Auditoria HR: Aplica mudanças de cargo/perfil que estavam na fila
         await HREngine.applyPendingUpdates(current.enterpriseId);
 
+        // 1.6 Marketing Sync: Atualiza o Google Business para status Offline/Fechado
+        await GoogleBusinessEngine.updateBusinessStatus(current.enterpriseId, current.shopId, false);
+
         const completedAt = Date.now();
         tx.update(ref, {
           ...finalData,
@@ -297,9 +362,27 @@ export class EndOfDayEngine {
           updatedAt: completedAt
         });
 
-        // Auditoria: Gera log crítico se houver quebra de caixa
+        // INTEGRAÇÃO FINANCEIRA: Registra a quebra de caixa no Ledger
         const diff = finalData.financialSummary?.difference || 0;
         if (Math.abs(diff) > 0.01) {
+          // Cria transação de ajuste no FinanceEngine
+          const adjType = diff < 0 ? 'expense' : 'income';
+          const adjCategory = 'Ajuste de Caixa (EOD)';
+          
+          await FinanceEngine.createTransaction({
+            enterpriseId: current.enterpriseId,
+            shopId: current.shopId,
+            module: 'generic',
+            staffId: current.staffId,
+            staffName: current.staffName,
+            type: adjType,
+            amount: Math.abs(diff),
+            category: adjCategory,
+            description: `Ajuste automático por quebra de caixa no turno ${current.shiftNumber}. Diferença apurada: R$ ${diff.toFixed(2)}`,
+            referenceId: sessionId
+          });
+
+          // Auditoria: Gera log crítico
           await firebaseService.addAuditLog({
             enterpriseId: current.enterpriseId,
             shopId: current.shopId,

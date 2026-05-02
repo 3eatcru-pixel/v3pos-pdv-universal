@@ -100,11 +100,16 @@ export function AppContent() {
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
+  const [selectedScheduleDate, setSelectedScheduleDate] = useState(new Date());
 
   // Permissões
-  const currentPermissions = useMemo(() => 
-    MOCK_PERMISSIONS.find(p => p.role === currentUser?.role) || MOCK_PERMISSIONS.find(p => p.role === 'waiter')!
-  , [currentUser]);
+  const currentPermissions = useMemo(() => {
+    const roleId = currentUser?.role;
+    const dbPermission = rolePermissions.find((p: any) => p.role === roleId);
+    if (dbPermission) return dbPermission;
+    
+    return MOCK_PERMISSIONS.find(p => p.role === roleId) || MOCK_PERMISSIONS.find(p => p.role === 'waiter')!;
+  }, [currentUser, rolePermissions]);
 
   const accessibleShopIds = useMemo(() => {
     const baseShops = shops.map((s: any) => s.id);
@@ -114,6 +119,19 @@ export function AppContent() {
     // Nexus Standard: Intersecção para garantir que o usuário não tenha acesso a IDs de lojas deletadas
     return assigned.filter((id: string) => baseShops.includes(id));
   }, [currentUser, shops]);
+
+  const availableAreas = useMemo(() => 
+    Array.from(new Set(tables.map((t: any) => t.area || 'Salão Principal')))
+  , [tables]);
+
+  // Lógica de Ativação de Módulos
+  const currentBusinessConfig = useMemo(() => 
+    businessConfigs.find(c => c.enterpriseId === enterpriseId), 
+    [businessConfigs, enterpriseId]
+  );
+
+  const isModuleEnabled = (modId: string) => 
+    currentBusinessConfig?.enabledModules?.includes(modId) || modId === 'restaurant';
 
   // --- Handlers ---
   const handleLogout = () => {
@@ -184,14 +202,75 @@ export function AppContent() {
           </button>
         </div>
 
+        {/* Shop Switcher Visualmente Integrado */}
+        {!isSidebarCollapsed && shops.length > 0 && (
+          <div className="px-2 mb-8">
+            <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] mb-2 block">Unidade Selecionada</label>
+            <div className="relative group">
+              <select 
+                value={selectedShopId || ''}
+                onChange={(e) => setSelectedShopId(e.target.value)}
+                className="w-full bg-slate-800/50 border border-slate-700 text-slate-200 text-xs font-bold py-3 pl-4 pr-10 rounded-xl appearance-none outline-none focus:border-emerald-500 transition-all cursor-pointer"
+              >
+                {shops.filter(s => accessibleShopIds.includes(s.id)).map(shop => (
+                  <option key={shop.id} value={shop.id}>{shop.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none group-hover:text-slate-300" />
+            </div>
+          </div>
+        )}
+
         <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar">
+          {!isSidebarCollapsed && <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-4 mb-2 block">Operação</span>}
           <NavItem icon={<LayoutDashboard />} label="Dashboard" active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} isCollapsed={isSidebarCollapsed} />
           <NavItem icon={<TableIcon />} label="Mesas" active={currentPath === 'tables'} onClick={() => navigate('/tables')} isCollapsed={isSidebarCollapsed} />
+          {isModuleEnabled('restaurant') && (
+            <>
+              <NavItem icon={<ClipboardList />} label="Cozinha" active={currentPath === 'kitchen'} onClick={() => navigate('/kitchen')} isCollapsed={isSidebarCollapsed} />
+              <NavItem icon={<Calendar />} label="Reservas" active={currentPath === 'reservations'} onClick={() => navigate('/reservations')} isCollapsed={isSidebarCollapsed} />
+            </>
+          )}
           <NavItem icon={<ShoppingCart />} label="PDV" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />
           <NavItem icon={<Package />} label="Estoque" active={currentPath === 'inventory'} onClick={() => navigate('/inventory')} isCollapsed={isSidebarCollapsed} />
           
+          {isModuleEnabled('service') && (
+            <div className="pt-4 mt-4 border-t border-slate-800">
+              {!isSidebarCollapsed && <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-4 mb-2 block">Serviços</span>}
+              <NavItem icon={<Briefcase />} label="Unidade de Serviço" active={currentPath === 'service-mgmt'} onClick={() => navigate('/service-mgmt')} isCollapsed={isSidebarCollapsed} />
+            </div>
+          )}
+
+          {isModuleEnabled('retail') && (
+            <div className="pt-4 mt-4 border-t border-slate-800">
+              {!isSidebarCollapsed && <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-4 mb-2 block">Varejo</span>}
+              <NavItem icon={<Tag />} label="Frente de Loja" active={currentPath === 'orders'} onClick={() => navigate('/orders')} isCollapsed={isSidebarCollapsed} />
+            </div>
+          )}
+
+          {isModuleEnabled('marketing_sync') && (
+            <div className="pt-4 mt-4 border-t border-slate-800">
+              {!isSidebarCollapsed && <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-4 mb-2 block">Canais Externos</span>}
+              <NavItem icon={<PieChart />} label="Google Business" active={currentPath === 'customization'} onClick={() => navigate('/customization')} isCollapsed={isSidebarCollapsed} />
+            </div>
+          )}
+
+          {isModuleEnabled('construction') && (
+            <div className="pt-4 mt-4 border-t border-slate-800">
+              {!isSidebarCollapsed && <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-4 mb-2 block">Construção</span>}
+              <NavItem icon={<HardHat />} label="Obras" active={currentPath === 'dashboard'} onClick={() => navigate('/dashboard')} isCollapsed={isSidebarCollapsed} />
+              <NavItem icon={<Hammer />} label="Logística" active={currentPath === 'inventory'} onClick={() => navigate('/inventory')} isCollapsed={isSidebarCollapsed} />
+            </div>
+          )}
+
           <div className="pt-4 mt-4 border-t border-slate-800">
             {!isSidebarCollapsed && <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-4 mb-2 block">Gestão</span>}
+            <NavItem icon={<UtensilsCrossed />} label="Itens e Cardápio" active={currentPath === 'menu-mgmt'} onClick={() => navigate('/menu-mgmt')} isCollapsed={isSidebarCollapsed} />
+            <NavItem icon={<BarChart3 />} label="Relatórios" active={currentPath === 'reports'} onClick={() => navigate('/reports')} isCollapsed={isSidebarCollapsed} />
+            <NavItem icon={<History />} label="Histórico" active={currentPath === 'history'} onClick={() => navigate('/history')} isCollapsed={isSidebarCollapsed} />
+            <NavItem icon={<PrinterIcon />} label="Impressoras" active={currentPath === 'printer-mgmt'} onClick={() => navigate('/printer-mgmt')} isCollapsed={isSidebarCollapsed} />
+            <NavItem icon={<Truck />} label="Fornecedores" active={currentPath === 'supplier-mgmt'} onClick={() => navigate('/supplier-mgmt')} isCollapsed={isSidebarCollapsed} />
+            <NavItem icon={<Building2 />} label="Gestão da Unidade" active={currentPath === 'company-mgmt'} onClick={() => navigate('/company-mgmt')} isCollapsed={isSidebarCollapsed} />
             <NavItem icon={<Wallet />} label="Financeiro" active={currentPath === 'finance'} onClick={() => navigate('/finance')} isCollapsed={isSidebarCollapsed} />
             <NavItem icon={<Users />} label="Equipe" active={currentPath === 'staff'} onClick={() => navigate('/staff')} isCollapsed={isSidebarCollapsed} />
             <NavItem icon={<Settings />} label="Ajustes" active={currentPath === 'settings'} onClick={() => navigate('/settings')} isCollapsed={isSidebarCollapsed} />
@@ -244,11 +323,53 @@ export function AppContent() {
             <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" /></div>}>
               <Routes>
                 <Route path="/dashboard" element={<RestaurantDashboard setCurrentView={(v: string) => navigate(`/${v}`)} setSelectedShopId={setSelectedShopId} />} />
-                <Route path="/tables" element={<RestaurantLayout defaultView="tables" />} />
-                <Route path="/orders" element={<RestaurantLayout defaultView="orders" />} />
+                <Route path="/tables" element={
+                  <RestaurantLayout 
+                    defaultView="tables" 
+                    onEditTable={(table: Table) => {
+                      setEditingTable(table);
+                      setIsEditTableModalOpen(true);
+                    }}
+                  />
+                } />
+                <Route path="/pending-orders" element={
+                  <RestaurantLayout 
+                    defaultView="pending_orders" 
+                    onEditTable={(table: Table) => {
+                      setEditingTable(table);
+                      setIsEditTableModalOpen(true);
+                    }}
+                    onOpenModifiers={(item: OrderItem) => {
+                      setEditingOrderItem(item);
+                      setIsModifierModalOpen(true);
+                    }}
+                  />
+                } />
+                <Route path="/orders" element={
+                  <RestaurantLayout 
+                    defaultView="orders" 
+                    onOpenModifiers={(item: OrderItem) => {
+                      setEditingOrderItem(item);
+                      setIsModifierModalOpen(true);
+                    }}
+                  />
+                } />
+                <Route path="/kitchen" element={isModuleEnabled('restaurant') ? <RestaurantLayout defaultView="kitchen" /> : <Navigate to="/dashboard" />} />
+                <Route path="/bar" element={isModuleEnabled('restaurant') ? <RestaurantLayout defaultView="bar" /> : <Navigate to="/dashboard" />} />
                 <Route path="/inventory" element={<RestaurantLayout defaultView="inventory" />} />
+                <Route path="/menu-mgmt" element={<RestaurantLayout defaultView="menu" />} />
+                <Route path="/reports" element={<RestaurantLayout defaultView="reports" />} />
+                <Route path="/history" element={<RestaurantLayout defaultView="history" />} />
+                <Route path="/reservations" element={<RestaurantLayout defaultView="reservations" />} />
                 <Route path="/finance" element={<FinanceManagementView module="restaurant" shopId={selectedShopId} />} />
+                <Route path="/schedule" element={<ScheduleView />} />
+                <Route path="/safety" element={<RestaurantSafetyView />} />
                 <Route path="/staff" element={<StaffDashboard staff={currentUser} enterprise={accountService.getCurrentTenant()} shops={shops.filter((s: any) => accessibleShopIds.includes(s.id))} schedules={[]} />} />
+                <Route path="/printer-mgmt" element={<PrinterManagementView onNew={() => {}} onEdit={() => {}} />} />
+                <Route path="/supplier-mgmt" element={<SupplierManagementView module="restaurant" />} />
+                <Route path="/company-mgmt" element={<CompanyManagement />} />
+                <Route path="/service-mgmt" element={<ServiceLayout />} />
+                <Route path="/customization" element={<CustomizationView enterpriseId={enterpriseId} />} />
                 <Route path="/settings" element={<GlobalSettingsView enterpriseId={enterpriseId} />} />
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
               </Routes>
@@ -262,7 +383,7 @@ export function AppContent() {
         isOpen={isEditTableModalOpen} 
         onClose={() => setIsEditTableModalOpen(false)} 
         editingTable={editingTable} 
-        availableAreas={Array.from(new Set(tables.map((t: any) => t.area || 'Salão Principal')))} 
+        availableAreas={availableAreas} 
         onUpdate={handleUpdateTable} 
         onDelete={handleRemoveTable} 
         setEditingTable={setEditingTable} 
@@ -279,7 +400,7 @@ export function AppContent() {
         onClose={() => setIsShiftModalOpen(false)} 
         editingShift={editingShift} 
         staff={staff} 
-        selectedDate={new Date()} 
+        selectedDate={selectedScheduleDate} 
         onSave={handleSaveShift} 
         onDelete={handleDeleteShift} 
       />

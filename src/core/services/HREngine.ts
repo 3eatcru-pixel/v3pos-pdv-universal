@@ -1,7 +1,7 @@
 import { firebaseService } from '../../services/firebaseService';
 import { Staff, PerformanceEvent, RolePermissions } from '../../types';
 import { logger } from './logger';
-import { generateSafeId } from '../lib/utils'; // Assumindo que moveremos a utilidade para cá
+import { idGenerator } from '../utils/idGenerator';
 import { ImageProcessorEngine } from './ImageProcessorEngine';
 import { format } from 'date-fns';
 import { coreEventBus } from '../events/CoreEventBus';
@@ -30,7 +30,7 @@ export class HREngine {
    * Garante que o vínculo seja com a EnterpriseId para visibilidade global.
    */
   static async saveStaff(enterpriseId: string, staffData: Partial<Staff>, photoFile?: File, creatorRole?: string, deferUntilEOD: boolean = false): Promise<string> {
-    const id = staffData.id || `staff-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const id = staffData.id || idGenerator.generate('staff');
     let photoUrl = staffData.photo || '';
 
     try {
@@ -99,6 +99,15 @@ export class HREngine {
       });
 
       logger.info('staff', 'Colaborador salvo no nível enterprise', { id, enterpriseId });
+      
+      // Notifica o barramento para que motores de integração (como GoogleBusiness) 
+      // saibam que os dados da unidade mudaram.
+      coreEventBus.emit('hr:staff_updated', { 
+        enterpriseId, 
+        staffId: id, 
+        role: staffData.role 
+      });
+
       return id;
     } catch (error) {
       logger.error('staff', 'Erro ao salvar colaborador centralizado', { error });
@@ -209,7 +218,7 @@ export class HREngine {
           updatedAt: Date.now()
         });
 
-        const auditId = `audit-${generateSafeId('term')}`;
+        const auditId = idGenerator.generate('audit');
         tx.set(firebaseService.getDocRef('audit_logs', auditId), {
           enterpriseId,
           shopId: 'global',
@@ -284,7 +293,7 @@ export class HREngine {
    * Registra o feedback de satisfação de um colaborador.
    */
   static async recordStaffSurvey(params: Omit<StaffSurveyEntry, 'id' | 'timestamp'>): Promise<string> {
-    const surveyId = generateSafeId('survey');
+    const surveyId = idGenerator.generate('survey');
     const survey: StaffSurveyEntry = {
       ...params,
       id: surveyId,
@@ -375,7 +384,7 @@ export class HREngine {
     content: string,
     type: 'info' | 'warning' | 'critical' = 'info'
   ) {
-    return firebaseService.saveItem('internal_messages', generateSafeId('msg'), {
+    return firebaseService.saveItem('internal_messages', idGenerator.generate('msg'), {
       enterpriseId,
       userId,
       title,

@@ -55,7 +55,7 @@ class BOMEngine {
       // Caso 2: Produto simples (Varejo comum) - baixa ele mesmo como insumo
       else {
         adjustments.push({
-          inventoryItemId: item.id || (item as OrderItem).productId, // Pode ser id do CartItem ou productId do OrderItem
+          inventoryItemId: targetId, 
           quantityToDeduct: item.quantity,
           name: item.name
         });

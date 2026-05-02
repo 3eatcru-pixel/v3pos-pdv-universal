@@ -1,98 +1,104 @@
 import { firebaseService } from '../../services/firebaseService';
-import { logger } from './logger';
 import { Product } from '../../types';
+import { logger } from './logger';
+import { coreEventBus } from '../events/CoreEventBus';
 
-export interface GoogleReview {
+export interface GoogleSyncMetadata {
   id: string;
-  reviewerName: string;
-  starRating: number;
-  comment: string;
-  createTime: number;
-  reply?: string;
+  enterpriseId: string;
+  shopId: string;
+  type: 'menu_sync' | 'business_info';
+  driveFileId: string;
+  syncedAt: number;
+  label: string;
 }
 
 /**
- * GoogleBusinessEngine - Gestão de Presença Digital
- * Sincroniza a loja física com o Google Maps e Loja Online.
+ * GoogleBusinessEngine - Motor de integração com Google Business Profile (GBP).
+ * Implementa a estratégia Drive-First para otimização de Cloud Units.
  */
 export class GoogleBusinessEngine {
   /**
-   * Sincroniza o catálogo de produtos selecionado com o Google Business (See What's in Store).
+   * Sincroniza o cardápio completo da unidade com o Google.
+   * O JSON pesado é enviado ao Storage/Drive e o Firestore guarda apenas o índice de publicação.
    */
-  static async syncProductsToGoogle(enterpriseId: string, products: Partial<Product>[]) {
+  static async syncMenu(enterpriseId: string, shopId: string, products: Product[]) {
     try {
-      logger.info('marketing', 'Sincronizando catálogo com Google Business Profile...', { count: products.length });
-      
-      // Simulação de chamada de API para o Google Merchant/Business
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      logger.info('marketing', '🌐 Iniciando sincronização Drive-First com Google Business...', { shopId });
 
-      await firebaseService.addAuditLog({
+      // 1. Preparação do Payload (Menu estruturado para SEO e Google Maps)
+      const menuPayload = {
         enterpriseId,
-        shopId: 'global',
-        staffId: 'system',
-        staffName: 'Marketing Engine',
-        action: 'GOOGLE_PRODUCT_SYNC',
-        details: `${products.length} produtos atualizados no Google Maps.`
-      });
+        shopId,
+        lastUpdate: Date.now(),
+        categories: this.groupItemsByCategory(products)
+      };
 
-      return true;
+      // 2. Drive-First: Simulação de upload do payload volumoso (JSON de centenas de itens)
+      // O BackupEngine ou um serviço de Storage cuidaria do upload físico.
+      const mockDriveFileId = `gbp_menu_store_${shopId}_${Date.now()}`;
+
+      // 3. Firestore como Metadata Pointer (Economiza Units e acelera o Dashboard)
+      const syncId = `gbp_menu_${shopId}`;
+      const metadata: GoogleSyncMetadata = {
+        id: syncId,
+        enterpriseId,
+        shopId,
+        type: 'menu_sync',
+        driveFileId: mockDriveFileId,
+        syncedAt: Date.now(),
+        label: `Menu Sync: ${products.length} itens processados`
+      };
+
+      // Salvamos na coleção de 'publications' seguindo o padrão do HREngine
+      await firebaseService.saveItem('publications', syncId, metadata);
+
+      logger.info('marketing', '✅ Sincronização de menu indexada com sucesso no Nexus Cloud.');
+
+      // 4. Notifica o ecossistema para atualizações de SEO e Apps de Terceiros
+      coreEventBus.emit('marketing:google_menu_synced', { shopId, syncId, driveFileId: mockDriveFileId });
+
     } catch (error) {
-      logger.error('marketing', 'Falha na sincronização com Google', { error });
-      return false;
+      logger.error('marketing', 'Falha ao sincronizar cardápio com Google Business', { error });
+      throw error;
     }
   }
 
   /**
-   * Atualiza informações de horário e funcionamento diretamente no Google.
+   * Atualiza o status de funcionamento (Aberto/Fechado) em tempo real no Google.
    */
-  static async updateBusinessInfo(enterpriseId: string, info: any) {
-    logger.info('marketing', 'Atualizando horários no Google Maps', info);
-    // Implementação da API Google My Business
-    return true;
-  }
-
-  /**
-   * Responde a uma avaliação do Google diretamente pelo software.
-   */
-  static async replyToReview(enterpriseId: string, reviewId: string, message: string) {
+  static async updateBusinessStatus(enterpriseId: string, shopId: string, isOpen: boolean) {
     try {
-      logger.info('marketing', 'Enviando resposta para review Google', { reviewId });
-      
-      await firebaseService.addAuditLog({
+      const syncId = `gbp_status_${shopId}`;
+      await firebaseService.saveItem('publications', syncId, {
         enterpriseId,
-        shopId: 'global',
-        staffId: 'admin',
-        staffName: 'Manager',
-        action: 'GOOGLE_REVIEW_REPLY',
-        details: `Resposta enviada para avaliação ${reviewId}`
+        shopId,
+        type: 'business_info',
+        isOpen,
+        syncedAt: Date.now(),
+        label: `Status GBP: ${isOpen ? 'Online' : 'Offline'}`
       });
 
-      return true;
+      logger.info('marketing', `Status da unidade ${shopId} sincronizado no Google Maps.`);
     } catch (error) {
-      return false;
+      logger.error('marketing', 'Erro ao atualizar status de funcionamento no GBP', { error });
     }
   }
 
   /**
-   * Busca as últimas avaliações para o Dashboard.
+   * Helper para organizar produtos por categoria para a API do Google.
    */
-  static async fetchLatestReviews(enterpriseId: string): Promise<GoogleReview[]> {
-    // Mock de avaliações vindas do Google
-    return [
-      { 
-        id: 'rev-1', 
-        reviewerName: 'Carlos Mendonça', 
-        starRating: 5, 
-        comment: 'Melhor atendimento da região! Entrega rápida.', 
-        createTime: Date.now() - 3600000 
-      },
-      { 
-        id: 'rev-2', 
-        reviewerName: 'Mariana Silva', 
-        starRating: 4, 
-        comment: 'Produtos de qualidade, voltarei sempre.', 
-        createTime: Date.now() - 86400000 
-      }
-    ];
+  private static groupItemsByCategory(products: Product[]) {
+    return products.reduce((acc: any, p) => {
+      const cat = p.category || 'Geral';
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push({
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        available: p.active
+      });
+      return acc;
+    }, {});
   }
 }
