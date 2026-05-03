@@ -18,16 +18,12 @@
     "paths": {
       "@/*": [
         "./*"
-      ]
-      ,
+      ],
       "motion/react": [
         "./src/lib/motion-shims"
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true,
-    "types": [
-      "vite-plugin-pwa/client"
-    ]
+    "noEmit": true
   }
 }
