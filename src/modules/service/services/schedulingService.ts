@@ -1,4 +1,5 @@
-import { ServiceAppointment, AppointmentStatus, OrderItem, Order } from '../types'; 
+import { ServiceAppointment, AppointmentStatus } from '../types'; 
+import { Order, OrderItem } from '../../../types';
 import { integrationLayer } from '../../../integration/integrationLayer';
 import { firebaseService } from '../../../services/firebaseService';
 import { idGenerator } from '../../../core/utils/idGenerator';

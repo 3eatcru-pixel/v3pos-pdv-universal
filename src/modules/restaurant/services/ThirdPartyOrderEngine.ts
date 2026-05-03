@@ -435,6 +435,8 @@ export class ThirdPartyOrderEngine {
       staffId: input.staffId,
       items: orderItems,
       status: 'pending',
+      timestamp: Date.now(),
+      createdAt: new Date().toISOString(),
       startTime: Date.now(),
       discount: 0,
       subtotal,

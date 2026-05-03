@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { accountService } from '../services/accountService';
-import { firebaseService } from '../../services/firebaseService';
+import { accountService } from '../core/services/accountService'; // Corrected path
+import { firebaseService } from './firebaseService'; // Corrected path
 import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../../firebase'; // Corrigido para import relativo à nova pasta
+import { db } from '../firebase'; // Corrected path
 
 type ThemeMode = 'standard' | 'festive' | 'dark_neon';
 

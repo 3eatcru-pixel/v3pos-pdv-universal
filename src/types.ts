@@ -4,11 +4,9 @@
  */
 
 import {
-  Enterprise, 
-  Shop, 
-  Staff as CoreStaff, 
-  User as CoreUser, 
-  CoreProduct, 
+  Staff as CoreStaffBase,
+  User as CoreUserBase,
+  CoreProduct as BaseProduct,
   CoreSale,
   BusinessMode,
   UserRole as CoreUserRole,
@@ -16,8 +14,7 @@ import {
   CustomFieldDefinition
 } from './core/types';
 
-export type { Enterprise, Shop, BusinessMode, CustomFieldDefinition };
-export type { CoreProduct as Product, CoreSale as Sale }; // Exportando Product e Sale do core
+export type { BusinessMode, CustomFieldDefinition, CoreSale, BaseProduct };
 
 export type SystemMode = 'restaurant' | 'distributor' | 'service';
 export type TableStatus = 'free' | 'occupied' | 'reserved' | 'closed';
@@ -70,7 +67,7 @@ export interface StaffSchedule {
   status: 'planned' | 'confirmed' | 'missing' | 'completed';
 }
 
-export interface User extends CoreUser {
+export interface User extends CoreUserBase { 
   createdAt: number;
   providerData?: {
     providerId: string;
@@ -90,17 +87,32 @@ export interface InviteCode {
   usedBy?: string; // usr_xxx
 }
 
-export interface Enterprise { // Consolidando Enterprise para incluir branding e configs
+export interface Shop {
+  id: string;
+  enterpriseId: string;
+  name: string;
+  regionId?: string;
+  settings: {
+    name: string;
+    cnpj?: string;
+    address?: string;
+  };
+}
+
+export interface Enterprise {
   id: string;
   name: string;
+  businessType?: 'restaurant' | 'retail' | 'market' | 'service';
+  ownerId?: string;
   owners?: string[];
   branding?: {
     logo?: string;
     customName?: string;
+    brandColor?: string;
     themeMode?: 'standard' | 'festive' | 'dark_neon';
   };
-  googleDriveBackupEnabled?: boolean;
-  backupIntervalMinutes?: number;
+  googleDriveBackupEnabled: boolean;
+  backupIntervalMinutes: number;
 }
 export type Company = Enterprise; // Company é um alias para Enterprise
 export interface Region {
@@ -128,7 +140,7 @@ export interface RolePermissions {
   };
 }
 
-export type View = 'holding' | 'dashboard' | 'tables' | 'orders' | 'kitchen' | 'bar' | 'inventory' | 'reports' | 'history' | 'staff_mgmt' | 'menu_mgmt' | 'schedule' | 'safety' | 'settings' | 'customization' | 'finance_mgmt' | 'supplier_mgmt' | 'service_mgmt' | 'company_mgmt' | 'pending_orders' | 'staff_pnl' | 'third_party_orders' | 'purchasing_forecast';
+export type View = 'holding' | 'dashboard' | 'tables' | 'orders' | 'kitchen' | 'bar' | 'inventory' | 'reports' | 'history' | 'staff_mgmt' | 'menu_mgmt' | 'schedule' | 'safety' | 'settings' | 'customization' | 'finance_mgmt' | 'supplier_mgmt' | 'service_mgmt' | 'company_mgmt' | 'pending_orders' | 'staff_pnl' | 'third_party_orders' | 'purchasing_forecast' | 'payout_approval' | 'map_view' | 'user_inbox' | 'module_management';
 
 export type PrinterType = 'kitchen' | 'receipt' | 'report' | 'bar';
 
@@ -154,7 +166,7 @@ export interface PrintJob {
   error?: string;
 }
 
-export interface Reservation { // Exportando Reservation
+export interface Reservation {
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -167,7 +179,7 @@ export interface Reservation { // Exportando Reservation
   status: 'pending' | 'confirmed' | 'arrived' | 'cancelled';
 }
 
-export interface Shift { // Exportando Shift
+export interface Shift {
   id: string;
   shopId: string;
   enterpriseId?: string;
@@ -179,7 +191,7 @@ export interface Shift { // Exportando Shift
   status?: 'planned' | 'confirmed' | 'missing' | 'completed';
 }
 
-export interface Product extends CoreProduct { // Estendendo CoreProduct
+export interface Product extends BaseProduct {
   image?: string;
   photo?: string;
   unit?: 'un' | 'kg' | 'lt' | 'g';
@@ -205,7 +217,7 @@ export interface ServiceItem {
   commissionRate?: number; // Specific rate for this service
 }
 
-// Auditoria: Interface para Definição de Serviço (Unificada) - Exportando ServiceDefinition
+// Auditoria: Interface para Definição de Serviço (Unificada)
 export interface ServiceDefinition extends ServiceItem {
   enterpriseId: string;
   shopId?: string;
@@ -221,7 +233,7 @@ export interface Category {
   active?: boolean;
 }
 
-export interface ServiceResource { // Exportando ServiceResource
+export interface ServiceResource {
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -230,7 +242,7 @@ export interface ServiceResource { // Exportando ServiceResource
   active: boolean;
 }
 
-export interface ServiceAppointment { // Exportando ServiceAppointment
+export interface ServiceAppointment {
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -259,7 +271,7 @@ export interface ItemModifier {
   inventoryItemId?: string; // Link to inventory for COGS and deduction
 }
 
-export interface OrderItem { // Exportando OrderItem
+export interface OrderItem {
   id: string; // Unique ID for this item instance in the order
   productId: string;
   name: string;
@@ -405,7 +417,7 @@ export interface ThirdPartyProductMapping {
   updatedAt: number;
 }
 
-export interface Staff extends CoreStaff { // Estendendo CoreStaff
+export interface Staff extends CoreStaffBase { 
   companyId?: string; // Kept for compat
   storeId?: string; // Optional if not assigned to specific store
   cpf?: string;
@@ -435,7 +447,7 @@ export interface Staff extends CoreStaff { // Estendendo CoreStaff
   }[];
 }
 
-export interface PerformanceEvent { // Exportando PerformanceEvent
+export interface PerformanceEvent {
   id: string;
   staffId: string;
   enterpriseId: string;
@@ -447,7 +459,7 @@ export interface PerformanceEvent { // Exportando PerformanceEvent
   createdBy: string;
 }
 
-export interface InternalMessage { // Exportando InternalMessage
+export interface InternalMessage {
   id: string;
   userId: string;
   enterpriseId: string;
@@ -457,20 +469,22 @@ export interface InternalMessage { // Exportando InternalMessage
   content: string;
 }
 
-export interface Order extends CoreSale { // Estendendo CoreSale para Order
+export interface Order extends Omit<CoreSale, 'staffId' | 'timestamp' | 'enterpriseId' | 'items' | 'createdAt' | 'tax'> {
   id: string;
   enterpriseId: string;
   shopId: string;
   tableId: string;
-  staffId?: string; // Waiter assigned
+  staffId: string;
   items: OrderItem[];
   status: OrderStatus;
+  createdAt: string;
+  timestamp: number;
   startTime: number;
   closedAt?: number;
   discount: number;
   subtotal: number;
+  tax: number;
   serviceFee?: number;
-  tax?: number;
   total: number;
   totalCost?: number; // Snapshot of sum(item.cost * quantity)
   pricePerPerson?: number; // Helpful for split tracking
@@ -493,7 +507,7 @@ export interface Order extends CoreSale { // Estendendo CoreSale para Order
   };
 }
 
-export interface Transaction { // Exportando Transaction
+export interface Transaction {
   id: string;
   enterpriseId: string;
   shopId?: string;
@@ -511,7 +525,7 @@ export interface Transaction { // Exportando Transaction
   change?: number; // Change given if cash
 }
 
-export interface Supplier { // Exportando Supplier
+export interface Supplier {
   id: string;
   enterpriseId: string;
   name: string;
@@ -525,7 +539,7 @@ export interface Supplier { // Exportando Supplier
   address?: string;
 }
 
-export interface SupplierContract { // Exportando SupplierContract
+export interface SupplierContract {
   id: string;
   supplierId: string;
   enterpriseId: string;
@@ -538,7 +552,7 @@ export interface SupplierContract { // Exportando SupplierContract
   documents?: { name: string; url: string; uploadDate: number }[];
 }
 
-export interface Table { // Exportando Table
+export interface Table {
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -554,7 +568,7 @@ export interface Table { // Exportando Table
 
 export type InventoryLocation = 'FOH' | 'BOH';
 
-export interface RecountRequest { // Exportando RecountRequest
+export interface RecountRequest {
   id: string;
   shopId: string;
   itemId: string;
@@ -576,7 +590,7 @@ export interface RecountRequest { // Exportando RecountRequest
   status: 'pending' | 'applied' | 'rejected';
 }
 
-export interface StockCountSession { // Exportando StockCountSession
+export interface StockCountSession {
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -593,7 +607,7 @@ export interface StockCountSession { // Exportando StockCountSession
   closeSignature?: string;
 }
 
-export interface InventoryItem { // Exportando InventoryItem
+export interface InventoryItem {
   id: string;
   enterpriseId: string;
   shopId: string;
@@ -612,7 +626,7 @@ export interface InventoryItem { // Exportando InventoryItem
   substituteId?: string;
 }
 
-export interface DailyStats { // Exportando DailyStats
+export interface DailyStats {
   totalSales: number;
   activeTables: number;
   pendingOrders: number;
@@ -621,7 +635,7 @@ export interface DailyStats { // Exportando DailyStats
 
 export type IncidentType = 'error' | 'broken' | 'risk' | 'action';
 
-export interface IncidentReport { // Exportando IncidentReport
+export interface IncidentReport {
   id: string;
   shopId: string;
   type: IncidentType;
@@ -635,7 +649,7 @@ export interface IncidentReport { // Exportando IncidentReport
   location?: string;
 }
 
-export interface AppNotification extends CoreNotification { // Estendendo CoreNotification
+export interface AppNotification extends CoreNotification {
   tableId?: string;
 }
 
@@ -648,7 +662,7 @@ export interface CompanySettings {
   requireAllergyDoubleConfirmation?: boolean;
 }
 
-export interface DeviceLink { // Exportando DeviceLink
+export interface DeviceLink {
   id: string;
   name: string;
   linkedAt: number;
@@ -656,7 +670,7 @@ export interface DeviceLink { // Exportando DeviceLink
   status: 'active' | 'revoked';
 }
 
-export interface MasterKey { // Exportando MasterKey
+export interface MasterKey {
   id: string;
   key: string;
   createdAt: number;

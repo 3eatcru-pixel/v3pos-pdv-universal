@@ -233,7 +233,7 @@ export const firebaseService = {
     }
 
     return onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
+      const docs = snapshot.docs.map(d => ({ ...d.data(), id: d.id })) as T[];
       callback(docs);
     }, (error) => {
       handleFirestoreError(error, 'list', colName);
@@ -871,7 +871,7 @@ export const firebaseService = {
     const batch = writeBatch(db);
     const tenantId =
       data.shops[0]?.companyId ||
-      data.shops[0]?.enterpriseId ||
+      (data.shops[0] as any)?.enterpriseId ||
       data.staff[0]?.companyId ||
       data.staff[0]?.enterpriseId ||
       getLocalTenantId();

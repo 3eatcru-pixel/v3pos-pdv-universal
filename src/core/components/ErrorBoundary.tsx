@@ -1,7 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
-interface Props { children: ReactNode; }
+interface Props { children?: ReactNode; }
 interface State { hasError: boolean; }
 
 export class ErrorBoundary extends Component<Props, State> {

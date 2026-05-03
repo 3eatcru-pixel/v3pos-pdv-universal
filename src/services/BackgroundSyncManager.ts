@@ -18,7 +18,7 @@ class BackgroundSyncManager {
    */
   public async enqueue(collection: string, id: string, action: 'save' | 'update' | 'delete', payload: any) {
     const task: SyncTask = { id, collection, action, payload, timestamp: Date.now() };
-    await dbLocal.table('sync_queue').add(task);
+    await dbLocal.addToLedger(task);
     
     logger.debug('sync', `Tarefa enfileirada offline: ${action} em ${collection}`, { id });
     
@@ -32,15 +32,23 @@ class BackgroundSyncManager {
     this.isSyncing = true;
 
     try {
-      const tasks = await dbLocal.table('sync_queue').orderBy('timestamp').toArray();
-      for (const task of tasks) {
+      const db = await dbLocal.getDb();
+      const allTasks = await db.getAll('ledger');
+      
+      // Filter for unsynced and sort by timestamp
+      const pendingTasks = allTasks
+        .filter((t: any) => !t.synced)
+        .sort((a: any, b: any) => a.timestamp - b.timestamp);
+
+      for (const task of pendingTasks) {
         try {
           if (task.action === 'save' || task.action === 'update') {
             await firebaseService.saveItem(task.collection, task.id, task.payload);
           } else if (task.action === 'delete') {
             await firebaseService.deleteItem(task.collection, task.id);
           }
-          await dbLocal.table('sync_queue').delete(task.id);
+          // Mark as synced locally
+          await db.put('ledger', { ...task, synced: true });
         } catch (err) {
           logger.error('sync', 'Falha ao processar tarefa da fila', { taskId: task.id, err });
         }

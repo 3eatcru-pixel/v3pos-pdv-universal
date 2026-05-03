@@ -7,8 +7,14 @@ import { FinanceEngine } from '../../../core/services/FinanceEngine';
 import { InventoryEngine } from '../../../core/services/InventoryEngine';
 import { firebaseService } from '../../../services/firebaseService';
 
-export interface Sale extends CoreSale {
-  enterpriseId?: string; // Adicionado para compatibilidade com o contexto
+export interface Sale extends Omit<CoreSale, 'enterpriseId' | 'staffId' | 'createdAt'> {
+  enterpriseId: string;
+  staffId: string;
+  synced: boolean;
+  createdAt: string;
+  kind: 'sale' | 'return';
+  originalSaleId?: string;
+  reason?: string;
 }
 
 export interface SaleItem { // Definido aqui para evitar dependência circular com types.ts
@@ -23,8 +29,8 @@ export interface RetailSaleInput {
   id?: string;
   items: SaleItem[];
   paymentMethod: string;
-  total: number;
   enterpriseId?: string;
+  total: number;
   isQuote?: boolean; // Adicionado para o caso de orçamentos
 }
 
@@ -50,6 +56,7 @@ export interface RetailSyncPayload {
   enterpriseId?: string;
   originalSaleId?: string;
   reason?: string;
+  items: SaleItem[];
 }
 
 export interface RetailVariation {
@@ -472,6 +479,7 @@ class RetailService {
     }));
 
     const saleId = String(rawSale?.id || `sale_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    const enterpriseId = rawSale.enterpriseId || accountService.getCurrentCompanyId() || 'unknown';
     const createdAt =
       typeof rawSale?.createdAt === 'string'
         ? rawSale.createdAt
@@ -481,6 +489,12 @@ class RetailService {
 
     return {
       id: saleId,
+      enterpriseId,
+      shopId: accountService.getSelectedShopId() || 'unknown',
+      staffId: accountService.getCurrentUser()?.id || 'unknown',
+      timestamp: Date.now(),
+      status: (rawSale?.status as any) || 'completed',
+      discount: Number(rawSale?.discount || 0),
       createdAt,
       subtotal: Number(rawSale?.subtotal || 0),
       tax: Number(rawSale?.tax || 0),
